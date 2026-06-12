@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "command": "npm start",
+      "name": "モバイル",
+      "request": "launch",
+      "type": "node-terminal",
+      "cwd": "${workspaceFolder}/mobile"
+    },
+    {
+      "name": "モバイルデバッグ",
+      "type": "expo",
+      "request": "attach",
+      "projectRoot": "${workspaceFolder}/mobile"
+    },
+    {
+      "command": "dotnet run",
+      "name": "サーバー",
+      "request": "launch",
+      "type": "node-terminal",
+      "cwd": "${workspaceFolder}/server"
+    },
+  ]
+}

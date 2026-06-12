@@ -1,0 +1,51 @@
+{
+  "workbench.colorCustomizations": {
+    "tab.activeBorderTop": "#2fee29cc", //アクティブなタブの上部の色
+    "scrollbarSlider.background": "#69994980", //スクロールバーの色
+    "scrollbarSlider.hoverBackground": "#69994980", //スクロールバーにカーソルを合わせたときの色
+    "scrollbarSlider.activeBackground": "#69994980", //スクロールバーをクリックしたときの色
+    "list.activeSelectionBackground": "#007acc7e", //エクスプローラーでファイルを選択したときの色
+    "list.inactiveSelectionBackground": "#007acc7e", //エクスプローラーでファイルを選択したときの色(非アクティブ)
+    "editorBracketHighlight.foreground4": "#74f574c2", // 4個めのブラケットの色
+    "editorIndentGuide.background1": "#ffff4060", // インデントガイドの色
+    "editorIndentGuide.background2": "#ff7fff60", // インデントガイドの色
+    "editorIndentGuide.background3": "#2b94f760", // インデントガイドの色
+    "editorIndentGuide.background4": "#7fff7f60", // インデントガイドの色
+    "editorIndentGuide.activeBackground1": "#ffff4060", // アクティブなインデントガイドの色
+    "editorIndentGuide.activeBackground2": "#ff7fff60", // アクティブなインデントガイドの色
+    "editorIndentGuide.activeBackground3": "#2b94f760", // アクティブなインデントガイドの色
+    "editorIndentGuide.activeBackground4": "#7fff7f60", // アクティブなインデントガイドの色
+    "tree.indentGuidesStroke": "#ff7fff65", // インデントガイドの色
+    "tree.inactiveIndentGuidesStroke": "#7fff7f65", // インデントガイドの色(非アクティブ)
+  },
+  "material-icon-theme.folders.associations": {
+  "Dtos": "class",
+  "Entities": "class",
+  "Endpoints": "routes"
+  },
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": "always",
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "vscode.css-language-features"
+  },
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+  "cSpell.words": [
+    "Adsb",
+    "asgi",
+    "dotenv",
+    "frombuffer",
+    "genai",
+    "Macchi",
+    "RNFS",
+    "samplerate"
+  ]
+}
