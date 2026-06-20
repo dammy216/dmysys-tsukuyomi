@@ -7,6 +7,12 @@
       "skillPath": "SKILL.md",
       "computedHash": "9ce25218af65eb39ef6b92eb9030babf58385e6000a152e8e1ac694fc0cf4f00"
     },
+    "rive-animations": {
+      "source": "dylantarre/animation-principles",
+      "sourceType": "github",
+      "skillPath": "skills/09-by-tool-framework/rive-animations/SKILL.md",
+      "computedHash": "c05ef8a1cee3bea021a88f0e5916caf994eefa07834a8d947c0b35024f80d4d5"
+    },
     "rive-scripting": {
       "source": "stevysmith/rive-skills",
       "sourceType": "github",
