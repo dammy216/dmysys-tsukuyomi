@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "rive": {
+      "source": "bowtiedswan/rive-skills",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "9ce25218af65eb39ef6b92eb9030babf58385e6000a152e8e1ac694fc0cf4f00"
+    },
+    "rive-scripting": {
+      "source": "stevysmith/rive-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rive-scripting/SKILL.md",
+      "computedHash": "d541a9584c6222e98060eb05bc0d42fff9d99cd8258840e348cff58bd5630c3a"
+    }
+  }
+}
