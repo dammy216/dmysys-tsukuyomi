@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+      "rive": {
+          "url": "http://127.0.0.1:9791/mcp"
+      }
+  }
+}
