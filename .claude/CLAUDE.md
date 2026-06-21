@@ -25,7 +25,7 @@ rive/
 
 ## Luau スクリプトの書き方
 
-`rive/animations/` に `.luau` ファイルを作成し、Riveエディタのスクリプトパネルに貼り付けて使う。
+`rive/animations/` に `.lua` ファイルを作成し、Riveエディタのスクリプトパネルに貼り付けて使う。
 
 ### ViewModelアクセスのパターン（このプロジェクトで使う方式）
 
