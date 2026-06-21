@@ -5,31 +5,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## プロジェクト概要
 
 yachiyoGPT は、キャラクター「ヤチヨ」を Rive で動かすためのプロジェクト。
-Riveエディタ上で動く **Luau スクリプト**（Node Script）を開発・管理するリポジトリ。
+Riveエディタ上で動く **Luau スクリプト**（Node Script）を開発・管理し、キャラクターのパーツ素材も管理するリポジトリ。
 
 `.riv` ファイル本体はRiveエディタが管理しており、このリポジトリには含まれない。
-スクリプトをファイルで編集し、Riveエディタに貼り付けて適用する運用。
+Luauスクリプトをファイルで編集し、Riveエディタに貼り付けて適用する運用。
 
-## スクリプト構成
+## ディレクトリ構成
 
 ```
-scripts/
-└── CharacterAnimation.lua   # rootノードにアタッチするメインスクリプト（唯一のスクリプト）
+rive/
+├── animations/          # Luau スクリプト置き場（Riveエディタに貼り付けて使う）
+└── components/          # キャラクターパーツ素材（PSDからエクスポートしたPNG群）
+    ├── ヤチヨベース_*/  # ベースボディ全パーツ
+    ├── 差分口/          # 口の差分（口あ・口い・口お・口閉じ・よくわからん口）
+    └── 差分目/          # 目の差分（半目・目とじ・目閉じ2）
 ```
 
-### CharacterAnimation.lua の役割
+各コンポーネントフォルダ内の `info.json` はパーツ構成メタデータ（front hair / back hair / face / eyebrow / eyelash / irides / eyewhite / mouth / neck / topwear 等）。
 
-- **マウス目追従**: `pointerMove` / `pointerDown` でマウス座標を取得し、`advance` 内でViewModelのNumber プロパティ（`irisRX`, `irisRY` 等）を毎フレーム更新
-- **呼吸**: `breathTime` を積算し、正弦波で `faceY`, `neckY`, `topwearY`, `backHairY` を上下させる
-- rootノードにアタッチし、`event:hit()` でアートボード全体を当たり判定にしてどこでもポインタを受け取る
+## Luau スクリプトの書き方
 
-## Rive Luau API の重要ルール
+`rive/animations/` に `.luau` ファイルを作成し、Riveエディタのスクリプトパネルに貼り付けて使う。
 
-ViewModelへのアクセス方法は `context:viewModel()` + `Property.value` 方式を使う（`getViewModel()` や `setNumber()` 方式と混同しないこと）：
+### ViewModelアクセスのパターン（このプロジェクトで使う方式）
+
+`context:viewModel()` + `Property.value` 方式を使う（`getViewModel()` や `setNumber()` 方式と混同しないこと）：
 
 ```lua
 function init(self: MyNode, context: Context): boolean
     local vm = context:viewModel()
+    if not vm then return false end
     self.vmPropX = vm:getNumber("propName")  -- Property<number>? を保持
     return true
 end
@@ -40,29 +45,19 @@ function advance(self: MyNode, seconds: number): boolean
 end
 ```
 
-ポインタイベントのシグネチャは `(self, event: PointerEvent)` で、座標は `event.position.x / .y`。`event:hit()` で当たり判定を宣言する。
+### ポインタイベント
 
-## Riveエディタでしかできない操作
+シグネチャは `(self, event: PointerEvent)`。座標は `event.position.x / .y`。`event:hit()` でアートボード全体を当たり判定にする。
 
-以下はコードでは変更不可。Riveエディタ（GUI）での操作が必要：
+```lua
+function pointerMove(self: MyNode, event: PointerEvent)
+    self.mouseX = event.position.x
+    self.mouseY = event.position.y
+    event:hit()
+end
+```
 
-- ヒエラルキー上のノード構造の変更
-- タイムラインアニメーションの追加・削除
-- ViewModelプロパティの追加・削除・バインド設定
-- ノードへのスクリプトのアタッチ
-
-## スキル・リファレンスの場所
-
-`.agents/skills/` に Rive 関連のリファレンスが集約されている：
-
-- `rive-scripting/rules/` — Luauスクリプトの書き方（node-scripts, pointer-events, data-binding, api-reference 等）
-- `rive/references/` — Riveエディタの操作・機能リファレンス（animation-mode, data-binding, state-machine 等）
-
-## MCP サーバー
-
-`.mcp.json` に Rive MCP サーバーの設定がある（`http://127.0.0.1:9791/mcp`）。Riveエディタが起動中のときのみ使用可能。
-
-## ViewModelプロパティ名の対応表（ヤチヨ）
+## ヤチヨのViewModelプロパティ名
 
 | プロパティ名 | 対象ノード | 用途 |
 |---|---|---|
@@ -80,3 +75,23 @@ end
 | `topwearY` | トップス | 呼吸（基準値 52.0） |
 
 eyes グループのアートボード座標: `(505, 284)`（目追従の中心点）
+
+## Riveエディタでしかできない操作
+
+以下はコードから変更不可。Riveエディタ（GUI）で行う：
+
+- ヒエラルキー上のノード構造の変更
+- タイムラインアニメーションの追加・削除
+- ViewModelプロパティの追加・削除・バインド設定
+- ノードへのスクリプトのアタッチ
+
+## スキル・リファレンスの場所
+
+`.agents/skills/` に Rive 関連のリファレンスが集約されている：
+
+- `rive-scripting/rules/` — Luauスクリプトの書き方（node-scripts, pointer-events, data-binding, api-reference 等）
+- `rive/references/` — Riveエディタの操作・機能リファレンス（animation-mode, data-binding, state-machine 等）
+
+## MCP サーバー
+
+`.mcp.json` に Rive MCP サーバーの設定がある（`http://127.0.0.1:9791/mcp`）。Riveエディタが起動中のときのみ使用可能。
