@@ -4,7 +4,7 @@ rive/animations/ 配下の .lua ファイルを監視し、保存のたびに
 MCP text_editor で Rive のスクリプトをリアルタイム更新する。
 
 使い方:
-  python scripts/watch_rive.py
+  python rive/scripts/watch_rive.py
 
 前提: Rive エディタが起動中で MCP サーバーが http://127.0.0.1:9791/mcp で動いていること。
 """
@@ -12,7 +12,7 @@ MCP text_editor で Rive のスクリプトをリアルタイム更新する。
 import os, sys, time, json, urllib.request
 
 MCP_URL   = "http://127.0.0.1:9791/mcp"
-LUA_DIR   = os.path.join(os.path.dirname(__file__), "..", "rive", "animations")
+LUA_DIR   = os.path.join(os.path.dirname(__file__), "..", "animations")
 POLL_SEC  = 0.8   # 監視間隔(秒)
 
 # ローカルパス → Rive スクリプト名のマッピング

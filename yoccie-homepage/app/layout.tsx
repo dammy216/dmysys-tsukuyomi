@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { Background } from "@/components/layout/Background";
 import { SiteHeader } from "@/components/layout/SiteHeader";
+import { CharacterFrame } from "@/features/character";
 import { MusicProvider } from "@/features/music";
 
 const geistSans = Geist({
@@ -27,6 +28,7 @@ export default function RootLayout({
         <MusicProvider>
           <Background />
           <SiteHeader />
+          <CharacterFrame />
           {children}
         </MusicProvider>
       </body>

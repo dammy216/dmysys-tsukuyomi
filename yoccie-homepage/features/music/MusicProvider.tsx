@@ -28,6 +28,13 @@ type MusicContextValue = {
   playTrack: (src: string) => void;
   playYouTube: () => void;
   stop: () => void;
+  /**
+   * 現在の音量振幅 (0〜1) を返す。リップシンク用。
+   * - opus 再生中: Web Audio API でリアルタイム解析した実際の振幅
+   * - YouTube 再生中: iframe は解析できないため合成リズムを返す
+   * - 停止中: 0
+   */
+  getAmplitude: () => number;
 };
 
 const MusicContext = createContext<MusicContextValue | null>(null);
@@ -44,6 +51,12 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const youtubeRef = useRef<HTMLIFrameElement | null>(null);
 
+  // Web Audio API（opus の振幅解析用）
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const timeDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
   const [volume, setVolumeState] = useState(DEFAULT_VOLUME);
   const [activeType, setActiveType] = useState<ActiveType>(null);
   const [currentSrc, setCurrentSrc] = useState<string | null>(null);
@@ -54,6 +67,64 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       "*",
     );
   }, []);
+
+  /**
+   * AnalyserNode を遅延セットアップする（ユーザー操作=再生クリック時に呼ぶ）。
+   * createMediaElementSource は要素ごとに一度しか呼べないため sourceRef で保護。
+   */
+  const setupAnalyser = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio || sourceRef.current) return;
+
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+    const source = ctx.createMediaElementSource(audio);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    // source → analyser → 出力（destination につながないと音が出なくなる）
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
+
+    audioCtxRef.current = ctx;
+    analyserRef.current = analyser;
+    sourceRef.current = source;
+    timeDataRef.current = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+  }, []);
+
+  const getAmplitude = useCallback((): number => {
+    if (activeType === "opus") {
+      const analyser = analyserRef.current;
+      const data = timeDataRef.current;
+      if (!analyser || !data) return 0;
+      analyser.getByteTimeDomainData(data);
+      // 中心 128 からの RMS を 0〜1 に正規化
+      let sumSq = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / data.length);
+      return Math.min(rms * 3.5, 1); // 歌声が映えるよう少し強調
+    }
+
+    if (activeType === "youtube") {
+      // iframe は解析できないため、それっぽい合成リズムを返す
+      const t = performance.now() / 1000;
+      const base =
+        0.5 +
+        0.3 * Math.sin(t * 7.5) +
+        0.15 * Math.sin(t * 13.3) +
+        0.1 * Math.sin(t * 2.1);
+      return Math.min(Math.max(base, 0), 1);
+    }
+
+    return 0;
+  }, [activeType]);
 
   // --- 初期化：保存済みの音量・再生状態を復元 ---
   useEffect(() => {
@@ -118,6 +189,10 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE_KEYS.src, src);
       postToYouTube("pauseVideo");
 
+      // ユーザー操作中なので、ここで振幅解析グラフをセットアップ／再開する
+      setupAnalyser();
+      audioCtxRef.current?.resume().catch(() => {});
+
       const audio = audioRef.current;
       if (audio) {
         audio.src = src;
@@ -129,7 +204,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       setCurrentSrc(src);
       setActiveType("opus");
     },
-    [postToYouTube, volume],
+    [postToYouTube, setupAnalyser, volume],
   );
 
   const playYouTube = useCallback(() => {
@@ -160,7 +235,16 @@ export function MusicProvider({ children }: { children: ReactNode }) {
 
   return (
     <MusicContext.Provider
-      value={{ volume, activeType, currentSrc, setVolume, playTrack, playYouTube, stop }}
+      value={{
+        volume,
+        activeType,
+        currentSrc,
+        setVolume,
+        playTrack,
+        playYouTube,
+        stop,
+        getAmplitude,
+      }}
     >
       {/* BGM 用の隠しオーディオ要素 */}
       <audio ref={audioRef} loop />
