@@ -96,3 +96,7 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
 ## MCP サーバー
 
 `.mcp.json` に Rive MCP サーバーの設定がある（`http://127.0.0.1:9791/mcp`）。Riveエディタが起動中のときのみ使用可能。
+
+# Expo HAS CHANGED
+
+Read the exact versioned docs at https://docs.expo.dev/versions/v54.0.0/ before writing any code.
