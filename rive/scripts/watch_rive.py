@@ -9,15 +9,19 @@ MCP text_editor で Rive のスクリプトをリアルタイム更新する。
 前提: Rive エディタが起動中で MCP サーバーが http://127.0.0.1:9791/mcp で動いていること。
 """
 
-import os, sys, time, json, urllib.request
+import os, time, json, urllib.request
 
-MCP_URL   = "http://127.0.0.1:9791/mcp"
-LUA_DIR   = os.path.join(os.path.dirname(__file__), "..", "animations")
-POLL_SEC  = 0.8   # 監視間隔(秒)
+MCP_URL  = "http://127.0.0.1:9791/mcp"
+LUA_DIR  = os.path.join(os.path.dirname(__file__), "..", "animations")
+POLL_SEC = 0.8   # 監視間隔(秒)
 
-# ローカルパス → Rive スクリプト名のマッピング
+# ローカルファイルの相対パス(LUA_DIR 起点) → Rive の text_editor パス のマッピング。
+# text_editor はフォルダパス非対応のため、リーフ名(ファイル名のみ)を使う。
+# 例: manage_scripts 上では "webYachiyo/WebYachiyo" だが、
+#     text_editor へは "WebYachiyo" を渡す。
 SCRIPT_MAP = {
-    "CharacterAnimation.lua": "CharacterAnimation",
+    "webYachiyo/WebYachiyo.lua": "WebYachiyo",
+    "AIYachiyo/AIYachiyo.lua":   "AIYachiyo",
 }
 
 
@@ -36,14 +40,22 @@ def mcp_call(method, params):
     return json.loads(body)
 
 
+class ScriptNotLoaded(Exception):
+    """Rive エディタ上でスクリプトがまだ開かれていない場合に送出する。"""
+
+
 def rive_get_content(script_name):
-    """Rive 上のスクリプト全行を文字列で返す。"""
+    """Rive 上のスクリプト全行を文字列で返す。
+    スクリプトが未ロードの場合は ScriptNotLoaded を送出する。
+    """
     r = mcp_call("tools/call", {
         "name": "text_editor",
         "arguments": {"command": "view", "path": script_name}
     })
     items = r.get("result", {}).get("content", [])
     raw = items[0].get("text", "") if items else ""
+    if "does not exist" in raw or "not been loaded" in raw:
+        raise ScriptNotLoaded(raw[:120])
     # "N: コード行\n" 形式から行内容だけ取り出す
     lines = []
     for line in raw.splitlines():
@@ -72,7 +84,7 @@ def rive_replace(script_name, old_content, new_content):
 def sync(file_path, script_name):
     with open(file_path, encoding="utf-8") as f:
         new_content = f.read()
-    old_content = rive_get_content(script_name)
+    old_content = rive_get_content(script_name)  # ScriptNotLoaded の場合は呼び出し元でキャッチ
     if old_content == new_content:
         return False
     result = rive_replace(script_name, old_content, new_content)
@@ -84,31 +96,34 @@ def main():
     print(f"[watch_rive] 監視開始: {LUA_DIR}")
     print(f"[watch_rive] Ctrl+C で終了\n")
 
+    # 相対パス → 絶対パスに変換し、初回の mtime を記録する
     mtimes = {}
-    for fname in SCRIPT_MAP:
-        path = os.path.join(LUA_DIR, fname)
-        if os.path.exists(path):
-            mtimes[fname] = os.path.getmtime(path)
-            print(f"  監視: {fname} -> Rive:{SCRIPT_MAP[fname]}")
+    for rel_path in SCRIPT_MAP:
+        abs_path = os.path.join(LUA_DIR, rel_path.replace("/", os.sep))
+        if os.path.exists(abs_path):
+            mtimes[rel_path] = os.path.getmtime(abs_path)
+            print(f"  監視: {rel_path} -> Rive:{SCRIPT_MAP[rel_path]}")
         else:
-            print(f"  [WARN] ファイルが見つかりません: {path}")
+            print(f"  [WARN] ファイルが見つかりません: {abs_path}")
 
     print()
     try:
         while True:
-            for fname, script_name in SCRIPT_MAP.items():
-                path = os.path.join(LUA_DIR, fname)
-                if not os.path.exists(path):
+            for rel_path, script_name in SCRIPT_MAP.items():
+                abs_path = os.path.join(LUA_DIR, rel_path.replace("/", os.sep))
+                if not os.path.exists(abs_path):
                     continue
-                mtime = os.path.getmtime(path)
-                if mtime != mtimes.get(fname):
-                    mtimes[fname] = mtime
+                mtime = os.path.getmtime(abs_path)
+                if mtime != mtimes.get(rel_path):
+                    mtimes[rel_path] = mtime
                     ts = time.strftime("%H:%M:%S")
-                    print(f"[{ts}] 変更検出: {fname}", end=" ", flush=True)
+                    print(f"[{ts}] 変更検出: {rel_path}", end=" ", flush=True)
                     try:
-                        synced = sync(path, script_name)
+                        synced = sync(abs_path, script_name)
                         if not synced:
                             print("(内容変化なし)")
+                    except ScriptNotLoaded:
+                        print(f"[SKIP] Rive エディタで '{script_name}' を開いてください")
                     except Exception as e:
                         print(f"[ERROR] {e}")
             time.sleep(POLL_SEC)
