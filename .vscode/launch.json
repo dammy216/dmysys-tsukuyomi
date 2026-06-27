@@ -21,5 +21,12 @@
       "type": "node-terminal",
       "cwd": "${workspaceFolder}/server"
     },
+    {
+      "command": "python watch_rive.py",
+      "name": "アニメーション",
+      "request": "launch",
+      "type": "node-terminal",
+      "cwd": "${workspaceFolder}/rive/scripts"
+    },
   ]
 }
