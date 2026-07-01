@@ -4,24 +4,96 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## プロジェクト概要
 
-yachiyoGPT は、キャラクター「ヤチヨ」を Rive で動かすためのプロジェクト。
-Riveエディタ上で動く **Luau スクリプト**（Node Script）を開発・管理し、キャラクターのパーツ素材も管理するリポジトリ。
+yachiyoGPT は、キャラクター「ヤチヨ」を中心とした **モノレポ**。1つの Rive キャラクターを
+複数のアプリで共有して動かす。
 
-`.riv` ファイル本体はRiveエディタが管理しており、このリポジトリには含まれない。
-Luauスクリプトをファイルで編集し、Riveエディタに貼り付けて適用する運用。
+- **mobile/** — Expo (React Native) 製のモバイルアプリ。カメラ＋マイクで Gemini とマルチモーダル会話し、ヤチヨが応答音声に合わせて動く。
+- **server/** — FastAPI + Socket.IO のリレーサーバー。Gemini Live と Fish Audio TTS を仲介する。
+- **yoccie-homepage/** — Next.js 製の公開サイト。音楽再生に合わせてヤチヨが歌う（口パク＋弾み）。
+- **rive/** — キャラクター「ヤチヨ」の Rive 素材と、Riveエディタ上で動く **Luau スクリプト**（Node Script）。
 
-## ディレクトリ構成
+`.riv` ファイル本体は Rive エディタが管理しており、このリポジトリには含まれない。
+各アプリは書き出した `.riv`（mobile は `mobile/assets/animations/yachiyo.riv`）をバンドルして読み込む。
+Luau スクリプトはファイルで編集し、Rive エディタに貼り付けて適用する運用。
+
+## トップレベル構成
+
+```
+mobile/          # Expo アプリ（features/ ごとに分割: camera / character / conversation / home）
+server/          # FastAPI + Socket.IO（エントリ: geminiSession.py。sandbox/ は実験用の使い捨て）
+yoccie-homepage/ # Next.js サイト（App Router。features/ に character / music / home / members）
+rive/            # Rive 素材 + Luau スクリプト
+.agents/skills/  # Rive リファレンス（後述）
+.mcp.json        # Rive MCP サーバー設定
+```
+
+各アプリは共通して **feature-based** な構成（`features/<機能>/{components,hooks,services,types}` + `shared/` or `components/`）。
+新規コードは既存の feature 分割に合わせて配置する。
+
+## コマンド
+
+各アプリは独立した依存を持つ。作業対象のディレクトリ内で実行する。
+
+### mobile（Expo）
+```
+cd mobile
+npm start            # Metro 起動（expo start）
+npm run android      # Android 実機/エミュで起動（dev client 必須。expo-dev-client 使用）
+npm run ios
+npm run lint         # expo lint
+```
+`react-native-vision-camera` / `react-native-audio-record` などネイティブモジュールを使うため
+Expo Go では動かない。`expo run:android` などで dev client をビルドして使う。
+
+### server（FastAPI / Python）
+```
+cd server
+uvicorn geminiSession:socket_app --host 0.0.0.0 --port 8080 --reload
+```
+`requirements.txt` は無く `.venv/` に依存が入っている。主な依存: `google-genai`, `python-socketio`,
+`fastapi`, `uvicorn`, `python-dotenv`, `websockets`, `fishaudio`, `numpy`。
+`server/.env` に `API_KEY`（Gemini）と `FISH_API_KEY` を置く（gitignore 済み）。
+
+### yoccie-homepage（Next.js）
+```
+cd yoccie-homepage
+npm run dev          # 開発サーバー
+npm run build        # 本番ビルド
+npm run lint
+```
+
+## エンドツーエンドのデータフロー（mobile 会話モード）
+
+音声・映像会話は mobile → server → Gemini/Fish Audio を Socket.IO でリレーする構成。
+
+1. mobile がマイク音声(PCM 16kHz, base64)とカメラフレーム(JPEG, base64)を `send_audio_chunk` / `send_image_frame` で送信（`mobile/features/conversation/services/socket.ts`）。
+2. server (`server/geminiSession.py`) が sid ごとに Gemini Live セッションを張り、リアルタイム入力として転送。
+3. Gemini は **AUDIO モダリティのみ**で応答（`gemini-3.1-flash-live-preview` は TEXT 非対応）。server は Gemini 音声を破棄し、`output_audio_transcription` の読み上げテキストをターン単位で集約する。
+4. server がそのテキストを **Fish Audio TTS**（ヤチヨの声）で MP3 化し、`gemini_response`（音声バイト）→ `turn_complete` の順で mobile に emit。
+5. mobile はターン完了時に MP3 を一括再生（`useGeminiSession.ts`）。録音とスピーカー再生は排他で切り替える。
+
+server は Gemini Live の切断（~10分制限や GoAway）に対し `session_resumption` ハンドルで自動再接続し会話を継続する。sid 単位で `session_map` / `text_buffers` / `synth_locks` を管理。
+
+`SERVER_URL` は `mobile/shared/config/env.ts` にハードコード。開発時は LAN の PC の IP に合わせて変更する。
+
+## rive/ 詳細
 
 ```
 rive/
 ├── animations/          # Luau スクリプト置き場（Riveエディタに貼り付けて使う）
-└── components/          # キャラクターパーツ素材（PSDからエクスポートしたPNG群）
-    ├── ヤチヨベース_*/  # ベースボディ全パーツ
-    ├── 差分口/          # 口の差分（口あ・口い・口お・口閉じ・よくわからん口）
-    └── 差分目/          # 目の差分（半目・目とじ・目閉じ2）
+│   ├── AIYachiyo/       # mobile 版キャラのスクリプト
+│   └── webYachiyo/      # yoccie-homepage 版キャラのスクリプト
+├── components/          # キャラクターパーツ素材（PSDからエクスポートしたPNG群）
+│   ├── ヤチヨベース_*/  # ベースボディ全パーツ
+│   ├── 差分口/          # 口の差分（口あ・口い・口お・口閉じ・よくわからん口）
+│   └── 差分目/          # 目の差分（半目・目とじ・目閉じ2）
+└── scripts/watch_rive.py  # .lua の保存を監視し MCP 経由で Rive のスクリプトへ反映（要 Rive 起動）
 ```
 
 各コンポーネントフォルダ内の `info.json` はパーツ構成メタデータ（front hair / back hair / face / eyebrow / eyelash / irides / eyewhite / mouth / neck / topwear 等）。
+
+`watch_rive.py` は `python rive/scripts/watch_rive.py` で起動。`.lua` を保存するたびに MCP の
+text_editor で Rive のスクリプトをライブ更新する（ファイル名→スクリプト名は同スクリプト内の `SCRIPT_MAP` で対応）。
 
 ## Luau スクリプトの書き方
 
