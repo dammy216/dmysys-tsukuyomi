@@ -100,3 +100,6 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
 # Expo HAS CHANGED
 
 Read the exact versioned docs at https://docs.expo.dev/versions/v54.0.0/ before writing any code.
+
+# 重要事項
+必ず日本語で答えること

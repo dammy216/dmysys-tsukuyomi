@@ -1,6 +1,17 @@
 {
   "version": 1,
   "skills": {
+    "fish-audio-sdk": {
+      "source": "docs.fish.audio",
+      "sourceType": "well-known",
+      "computedHash": "c2668b17a1ed151d3b3dca43a396aaaccc4837ac3bc51229e225b461b23cc35d"
+    },
+    "gemini-live-api-dev": {
+      "source": "google-gemini/gemini-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gemini-live-api-dev/SKILL.md",
+      "computedHash": "eec39a301d1116a8b1bf3fea8e9998e0d1932dd413cfbc5a4705bbb288e25243"
+    },
     "rive": {
       "source": "bowtiedswan/rive-skills",
       "sourceType": "github",
