@@ -20,7 +20,7 @@ Luau スクリプトはファイルで編集し、Rive エディタに貼り付�
 
 ```
 mobile/          # Expo アプリ（features/ ごとに分割: camera / character / conversation / home）
-server/          # FastAPI + Socket.IO（エントリ: geminiSession.py。sandbox/ は実験用の使い捨て）
+server/          # FastAPI + Socket.IO（vertical slice。エントリ: main.py。sandbox/ は実験用の使い捨て）
 yoccie-homepage/ # Next.js サイト（App Router。features/ に character / music / home / members）
 rive/            # Rive 素材 + Luau スクリプト
 .agents/skills/  # Rive リファレンス（後述）
@@ -48,7 +48,7 @@ Expo Go では動かない。`expo run:android` などで dev client をビル�
 ### server（FastAPI / Python）
 ```
 cd server
-uvicorn geminiSession:socket_app --host 0.0.0.0 --port 8080 --reload
+uvicorn main:socket_app --host 0.0.0.0 --port 8080 --reload
 ```
 `requirements.txt` は無く `.venv/` に依存が入っている。主な依存: `google-genai`, `python-socketio`,
 `fastapi`, `uvicorn`, `python-dotenv`, `websockets`, `fishaudio`, `numpy`。
@@ -67,12 +67,34 @@ npm run lint
 音声・映像会話は mobile → server → Gemini/Fish Audio を Socket.IO でリレーする構成。
 
 1. mobile がマイク音声(PCM 16kHz, base64)とカメラフレーム(JPEG, base64)を `send_audio_chunk` / `send_image_frame` で送信（`mobile/features/conversation/services/socket.ts`）。
-2. server (`server/geminiSession.py`) が sid ごとに Gemini Live セッションを張り、リアルタイム入力として転送。
+2. server（`server/features/conversation/` の session_runner）が sid ごとに Gemini Live セッションを張り、`media_streaming` slice がリアルタイム入力として転送。
 3. Gemini は **AUDIO モダリティのみ**で応答（`gemini-3.1-flash-live-preview` は TEXT 非対応）。server は Gemini 音声を破棄し、`output_audio_transcription` の読み上げテキストをターン単位で集約する。
 4. server がそのテキストを **Fish Audio TTS**（ヤチヨの声）で MP3 化し、`gemini_response`（音声バイト）→ `turn_complete` の順で mobile に emit。
 5. mobile はターン完了時に MP3 を一括再生（`useGeminiSession.ts`）。録音とスピーカー再生は排他で切り替える。
 
-server は Gemini Live の切断（~10分制限や GoAway）に対し `session_resumption` ハンドルで自動再接続し会話を継続する。sid 単位で `session_map` / `text_buffers` / `synth_locks` を管理。
+server は Gemini Live の切断（~10分制限や GoAway）に対し `session_resumption` ハンドルで自動再接続し会話を継続する。sid 単位の状態は `infrastructure/session_store.py` の `SessionState` に集約。
+
+### server の構成（vertical slice architecture）
+
+機能（Socket.IO イベント）単位で slice を分割し、各 slice が自分のハンドラ＋処理を内包する。sid ごとの共有状態と外部クライアントは横断的関心事として `infrastructure/` に置く。
+
+```
+server/
+├── main.py                  # 起動エントリ。各 slice の events を import してハンドラ登録
+├── settings.py              # 設定・定数（Gemini/Fish Audio/ポート）+ .env 読み込み
+├── infrastructure/          # 横断的関心事
+│   ├── socket_server.py     # sio / app / socket_app
+│   ├── gemini_client.py     # Gemini クライアント
+│   ├── fish_audio_client.py # Fish Audio クライアント
+│   └── session_store.py     # SessionState + SessionStore（sid ごとの状態）
+└── features/
+    ├── connection/          # connect / disconnect
+    ├── conversation/        # start_session / end_session + 再接続ループ + Gemini 受信
+    ├── media_streaming/     # send_audio_chunk / send_image_frame
+    └── voice_response/      # 読み上げテキスト → Fish TTS → emit
+```
+
+新しい Socket.IO イベントを足すときは、対応する slice に `events.py` を作り `main.py` で import する（`@sio.event` は import 副作用でハンドラ登録される）。`services/` `utils/` `sandbox/` はライブ経路で未使用のデバッグ/実験コード。
 
 `SERVER_URL` は `mobile/shared/config/env.ts` にハードコード。開発時は LAN の PC の IP に合わせて変更する。
 
