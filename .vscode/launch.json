@@ -15,7 +15,7 @@
       "projectRoot": "${workspaceFolder}/mobile"
     },
     {
-      "command": "dotnet run",
+      "command": ".venv/Scripts/uvicorn main:socket_app --host 0.0.0.0 --port 8080 --reload",
       "name": "サーバー",
       "request": "launch",
       "type": "node-terminal",

@@ -23,7 +23,7 @@ mobile/          # Expo アプリ（features/ ごとに分割: camera / characte
 server/          # FastAPI + Socket.IO（vertical slice。エントリ: main.py。sandbox/ は実験用の使い捨て）
 yoccie-homepage/ # Next.js サイト（App Router。features/ に character / music / home / members）
 rive/            # Rive 素材 + Luau スクリプト
-.agents/skills/  # Rive リファレンス（後述）
+.agents/skills/  # 各技術のリファレンス（Rive / Gemini Live / Fish Audio / FastAPI / React Native 等。後述）
 .mcp.json        # Rive MCP サーバー設定
 ```
 
@@ -182,10 +182,16 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
 
 ## スキル・リファレンスの場所
 
-`.agents/skills/` に Rive 関連のリファレンスが集約されている：
+`.agents/skills/` に各技術のリファレンスが集約されている：
 
 - `rive-scripting/rules/` — Luauスクリプトの書き方（node-scripts, pointer-events, data-binding, api-reference 等）
 - `rive/references/` — Riveエディタの操作・機能リファレンス（animation-mode, data-binding, state-machine 等）
+- `rive-animations/` — Riveアニメーション全般のリファレンス
+- `fastapi-python/` — FastAPI / Python サーバーのリファレンス
+- `fish-audio-sdk/` — Fish Audio SDK のリファレンス
+- `gemini-live-api-dev/` — Gemini Live API のリファレンス
+- `vercel-react-native-skills/rules/` — React Native のベストプラクティス（アニメーション・リスト最適化・ナビゲーション等）
+- `vertical-slice-architecture/` — Vertical Slice Architecture のリファレンス（patterns-by-language, principles, testing）
 
 ## MCP サーバー
 
