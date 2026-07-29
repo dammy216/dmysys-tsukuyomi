@@ -14,9 +14,7 @@ export function SiteHeader() {
             <Link href="/member">自己紹介</Link>
           </li>
           <li>
-            <span className={`${styles.disabled}`} role="link" aria-disabled>
-              Coming Soon
-            </span>
+            <Link href="/song">歌ってみた</Link>
           </li>
         </ul>
       </nav>

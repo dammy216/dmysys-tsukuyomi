@@ -36,6 +36,12 @@
       "skillPath": "skills/rive-scripting/SKILL.md",
       "computedHash": "d541a9584c6222e98060eb05bc0d42fff9d99cd8258840e348cff58bd5630c3a"
     },
+    "runpodctl": {
+      "source": "runpod/skills",
+      "sourceType": "github",
+      "skillPath": "runpodctl/SKILL.md",
+      "computedHash": "934a2374c60a2473aa7eeea53ad933659e3476296731c51c5340b48f9da1a2f2"
+    },
     "vercel-react-native-skills": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",

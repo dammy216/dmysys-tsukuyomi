@@ -12,11 +12,14 @@ import { RIV_SRC, STATE_MACHINE, VM_SING_AMPLITUDE } from "./constants";
 type YachiyoCharacterProps = {
   onAmplitude?: (value: number) => void;
   placeholder?: ReactNode;
+  /** 振幅の取得元を差し替える（省略時は共有 BGM の useMusic().getAmplitude を使う） */
+  getAmplitude?: () => number;
 };
 
 export function YachiyoCharacter({
   onAmplitude,
   placeholder,
+  getAmplitude: getAmplitudeProp,
 }: YachiyoCharacterProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -32,7 +35,8 @@ export function YachiyoCharacter({
     rive,
   });
 
-  const { getAmplitude } = useMusic();
+  const { getAmplitude: getMusicAmplitude } = useMusic();
+  const getAmplitude = getAmplitudeProp ?? getMusicAmplitude;
 
   // 振幅を毎フレーム ViewModel に書き込む
   useEffect(() => {
