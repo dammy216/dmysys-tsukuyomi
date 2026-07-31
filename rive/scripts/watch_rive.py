@@ -22,6 +22,7 @@ POLL_SEC = 0.8   # 監視間隔(秒)
 SCRIPT_MAP = {
     "webYachiyo/WebYachiyo.lua": "WebYachiyo",
     "AIYachiyo/AIYachiyo.lua":   "AIYachiyo",
+    "webKaguya/webKaguya.lua":   "webKaguya",
 }
 
 
