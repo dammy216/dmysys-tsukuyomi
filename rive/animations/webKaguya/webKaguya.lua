@@ -57,12 +57,16 @@ type CharacterAnimation = {
     vmBackHairX: Property<number>?, vmBackHairY: Property<number>?,
     vmNeckX: Property<number>?, vmNeckY: Property<number>?,
     vmTopwearY: Property<number>?,
+    vmWingY: Property<number>?, vmTailY: Property<number>?,  -- topwear と同じ服なので同じ量だけ動かす
     vmNoseX: Property<number>?, vmNoseY: Property<number>?,
     vmMouthX: Property<number>?, vmMouthY: Property<number>?,
     vmHairX: Property<number>?, vmHairY: Property<number>?,
     vmHeadearX: Property<number>?, vmHeadearY: Property<number>?,
     vmEriY: Property<number>?,
     vmFaceY: Property<number>?,   -- 使わないが基準値を保持するために書く
+    -- 髪(サイドロック)の慣性揺れ用。並びは HAIR_BASE_ROT と対応
+    -- [1-4]=Right A1〜A4, [5-8]=Right B1〜B4, [9-12]=Left A1〜A4, [13-16]=Left B1〜B4
+    vmHairRots: {Property<number>?},
     -- まばたき用の不透明度
     vmEyesDefault: Property<number>?,
     vmBlinkFrames: {Property<number>?},  -- [1]=blink_001 〜 [8]=blink_008
@@ -80,6 +84,13 @@ type CharacterAnimation = {
     eyeOffsetY: number,
     turnX: number,        -- 振り向き(横)のなめらかな値 (-1〜1)
     turnY: number,        -- 振り向き(縦)のなめらかな値 (-1〜1)
+    -- 髪の慣性揺れ(Live2D 風の振り子物理)。詳細は updateHairPhysics を参照
+    prevTurnX: number,    -- 前フレームの turnX(振り向き速度を差分で求めるため)
+    headVelX: number,     -- 平滑化した頭の振り向き速度。これが髪を振らせる唯一の入力
+    hairAngles: {number}, -- 各セグメントの静止角からの相対回転(度)
+    hairVels: {number},   -- 各セグメントの角速度(度/秒)
+    hairVelsPrev: {number}, -- 1フレーム前の角速度(子が親を追いかける遅延を作るために使う)
+    hairDriveSmooth: {number}, -- 親からの入力を平滑化した値(毛先ほど強く遅らせるため)
     blinking: boolean,
     blinkT: number,       -- まばたき開始からの経過秒
     blinkTimer: number,   -- 次のまばたきまでの残り秒
@@ -181,6 +192,8 @@ local BASE_MOUTH_X, BASE_MOUTH_Y =   6.5,  -80.5
 local BASE_HAIR_X,  BASE_HAIR_Y  =   0.5,   2.0
 local BASE_HEADEAR_X, BASE_HEADEAR_Y = 0.94, -1.5  -- hairs グループ相対
 local BASE_ERI_Y                 =  19.5
+local BASE_WING_Y                =   0.0   -- wing(topwear と同じ服なので同じ量だけ動かす)
+local BASE_TAIL_Y                = 424.0   -- tail(同上)
 local BASE_FACE_Y                = -229.5
 
 -- 瞳の可動域。eyewhite と irides のサイズ差(＝白目の中で瞳が動ける余白)から決める。
@@ -210,7 +223,349 @@ local BODY_X           =  8.0        -- 体(頭につられて傾く)
 local NECK_X           =  6.0        -- 首(体に上乗せ)
 -- 獣耳(headear)。前髪ほど顔の動きに追従させず、後ろ髪と同じ量・同じ向き(逆方向)にする。
 -- 頭グループの移動(22/14)には乗るので、実際の追従量は 22-7=15 と前髪(22+10=32)の半分弱になる。
-local HEADEAR_X, HEADEAR_Y = -7.0, -4.0
+local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
+
+--==========================================================================
+-- 髪(サイドロック)の慣性揺れ(Live2D 風の振り子物理)のパラメータ
+--==========================================================================
+-- Right/Left Locks Root・Bangs Root は頭に固定したまま動かさない(根本付近は揺れない)。
+-- 各サイド、Root から 2本の毛束(A: 4ボーン, B: 4ボーン)が分岐している。前髪は Bangs Root→Bangs Tip の1本。
+--   [1-4]   Right Locks A1〜A4
+--   [5-8]   Right Locks B1〜B4
+--   [9-12]  Left Locks A1〜A4
+--   [13-16] Left Locks B1〜B4
+--   [17]    Bangs Tip
+--   [18-21] Right Back Locks 1〜4(後ろ髪・右、根本→毛先)
+--   [22-25] Left Back Locks 1〜4(後ろ髪・左)
+--   [26-29] Center Back Locks 1〜4(後ろ髪・中央、毛量が多く重め)
+--   [30-33] Right Headear 1〜4(獣耳・右。髪ではないのでよく揺れる/跳ねる)
+--   [34-37] Left Headear 1〜4(獣耳・左)
+local HAIR_COUNT = 37
+
+-- 各ボーンの静止回転(度)。Riveエディタでの実測値で、揺れはここからの相対で加算する。
+local HAIR_BASE_ROT: {number} = {
+    -31.365845319384682,   -- [1]  Right A1
+      6.330711956226803,   -- [2]  Right A2
+      2.4166928051139513,  -- [3]  Right A3
+    -19.003620244143754,   -- [4]  Right A4
+    -12.118653334441838,   -- [5]  Right B1
+     -3.3150832340181755,  -- [6]  Right B2
+    -13.580833613766828,   -- [7]  Right B3
+     17.518966603652995,   -- [8]  Right B4
+     21.684081991173393,   -- [9]  Left A1
+      7.2748713810412955,  -- [10] Left A2
+     -3.2582976427323787,  -- [11] Left A3
+    -28.448988032661607,   -- [12] Left A4
+      8.461432544527783,   -- [13] Left B1
+      8.112805095401876,   -- [14] Left B2
+     -7.855378596477678,   -- [15] Left B3
+    -13.794078661662326,   -- [16] Left B4
+     -5.0,                 -- [17] Bangs Tip
+     -9.007399392206077,   -- [18] Right Back Locks 1
+     -2.801100640541757,   -- [19] Right Back Locks 2
+     15.049939080455374,   -- [20] Right Back Locks 3
+     -8.49725543147415,    -- [21] Right Back Locks 4
+      9.969677823061414,   -- [22] Left Back Locks 1
+     -6.975416973495818,   -- [23] Left Back Locks 2
+     24.768381737814188,   -- [24] Left Back Locks 3
+    -36.77946915855456,    -- [25] Left Back Locks 4
+      2.395291530211533,   -- [26] Center Back Locks 1
+      0.41273032951744354, -- [27] Center Back Locks 2
+     -0.7051351779815532,  -- [28] Center Back Locks 3
+     -0.019559528041372082,-- [29] Center Back Locks 4
+    -24.70509662173428,    -- [30] Right Headear 1
+     -7.072193452411542,   -- [31] Right Headear 2
+      3.6478456884657797,  -- [32] Right Headear 3
+     10.901564209434014,   -- [33] Right Headear 4
+     24.711849818058745,   -- [34] Left Headear 1
+      6.300381386996745,   -- [35] Left Headear 2
+     -5.911752823069244,   -- [36] Left Headear 3
+    -13.15626138289343,    -- [37] Left Headear 4
+}
+
+-- 各セグメントの親(0 = 頭に直結)。親の角速度がそのまま子への慣性入力になるので、
+-- 根本→先端へ一拍ずつ遅れて伝わり、鞭のようにしなる。
+local HAIR_PARENT: {number} = {
+    0, 1, 2, 3,  0, 5, 6, 7,  0, 9, 10, 11,  0, 13, 14, 15,  0,  -- [1-17]
+    0, 18, 19, 20,  -- [18-21] Right Back Locks 1→2→3→4
+    0, 22, 23, 24,  -- [22-25] Left Back Locks 1→2→3→4
+    0, 26, 27, 28,  -- [26-29] Center Back Locks 1→2→3→4
+    0, 30, 31, 32,  -- [30-33] Right Headear 1→2→3→4
+    0, 34, 35, 36,  -- [34-37] Left Headear 1→2→3→4
+}
+
+-- 頭の動きを受け取る向き。後ろ髪・獣耳は前髪と逆方向に振れるのが自然
+-- (振り向くと前髪は流れて見え、後ろ髪・耳は逆に巻き込まれて見える。既存の BHAIR_X = -7.0 と同じ考え方)。
+-- 子は親から受け取った時点で既に符号反転済みの値を使うので、根本(位置1)だけ -1 にすればよい。
+local HAIR_DRIVE_SIGN: {number} = {
+    1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1,  -- [1-17] 前髪・サイドロック
+    -1, 1, 1, 1,  -- [18-21] Right Back Locks
+    -1, 1, 1, 1,  -- [22-25] Left Back Locks
+    -1, 1, 1, 1,  -- [26-29] Center Back Locks
+    -1, 1, 1, 1,  -- [30-33] Right Headear
+    -1, 1, 1, 1,  -- [34-37] Left Headear
+}
+
+-- チェーン内の位置(1=根本側 〜 4=毛先)ごとのばね/減衰/慣性/可動域。
+-- 4本×4チェーン分(Right A/B, Left A/B)、同じ位置なら同じ挙動になるよう繰り返す。
+local function repeat4(a: number, b: number, c: number, d: number): {number}
+    return {a, b, c, d, a, b, c, d, a, b, c, d, a, b, c, d}
+end
+-- 各ボーンの実測した長さ(px)。Riveエディタでの現在値(HAIR_BASE_ROT と同じ並び)。
+local HAIR_LENGTH: {number} = {
+    164.25795244396014,  -- [1]  Right A1
+    163.11330143185035,  -- [2]  Right A2
+    139.46875486346988,  -- [3]  Right A3
+    121.74491134256077,  -- [4]  Right A4
+    168.26955275079197,  -- [5]  Right B1
+    204.69659748414867,  -- [6]  Right B2
+    270.1108826303579,   -- [7]  Right B3
+    131.96510923491755,  -- [8]  Right B4
+    152.545760626371,    -- [9]  Left A1
+    181.22116867902255,  -- [10] Left A2
+    160.0677973667485,   -- [11] Left A3
+     89.87237560925526,  -- [12] Left A4
+    166.33335671308814,  -- [13] Left B1
+    215.60880186093743,  -- [14] Left B2
+    225.09746317339247,  -- [15] Left B3
+    175.72025653827188,  -- [16] Left B4
+     90.0,               -- [17] Bangs Tip
+    213.50077959850896,  -- [18] Right Back Locks 1
+    211.6674291610775,   -- [19] Right Back Locks 2
+    263.0377087478788,   -- [20] Right Back Locks 3
+     87.4594820793582,   -- [21] Right Back Locks 4
+    313.8698090954577,   -- [22] Left Back Locks 1
+    213.0074624958332,   -- [23] Left Back Locks 2
+     77.88146086384826,  -- [24] Left Back Locks 3
+    181.28366299490077,  -- [25] Left Back Locks 4
+    176.0118710617738,   -- [26] Center Back Locks 1
+    214.67825085172757,  -- [27] Center Back Locks 2
+    234.14655999999817,  -- [28] Center Back Locks 3
+    232.3899595734695,   -- [29] Center Back Locks 4
+    135.68192956619575,  -- [30] Right Headear 1
+    151.1304781606455,   -- [31] Right Headear 2
+    154.18964156587214,  -- [32] Right Headear 3
+     92.60533445275254,  -- [33] Right Headear 4
+    121.16899623650588,  -- [34] Left Headear 1
+    166.60840557140088,  -- [35] Left Headear 2
+    170.0809209210052,   -- [36] Left Headear 3
+    101.87316145062523,  -- [37] Left Headear 4
+}
+
+-- ばね定数: 長いボーンほど元の角度へ戻ろうとする力を強くする(ボーン自体の長さに比例)。
+local HAIR_STIFFNESS_LENGTH_SCALE = 0.2
+local HAIR_STIFFNESS: {number} = {}
+for i = 1, HAIR_COUNT do
+    HAIR_STIFFNESS[i] = HAIR_LENGTH[i] * HAIR_STIFFNESS_LENGTH_SCALE
+end
+-- Right/Left Back Locks の 2・3番目(中間)は、たまたま実測が長いボーンが混ざっていて
+-- 長さ比例のバネ計算だと根本並みに硬くなり、毛先しか曲がらなくなっていた。
+-- 「毛先だけでなく中間からも動いてよい」ため、中間のバネを個別に弱める。
+HAIR_STIFFNESS[19] = 20  -- Right Back Locks 2
+HAIR_STIFFNESS[20] = 14  -- Right Back Locks 3 (263px と特に長く、最も硬くなっていた)
+HAIR_STIFFNESS[23] = 18  -- Left Back Locks 2
+HAIR_STIFFNESS[24] = 12  -- Left Back Locks 3
+-- 獣耳の先端(位置3・4)はもっとしなってよいので、バネをさらに弱める。
+HAIR_STIFFNESS[32] = 6   -- Right Headear 3
+HAIR_STIFFNESS[33] = 4   -- Right Headear 4
+HAIR_STIFFNESS[36] = 6   -- Left Headear 3
+HAIR_STIFFNESS[37] = 4   -- Left Headear 4
+
+-- 減衰・慣性・可動域はチェーン内の位置(1=根本側 〜 4=毛先)で決める。
+local HAIR_DAMPING: {number}   = table.clone(repeat4(8, 5, 4, 2.5))
+local HAIR_INERTIA: {number}   = table.clone(repeat4(7, 8, 7, 6))
+-- Right/Left Locks B2 は他より反応が強すぎたので個別に弱める
+HAIR_INERTIA[6], HAIR_INERTIA[14] = 4, 4  -- Right Locks B2, Left Locks B2
+local HAIR_MAX_ANGLE: {number} = table.clone(repeat4(10, 16, 18, 20))
+table.insert(HAIR_DAMPING, 7)
+table.insert(HAIR_INERTIA, 5)
+-- 後ろ髪: 中央(Center)は毛量が多く重いので慣性を抑えめ・可動域を狭く。
+-- 右/左は中央より軽いが、全体的に長い髪なので大きく揺らしすぎない(「重すぎず」)。
+-- 左右も微妙に値を変えて完全なミラー同期を避ける。
+table.insert(HAIR_DAMPING, 8)    -- [18] Right Back Locks 1 (位置1)
+table.insert(HAIR_INERTIA, 7)
+table.insert(HAIR_DAMPING, 5.5)  -- [19] Right Back Locks 2 (位置2)
+table.insert(HAIR_INERTIA, 8)
+table.insert(HAIR_DAMPING, 4.5)  -- [20] Right Back Locks 3 (位置3)
+table.insert(HAIR_INERTIA, 7.5)
+table.insert(HAIR_DAMPING, 3)    -- [21] Right Back Locks 4 (位置4)
+table.insert(HAIR_INERTIA, 7)
+table.insert(HAIR_DAMPING, 7)    -- [22] Left Back Locks 1 (位置1、右より少し柔らかい)
+table.insert(HAIR_INERTIA, 6.5)
+table.insert(HAIR_DAMPING, 5)    -- [23] Left Back Locks 2 (位置2)
+table.insert(HAIR_INERTIA, 7.5)
+table.insert(HAIR_DAMPING, 4)    -- [24] Left Back Locks 3 (位置3)
+table.insert(HAIR_INERTIA, 7)
+table.insert(HAIR_DAMPING, 2.7)  -- [25] Left Back Locks 4 (位置4)
+table.insert(HAIR_INERTIA, 6.5)
+table.insert(HAIR_DAMPING, 10)   -- [26] Center Back Locks 1 (位置1、重い)
+table.insert(HAIR_INERTIA, 1.5)
+table.insert(HAIR_DAMPING, 7)    -- [27] Center Back Locks 2 (位置2)
+table.insert(HAIR_INERTIA, 1.6)
+table.insert(HAIR_DAMPING, 5.5)  -- [28] Center Back Locks 3 (位置3)
+table.insert(HAIR_INERTIA, 1.4)
+table.insert(HAIR_DAMPING, 4)    -- [29] Center Back Locks 4 (位置4)
+table.insert(HAIR_INERTIA, 1.2)
+-- 獣耳(headear)は髪と違ってよく動いてよい。反応(慣性)を強く・減衰を軽くして、
+-- 実際の動物の耳のようにピクピク・パタパタとよく揺れる/跳ねる感じにする。
+table.insert(HAIR_DAMPING, 7)    -- [30] Right Headear 1 (位置1)
+table.insert(HAIR_INERTIA, 7)
+table.insert(HAIR_DAMPING, 5)    -- [31] Right Headear 2 (位置2)
+table.insert(HAIR_INERTIA, 7.5)
+table.insert(HAIR_DAMPING, 2)    -- [32] Right Headear 3 (位置3、先端寄りなのでよくしなるように)
+table.insert(HAIR_INERTIA, 11)
+table.insert(HAIR_DAMPING, 1.3)  -- [33] Right Headear 4 (位置4、先端)
+table.insert(HAIR_INERTIA, 11)
+table.insert(HAIR_DAMPING, 6.5)  -- [34] Left Headear 1 (位置1、右より少し柔らかい)
+table.insert(HAIR_INERTIA, 6.5)
+table.insert(HAIR_DAMPING, 4.5)  -- [35] Left Headear 2 (位置2)
+table.insert(HAIR_INERTIA, 7)
+table.insert(HAIR_DAMPING, 1.8)  -- [36] Left Headear 3 (位置3、先端寄り)
+table.insert(HAIR_INERTIA, 10.5)
+table.insert(HAIR_DAMPING, 1.2)  -- [37] Left Headear 4 (位置4、先端)
+table.insert(HAIR_INERTIA, 10.5)
+
+-- 親の動きが子へ「伝わる速さ」。値が大きいほど親の動きにほぼ即座に反応し、
+-- 小さいほど反応が遅れる(=伝わる力が弱まって遅く届く)。根本は速く、毛先ほど遅くする。
+local HAIR_DRIVE_SMOOTH: {number} = table.clone(repeat4(3, 1, 0.8, 0.3))
+table.insert(HAIR_DRIVE_SMOOTH, 8)  -- [17] Bangs Tip
+table.insert(HAIR_MAX_ANGLE, 8)
+table.insert(HAIR_DRIVE_SMOOTH, 2.5)   -- [18] Right Back Locks 1 (位置1)
+table.insert(HAIR_MAX_ANGLE, 13)
+table.insert(HAIR_DRIVE_SMOOTH, 0.9)   -- [19] Right Back Locks 2 (位置2)
+table.insert(HAIR_MAX_ANGLE, 17)
+table.insert(HAIR_DRIVE_SMOOTH, 0.7)   -- [20] Right Back Locks 3 (位置3)
+table.insert(HAIR_MAX_ANGLE, 19)
+table.insert(HAIR_DRIVE_SMOOTH, 0.25)  -- [21] Right Back Locks 4 (位置4)
+table.insert(HAIR_MAX_ANGLE, 21)
+table.insert(HAIR_DRIVE_SMOOTH, 2.2)   -- [22] Left Back Locks 1 (位置1)
+table.insert(HAIR_MAX_ANGLE, 12)
+table.insert(HAIR_DRIVE_SMOOTH, 0.8)   -- [23] Left Back Locks 2 (位置2)
+table.insert(HAIR_MAX_ANGLE, 16)
+table.insert(HAIR_DRIVE_SMOOTH, 0.6)   -- [24] Left Back Locks 3 (位置3)
+table.insert(HAIR_MAX_ANGLE, 18)
+table.insert(HAIR_DRIVE_SMOOTH, 0.22)  -- [25] Left Back Locks 4 (位置4)
+table.insert(HAIR_MAX_ANGLE, 20)
+table.insert(HAIR_DRIVE_SMOOTH, 2.2)   -- [26] Center Back Locks 1 (位置1、重いので反応も控えめ)
+table.insert(HAIR_MAX_ANGLE, 2.5)
+table.insert(HAIR_DRIVE_SMOOTH, 0.8)   -- [27] Center Back Locks 2 (位置2)
+table.insert(HAIR_MAX_ANGLE, 3.5)
+table.insert(HAIR_DRIVE_SMOOTH, 0.6)   -- [28] Center Back Locks 3 (位置3)
+table.insert(HAIR_MAX_ANGLE, 4)
+table.insert(HAIR_DRIVE_SMOOTH, 0.2)   -- [29] Center Back Locks 4 (位置4)
+table.insert(HAIR_MAX_ANGLE, 4.5)
+table.insert(HAIR_DRIVE_SMOOTH, 3)     -- [30] Right Headear 1 (位置1)
+table.insert(HAIR_MAX_ANGLE, 10)
+table.insert(HAIR_DRIVE_SMOOTH, 1.1)   -- [31] Right Headear 2 (位置2)
+table.insert(HAIR_MAX_ANGLE, 14)
+table.insert(HAIR_DRIVE_SMOOTH, 1.1)   -- [32] Right Headear 3 (位置3)
+table.insert(HAIR_MAX_ANGLE, 35)
+table.insert(HAIR_DRIVE_SMOOTH, 0.5)   -- [33] Right Headear 4 (位置4)
+table.insert(HAIR_MAX_ANGLE, 42)
+table.insert(HAIR_DRIVE_SMOOTH, 2.7)   -- [34] Left Headear 1 (位置1)
+table.insert(HAIR_MAX_ANGLE, 9)
+table.insert(HAIR_DRIVE_SMOOTH, 1.0)   -- [35] Left Headear 2 (位置2)
+table.insert(HAIR_MAX_ANGLE, 13)
+table.insert(HAIR_DRIVE_SMOOTH, 1.0)   -- [36] Left Headear 3 (位置3)
+table.insert(HAIR_MAX_ANGLE, 32)
+table.insert(HAIR_DRIVE_SMOOTH, 0.45)  -- [37] Left Headear 4 (位置4)
+table.insert(HAIR_MAX_ANGLE, 40)
+
+-- 同じ位置(例: B2)でもチェーンによって実際のボーン長は違う(B2はA2よりだいぶ長い、等)のに
+-- ここまでの設定は位置だけで決めていたため、全部同じ動きに見えていた。
+-- 各ボーンの長さを「その位置の平均長さ」と比べた比率で、個別に補正する。
+-- 長いボーンほど: 反応が遅く・遅れが大きく・減衰が弱く(長く揺れる)・可動域が広くなる。
+local HAIR_LENGTH_RATIO: {number} = {
+    1.008, 0.853, 0.702, 0.938,  -- Right A1-A4 (位置1-4平均比)
+    1.033, 1.071, 1.360, 1.017,  -- Right B1-B4
+    0.937, 0.948, 0.806, 0.692,  -- Left A1-A4
+    1.021, 1.128, 1.133, 1.354,  -- Left B1-B4
+    1.0,                          -- Bangs Tip(比較対象が無いので補正なし)
+    1.0, 1.0, 1.0, 1.0,            -- Right Back Locks 1-4(同上、専用プロファイルで既に調整済み)
+    1.0, 1.0, 1.0, 1.0,            -- Left Back Locks 1-4(同上)
+    1.0, 1.0, 1.0, 1.0,            -- Center Back Locks 1-4(同上)
+    1.0, 1.0, 1.0, 1.0,            -- Right Headear 1-4(同上、専用プロファイルで調整済み)
+    1.0, 1.0, 1.0, 1.0,            -- Left Headear 1-4(同上)
+}
+-- 比率をそのまま使うと差が7〜30%程度にしかならず体感できないため、3乗して差を強く増幅する
+-- (比率0.7〜1.4 → 3乗で約0.33〜2.7倍まで広がる)。
+for i = 1, HAIR_COUNT do
+    local r = HAIR_LENGTH_RATIO[i]
+    local r3 = r * r * r
+    HAIR_INERTIA[i]      = HAIR_INERTIA[i] / r3
+    HAIR_DRIVE_SMOOTH[i] = HAIR_DRIVE_SMOOTH[i] / r3
+    HAIR_DAMPING[i]      = HAIR_DAMPING[i] / r3
+    HAIR_MAX_ANGLE[i]    = HAIR_MAX_ANGLE[i] * r3
+end
+
+-- fronthair の Right/Left Locks B4(毛先)をもっとしなるように個別に強化する。
+HAIR_STIFFNESS[8]     = 12   -- Right Locks B4
+HAIR_INERTIA[8]        = 9
+HAIR_DAMPING[8]        = 1.5
+HAIR_MAX_ANGLE[8]      = 32
+HAIR_DRIVE_SMOOTH[8]   = 0.4
+HAIR_STIFFNESS[16]    = 14   -- Left Locks B4
+HAIR_INERTIA[16]       = 8.5
+HAIR_DAMPING[16]       = 1.2
+HAIR_MAX_ANGLE[16]     = 38
+HAIR_DRIVE_SMOOTH[16]  = 0.35
+
+-- A4 は B4 よりさらにしなるようにする(バネを弱く・慣性と可動域を大きく)。
+HAIR_STIFFNESS[4]     = 8    -- Right Locks A4
+HAIR_INERTIA[4]        = 11
+HAIR_DAMPING[4]        = 1.0
+HAIR_MAX_ANGLE[4]      = 40
+HAIR_DRIVE_SMOOTH[4]   = 0.5
+HAIR_STIFFNESS[12]    = 10   -- Left Locks A4
+HAIR_INERTIA[12]       = 10.5
+HAIR_DAMPING[12]       = 0.9
+HAIR_MAX_ANGLE[12]     = 45
+HAIR_DRIVE_SMOOTH[12]  = 0.45
+
+-- 位置3(A3・B3、毛先の一歩手前)も A・B 両方・左右ともしなりを強める。
+-- 位置2と位置4(上で強化済み)の間になるように、4ほど極端ではない値にする。
+-- A3 は B4 と似すぎていたので、短く軽い毛束らしく「素早く・小さく」動くように変える
+-- (バネ・減衰・反応速度を上げて、可動域を小さくする。B4 は逆にゆったり大きく揺れたまま)。
+HAIR_STIFFNESS[3]     = 22   -- Right Locks A3
+HAIR_INERTIA[3]        = 7
+HAIR_DAMPING[3]        = 3.5
+HAIR_MAX_ANGLE[3]      = 18
+HAIR_DRIVE_SMOOTH[3]   = 1.3
+HAIR_STIFFNESS[7]     = 18   -- Right Locks B3
+HAIR_INERTIA[7]        = 8
+HAIR_DAMPING[7]        = 2.3
+HAIR_MAX_ANGLE[7]      = 24
+HAIR_DRIVE_SMOOTH[7]   = 0.6
+HAIR_STIFFNESS[11]    = 24   -- Left Locks A3(同様に軽やかに)
+HAIR_INERTIA[11]       = 6.5
+HAIR_DAMPING[11]       = 3.2
+HAIR_MAX_ANGLE[11]     = 16
+HAIR_DRIVE_SMOOTH[11]  = 1.2
+HAIR_STIFFNESS[15]    = 16   -- Left Locks B3
+HAIR_INERTIA[15]       = 7.5
+HAIR_DAMPING[15]       = 2.0
+HAIR_MAX_ANGLE[15]     = 28
+HAIR_DRIVE_SMOOTH[15]  = 0.55
+
+-- B2 からしなり始めるようにバネを弱める。慣性は以前「頭に追従しすぎ」で
+-- 4 まで下げた経緯があるのでそこは維持し(頭の動きへの直接反応は控えめのまま)、
+-- バネ・減衰・可動域だけ B3 に近づけて「動き出したらよく曲がる」ようにする。
+HAIR_STIFFNESS[6]     = 20   -- Right Locks B2
+HAIR_DAMPING[6]        = 3.5
+HAIR_MAX_ANGLE[6]      = 22
+HAIR_STIFFNESS[14]    = 18   -- Left Locks B2
+HAIR_DAMPING[14]       = 3.2
+HAIR_MAX_ANGLE[14]     = 24
+
+-- turnX(-1〜1)の変化速度を「度/秒」相当へ換算する倍率。全体の揺れ量はここで一括調整できる。
+local HEAD_VEL_SCALE  = 20.0
+-- 振り向き速度の平滑化(高いほど俊敏に反応)。カーソルが飛んだときの跳ねを抑える。
+local HEAD_VEL_SMOOTH = 12.0
+-- 頭の振り向き速度信号の上限。これが無いと素早く振り向いたときに髪の反応量が
+-- 際限なく大きくなってしまうため、普通の動きの範囲を超えた分は頭打ちにする。
+local HEAD_VEL_MAX    = 45.0
+-- 物理の1ステップ上限(秒)。フレームが飛んだとき、大きすぎる dt で発散するのを防ぐ。
+local HAIR_MAX_STEP   = 1.0 / 30.0
 
 -- 呼吸。顔高(421)の約1.7%を振幅とする。
 local BREATH_AMP   = 7.0
@@ -304,6 +659,8 @@ local function updateBreathing(self: CharacterAnimation, seconds: number): numbe
     if self.vmTopwearY  then self.vmTopwearY.value  = BASE_TOPWEAR_Y + breathY       end
     -- eri(襟)は topwear と同じ服なので、topwear とまったく同じ量だけ動かす
     if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + breathY       end
+    if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + breathY       end
+    if self.vmTailY     then self.vmTailY.value     = BASE_TAIL_Y    + breathY       end
     -- face 画像は頭ごと動くので自身は動かさない(既定値に飛ばないよう基準値を保持)
     if self.vmFaceY     then self.vmFaceY.value     = BASE_FACE_Y                    end
     return breathY
@@ -380,6 +737,67 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, breat
     -- 体・首: 頭の振り向きにつられて傾く
     if self.vmBodyX     then self.vmBodyX.value     = BASE_BODY_X  + hx * BODY_X            end
     if self.vmNeckX     then self.vmNeckX.value     = BASE_NECK_X  + hx * NECK_X            end
+end
+
+--==========================================================================
+-- ②-c 髪(サイドロック)の慣性揺れ(Live2D 風の振り子物理)
+--==========================================================================
+-- 入力は頭の振り向き「速度」だけ。角度そのものではなく速度で駆動するので、
+-- 素早く振り向けば大きく振れ、ゆっくり動かせばほとんど揺れない(実際の髪と同じ挙動)。
+--
+-- 各セグメントは減衰振動として解く:
+--   加速度 = -親の角速度 × 慣性  -- 頭が動けば髪はその場に取り残される
+--          - 自分の角度 × ばね   -- 静止角へ戻ろうとする
+--          - 自分の角速度 × 減衰 -- 揺れが収まる
+-- 子は「親の1フレーム前の角速度」を入力に取る(同じフレーム内で根本→毛先まで
+-- 一気に伝わってしまうと、体が動いた瞬間に毛先まで同時に反応して見えてしまうため、
+-- 1セグメントごとに必ず1フレーム分の遅れを作り、根本→先端へ確実に遅れて伝播させる)。
+local function updateHairPhysics(self: CharacterAnimation, seconds: number)
+    -- フレーム落ちで dt が跳ねると発散するので上限を設ける
+    local dt = math.min(seconds, HAIR_MAX_STEP)
+    if dt <= 0 then return end
+
+    -- 頭の振り向き速度(turnX の時間微分)を求めて平滑化する
+    local rawVel = math.clamp((self.turnX - self.prevTurnX) / dt * HEAD_VEL_SCALE, -HEAD_VEL_MAX, HEAD_VEL_MAX)
+    self.prevTurnX = self.turnX
+    self.headVelX += (rawVel - self.headVelX) * math.min(HEAD_VEL_SMOOTH * dt, 1.0)
+
+    for i = 1, HAIR_COUNT do
+        -- 慣性の入力源: 頭に直結(親=0)なら頭の速度(今フレーム)、そうでなければ
+        -- 親セグメントの「前フレーム」の角速度(=最低でも1テンポ遅れて伝わる)
+        local parent = HAIR_PARENT[i]
+        local rawDrive = (if parent == 0 then self.headVelX else self.hairVelsPrev[parent]) * HAIR_DRIVE_SIGN[i]
+
+        -- さらに、この入力を各セグメントごとの速さでなめらかに追いかけさせる。
+        -- HAIR_DRIVE_SMOOTH が小さいほど反応が遅く、毛先ほど小さい値にしてあるので
+        -- 「頭が動いてから毛先に伝わるまでの遅れ」が根本→毛先へ段階的に大きくなる。
+        self.hairDriveSmooth[i] += (rawDrive - self.hairDriveSmooth[i]) * math.min(HAIR_DRIVE_SMOOTH[i] * dt, 1.0)
+        local driveVel = self.hairDriveSmooth[i]
+
+        local accel = -driveVel * HAIR_INERTIA[i]
+            - self.hairAngles[i] * HAIR_STIFFNESS[i]
+            - self.hairVels[i] * HAIR_DAMPING[i]
+        local vel = self.hairVels[i] + accel * dt
+        local angle = self.hairAngles[i] + vel * dt
+
+        -- 可動域の端では跳ね返らせず速度を殺す(髪が暴れて見えないように)
+        local limit = HAIR_MAX_ANGLE[i]
+        if angle > limit then
+            angle, vel = limit, 0.0
+        elseif angle < -limit then
+            angle, vel = -limit, 0.0
+        end
+
+        self.hairVels[i] = vel
+        self.hairAngles[i] = angle
+        local prop = self.vmHairRots[i]
+        if prop then prop.value = HAIR_BASE_ROT[i] + angle end
+    end
+
+    -- 今フレームの角速度を「前フレーム値」として保存し、次フレームで子が参照する
+    for i = 1, HAIR_COUNT do
+        self.hairVelsPrev[i] = self.hairVels[i]
+    end
 end
 
 --==========================================================================
@@ -632,7 +1050,21 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmHeadearX   = vm:getNumber("headearX")
     self.vmHeadearY   = vm:getNumber("headearY")
     self.vmEriY       = vm:getNumber("eriY")
+    self.vmWingY      = vm:getNumber("wingY")
+    self.vmTailY      = vm:getNumber("tailY")
     self.vmFaceY      = vm:getNumber("faceY")
+    self.vmHairRots = {
+        vm:getNumber("rightA1Rot"), vm:getNumber("rightA2Rot"), vm:getNumber("rightA3Rot"), vm:getNumber("rightA4Rot"),
+        vm:getNumber("rightB1Rot"), vm:getNumber("rightB2Rot"), vm:getNumber("rightB3Rot"), vm:getNumber("rightB4Rot"),
+        vm:getNumber("leftA1Rot"), vm:getNumber("leftA2Rot"), vm:getNumber("leftA3Rot"), vm:getNumber("leftA4Rot"),
+        vm:getNumber("leftB1Rot"), vm:getNumber("leftB2Rot"), vm:getNumber("leftB3Rot"), vm:getNumber("leftB4Rot"),
+        vm:getNumber("bangsTipRot"),
+        vm:getNumber("backRight1Rot"), vm:getNumber("backRight2Rot"), vm:getNumber("backRight3Rot"), vm:getNumber("backRight4Rot"),
+        vm:getNumber("backLeft1Rot"), vm:getNumber("backLeft2Rot"), vm:getNumber("backLeft3Rot"), vm:getNumber("backLeft4Rot"),
+        vm:getNumber("backCenter1Rot"), vm:getNumber("backCenter2Rot"), vm:getNumber("backCenter3Rot"), vm:getNumber("backCenter4Rot"),
+        vm:getNumber("rightEar1Rot"), vm:getNumber("rightEar2Rot"), vm:getNumber("rightEar3Rot"), vm:getNumber("rightEar4Rot"),
+        vm:getNumber("leftEar1Rot"), vm:getNumber("leftEar2Rot"), vm:getNumber("leftEar3Rot"), vm:getNumber("leftEar4Rot"),
+    }
     self.vmEyesDefault = vm:getNumber("eyesDefault")
     self.vmBlinkFrames = {
         vm:getNumber("blinkF1"), vm:getNumber("blinkF2"),
@@ -663,6 +1095,21 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.eyeOffsetY = 0
     self.turnX      = 0
     self.turnY      = 0
+    -- 髪は静止状態(基準角度・速度0)から始める
+    self.prevTurnX  = 0
+    self.headVelX   = 0
+    self.hairAngles = {}
+    self.hairVels   = {}
+    self.hairVelsPrev = {}
+    self.hairDriveSmooth = {}
+    for i = 1, HAIR_COUNT do
+        self.hairAngles[i] = 0
+        self.hairVels[i]   = 0
+        self.hairVelsPrev[i] = 0
+        self.hairDriveSmooth[i] = 0
+        local prop = self.vmHairRots[i]
+        if prop then prop.value = HAIR_BASE_ROT[i] end
+    end
     -- 目を開いた状態から始め、最初のまばたきまで待つ
     self.blinking   = false
     self.blinkT     = 0
@@ -720,6 +1167,7 @@ function advance(self: CharacterAnimation, seconds: number): boolean
     local breathY = updateBreathing(self, seconds)
     updateEyeFollow(self, seconds)
     updateBodyFollow(self, seconds, breathY)
+    updateHairPhysics(self, seconds)
     updateBlink(self, seconds)
     updateLipSync(self, seconds)
     return true
@@ -793,7 +1241,9 @@ return function(): Node<CharacterAnimation>
         vmHairX = nil, vmHairY = nil,
         vmHeadearX = nil, vmHeadearY = nil,
         vmEriY = nil,
+        vmWingY = nil, vmTailY = nil,
         vmFaceY = nil,
+        vmHairRots = {},
         vmEyesDefault = nil,
         vmBlinkFrames = {},
         vmSingAmp = nil, vmMouthVowel = nil,
@@ -803,6 +1253,8 @@ return function(): Node<CharacterAnimation>
         breathTime = 0,
         eyeOffsetX = 0, eyeOffsetY = 0,
         turnX = 0, turnY = 0,
+        prevTurnX = 0, headVelX = 0,
+        hairAngles = {}, hairVels = {}, hairVelsPrev = {}, hairDriveSmooth = {},
         blinking = false, blinkT = 0, blinkTimer = 0,
         lipEnv = 0, lipFrame = 1, lipSpeaking = false,
         autoVowel = 1, vowelTimer = 0,
