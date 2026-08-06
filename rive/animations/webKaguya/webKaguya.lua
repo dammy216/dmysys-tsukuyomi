@@ -256,7 +256,8 @@ local EYE_LERP_SPEED   = 5.0    -- 追従の滑らかさ(高いほど俊敏)
 -- TURN_REACH はカーソルがアートボード端(中心から約950px)に近づくと最大になる距離。
 local TURN_REACH = 900.0
 -- パーツごとの最大移動量(px)。顔サイズ 320x421 を基準に前方ほど大きく動かして奥行きを出す。
-local HEAD_X,  HEAD_Y  = 22.0, 14.0  -- 頭グループ全体(顔幅の約7% / 顔高の約3.3%)
+local HEAD_X,  HEAD_Y  = 22.0, 20.0  -- 頭グループ全体。縦(HEAD_Y)は元14.0から拡大
+                                     -- (つかんで上下したとき顔自体がもっと動くように)
 -- 下を向く(hy>0)ときだけ、頭・鼻・口・前髪・獣耳・後ろ髪・首・体の縦移動量を
 -- まとめて増幅する。参照映像は見下ろしたときの動きが見上げより大きかったため。
 -- 見上げ(hy<0)側は変えない(1.0倍のまま)。
@@ -270,16 +271,21 @@ local BODY_X           =  8.0        -- 体(頭につられて傾く)
 -- 体(BODY_X)と同じ量だけ動いて一体に見える。以前ここに独自の横移動量を
 -- 足していたが、体との間でズレて「首だけ滑る」ように見えたため 0 にした。
 local NECK_X           =  0.0
--- 首の縦追従。頭は振り向き(縦)とうなずきで上下するが、首がついていかないと
--- あご下に隙間ができる。首の上端はあごの裏、下端は topwear の裏に隠れているので、
--- 頭の縦移動をそのまま(1.0)追従させても下端が襟から出ることはない。
-local NECK_Y_FOLLOW    =  1.0
 -- 体(topwear/eri/wing/tail)の縦追従。以前は呼吸・発話の弾みでしか上下せず、
 -- 見上げ/見下ろし・うなずきで頭が上下しても体はついてこなかった
 -- (「顔の動きに首しかついてきていない」の原因)。参照映像では顔が上がると
 -- 体もついてくるので、頭の縦移動の一部を体にも足す。「もっと追従するように」との
 -- 指定で BODY_X・BODY_TILT_RATIO と揃えて6割に引き上げた。元0.4。
 local BODY_Y_FOLLOW    =  0.6
+-- 首の縦追従。首は伸び縮みしない固定画像なので、見た目は「あごが首にどれだけ
+-- 重なって隠すか」で決まる。
+--   見上げ(あごが首から離れる)  → 首が追従しないと隙間が見えてしまうので、
+--                                 しっかり追従させる(NECK_Y_FOLLOW_UP)。
+--   見下ろし(あごが首に近づく) → あごが覆い隠すので首自体はほぼ動かなくていいが、
+--                                 体(BODY_Y_FOLLOW)は動いているので、首だけ止めると
+--                                 今度は体との間にズレが出る。下向きは BODY_Y_FOLLOW と
+--                                 同じ値にして首と体を同期させる。
+local NECK_Y_FOLLOW_UP   = 1.0
 -- 獣耳(headear)。前髪ほど顔の動きに追従させず、後ろ髪と同じ量・同じ向き(逆方向)にする。
 -- 頭グループの移動(22/14)には乗るので、実際の追従量は 22-7=15 と前髪(22+10=32)の半分弱になる。
 local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
@@ -1007,11 +1013,13 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + self.breathY + self.bounceY + bodyFollowY end
     if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + self.breathY + self.bounceY + bodyFollowY end
     if self.vmTailY     then self.vmTailY.value     = BASE_TAIL_Y    + self.breathY + self.bounceY + bodyFollowY end
-    -- 首の縦は頭とまったく同じ量だけ動かす(あご下に隙間ができないように)。
-    -- 呼吸・バウンスは頭も同じ量を受けているので、ここで頭の式と揃える。
+    -- 首の縦: 見上げ(headMoveY<0)は隙間防止のためしっかり追従、
+    -- 見下ろし(headMoveY>0)は体(BODY_Y_FOLLOW)と同じ量にして体と一体に動かす。
     if self.vmNeckY     then
+        local headMoveY = hyDown * HEAD_Y + self.nodY
+        local neckFollow = if headMoveY < 0.0 then NECK_Y_FOLLOW_UP else BODY_Y_FOLLOW
         self.vmNeckY.value = BASE_NECK_Y + self.breathY + self.bounceY
-            + (hyDown * HEAD_Y + self.nodY) * NECK_Y_FOLLOW
+            + headMoveY * neckFollow
     end
     -- 首の回転。頭と同じ角度を書いて、大きく傾けても首から顔が離れて見えないようにする
     if self.vmNeckRot   then
