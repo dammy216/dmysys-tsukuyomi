@@ -25,6 +25,9 @@
 --          縦移動をスクリプトで明示的に追従させる。
 --       ⑬ 髪の重力補償: 頭をどれだけ傾けても、前髪・後ろ髪・headear の毛先が
 --          画面上で常に下を向くよう、各チェーンに -傾き を分配してばねの静止目標をずらす。
+--       ⑭ 腕の横揺れ: topwear をメッシュ化して仕込んだ腕ボーン(左右とも 肩→肘 の2本)を、
+--          ②-c と同じ振り子physicsで揺らす。体が動いたときだけ数度ぶん遅れて横に振れる。
+--          腕は重い部位なので慣性を弱く・減衰を強く・可動域を数度に絞ってある。
 --
 -- ■ 定数はすべて「かぐやベース」アートボードの実測値から算出している。
 --   ヤチヨ(WebYachiyo.lua)の数値をそのまま流用してはいけない(モデルの寸法・配置が違うため)。
@@ -71,6 +74,7 @@ type CharacterAnimation = {
     vmBackHairX: Property<number>?, vmBackHairY: Property<number>?,
     vmBackHairRot: Property<number>?,  -- 後ろ髪の回転。頭の傾きに追従させる
     vmNeckX: Property<number>?, vmNeckY: Property<number>?,
+    vmNeckRot: Property<number>?,  -- 首の回転。頭の傾き(tiltDeg)に追従させ、あご下の隙間を防ぐ
     vmTopwearY: Property<number>?,
     vmWingY: Property<number>?, vmTailY: Property<number>?,  -- topwear と同じ服なので同じ量だけ動かす
     vmNoseX: Property<number>?, vmNoseY: Property<number>?,
@@ -79,13 +83,15 @@ type CharacterAnimation = {
     vmHeadearX: Property<number>?, vmHeadearY: Property<number>?,
     vmEriY: Property<number>?,
     vmFaceX: Property<number>?, vmFaceY: Property<number>?,  -- 使わないが基準値を保持するために書く
+    vmBodyRootRot: Property<number>?,  -- 同上(topwear メッシュの胴体固定ボーン。⑭参照)
     vmHeadRot: Property<number>?, vmBodyRot: Property<number>?,  -- 頭・体の傾き(ロール、度)
     -- AI操作入力(aiActive=1 のとき有効。外部/React/AI が書き込む)
     vmAiActive: Property<number>?,
     vmAiTurnX: Property<number>?, vmAiTurnY: Property<number>?,
     vmAiTilt: Property<number>?, vmAiBounce: Property<number>?, vmAiNod: Property<number>?,
-    -- 髪(サイドロック)の慣性揺れ用。並びは HAIR_BASE_ROT と対応
-    -- [1-4]=Right A1〜A4, [5-8]=Right B1〜B4, [9-12]=Left A1〜A4, [13-16]=Left B1〜B4
+    -- 髪(サイドロック)・獣耳・腕の慣性揺れ用。並びは HAIR_BASE_ROT と対応
+    -- [1-4]=Right A1〜A4, [5-8]=Right B1〜B4, [9-12]=Left A1〜A4, [13-16]=Left B1〜B4,
+    -- …[38-39]=Right Arm 1〜2, [40-41]=Left Arm 1〜2
     vmHairRots: {Property<number>?},
     -- まばたき用の不透明度
     vmEyesDefault: Property<number>?,
@@ -223,10 +229,14 @@ local BASE_NOSE_X,  BASE_NOSE_Y  =   5.5, -135.5
 local BASE_MOUTH_X, BASE_MOUTH_Y =   6.5,  -80.5
 local BASE_HAIR_X,  BASE_HAIR_Y  =   0.5,   2.0
 local BASE_HEADEAR_X, BASE_HEADEAR_Y = 0.94, -1.5  -- hairs グループ相対
-local BASE_ERI_Y                 =  19.5
+local BASE_ERI_Y                 =  21.5  -- 元19.5。襟を2px上げた
 local BASE_WING_Y                =   0.0   -- wing(topwear と同じ服なので同じ量だけ動かす)
 local BASE_TAIL_Y                = 424.0   -- tail(同上)
 local BASE_FACE_X, BASE_FACE_Y   =   4.5, -229.5
+-- topwear メッシュの胴体固定ボーン(Body Root)の回転(度)。腕ボーンを揺らしたとき、
+-- 胴体側の頂点まで腕に引っ張られないよう固定する役目なので、常にこの値を書き続ける。
+-- (バインド済みプロパティは書かないと ViewModel インスタンスの保存値に飛ぶため。faceX/Y と同じ理由)
+local BASE_BODY_ROOT_ROT         =  90.0
 
 -- 瞳の可動域。eyewhite と irides のサイズ差(＝白目の中で瞳が動ける余白)から決める。
 --   右目: (85-52)/2 = 16.5 [X], (65-56)/2 = 4.5 [Y]
@@ -252,11 +262,19 @@ local MOUTH_X, MOUTH_Y =  7.0,  4.0  -- 口(頭の約32%)
 local HAIR_X,  HAIR_Y  = 10.0,  6.0  -- 前髪(頭の約45%)
 local BHAIR_X          = -7.0        -- 後ろ髪(逆方向 → 振り向きで見えてくる)
 local BODY_X           =  8.0        -- 体(頭につられて傾く)
-local NECK_X           =  6.0        -- 首(体に上乗せ)
+-- 首(体に上乗せ)。参照映像では首だけが体と別に左右スライドすることはなく、
+-- 体(BODY_X)と同じ量だけ動いて一体に見える。以前ここに独自の横移動量を
+-- 足していたが、体との間でズレて「首だけ滑る」ように見えたため 0 にした。
+local NECK_X           =  0.0
 -- 首の縦追従。頭は振り向き(縦)とうなずきで上下するが、首がついていかないと
 -- あご下に隙間ができる。首の上端はあごの裏、下端は topwear の裏に隠れているので、
 -- 頭の縦移動をそのまま(1.0)追従させても下端が襟から出ることはない。
 local NECK_Y_FOLLOW    =  1.0
+-- 体(topwear/eri/wing/tail)の縦追従。以前は呼吸・発話の弾みでしか上下せず、
+-- 見上げ/見下ろし・うなずきで頭が上下しても体はついてこなかった
+-- (「顔の動きに首しかついてきていない」の原因)。参照映像では顔が上がると
+-- 体もついてくるので、頭の縦移動の一部(首より控えめ)を体にも足す。
+local BODY_Y_FOLLOW    =  0.4
 -- 獣耳(headear)。前髪ほど顔の動きに追従させず、後ろ髪と同じ量・同じ向き(逆方向)にする。
 -- 頭グループの移動(22/14)には乗るので、実際の追従量は 22-7=15 と前髪(22+10=32)の半分弱になる。
 local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
@@ -264,19 +282,38 @@ local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
 --==========================================================================
 -- 頭の傾き(ロール)・弾み・うなずき・頭ドラッグ(映像「超かぐや姫」の動きの再現)
 --==========================================================================
--- 頭の傾き。映像ではおおよそ ±10〜15度の範囲でゆらゆら傾く。
-local HEAD_TILT_MAX   = 12.0  -- aiTilt/ドラッグ = ±1 のときの頭の傾き(度)
-local TURN_TILT_DEG   = 4.0   -- 振り向き(turnX=±1)に連動して自然につく傾き(度)
+-- 頭の傾き。映像(2:27-2:57)ではほぼ直立の瞬間がなく、リズミカルにゆらゆら
+-- 傾き続ける。首(neckRot)の追従はあまり強くすると首が左右に振れすぎて見え、
+-- 逆に弱すぎる(0など)と頭だけ傾いて首から分離して見えるので、
+-- 頭の傾き自体も控えめにして両立させている。
+local HEAD_TILT_MAX   = 7.0   -- aiTilt/ドラッグ = ±1 のときの頭の傾き(度)。元12.0
+local TURN_TILT_DEG   = 2.5   -- 振り向き(turnX=±1)に連動して自然につく傾き(度)。元4.0
 local BODY_TILT_RATIO = 0.35  -- 体は頭の何割傾くか(映像では体は頭より控えめに傾く)
+-- 首の回転追従。首は body の子で回転を持たないため、頭だけ傾くとあご下に
+-- 隙間が見える。neckRot に頭の傾きの一部を書いて首も傾けるが、大きく傾けると
+-- 首が左右に振れすぎて見えるため控えめにしてきた(1.0→0.45→0.2→0.1→0.05)。
+-- 0 まで下げたところ今度は首が全く追従せず、頭だけ傾いて首から分離して見える
+-- ようになったため、最低限の追従を残す 0.3 に戻す。
+local NECK_TILT_RATIO = 0.3
+-- 首の回転量の上限(度)。実測: neck 画像は 192x255・回転ピボットは中心
+-- (半分の高さ127.5pxが振れ幅の腕の長さ)。eri(襟)の横幅は実測で約120px
+-- (中心から左右に約60px)。目標の振れ幅をさらに縮小し、襟の幅の約1/3
+-- (中心から左右に約20px)を上限に asin(20/127.5)≈9度でクランプする。
+local NECK_ROT_MAX_DEG = 9.0
 -- 傾きのばね。減衰を臨界(2*sqrt(TILT_SPRING)≈12.6)より弱くして、
 -- 目標を通り過ぎて「ゆらっ」と揺り戻すオーバーシュートを出す(映像の質感)。
 local TILT_SPRING = 40.0
 local TILT_DAMP   = 8.0
 -- 常時アイドル揺れ。周期の違う正弦波を2つ重ね、機械的な単振動に見えないようにする。
-local IDLE_SWAY_DEG   = 1.6
-local IDLE_SWAY_FREQ  = 0.13   -- 約7.7秒周期
-local IDLE_SWAY_DEG2  = 0.9
-local IDLE_SWAY_FREQ2 = 0.047  -- 約21秒周期
+-- 映像の「ゆらゆら」の主成分。速いほう(約4.5秒周期)が見た目のリズムを作り、
+-- 遅いほう(約13秒周期)が揺れ幅の波(大きく揺れる時間帯・静かな時間帯)を作る。
+local IDLE_SWAY_DEG   = 4.2
+local IDLE_SWAY_FREQ  = 0.22   -- 約4.5秒周期
+local IDLE_SWAY_DEG2  = 1.8
+local IDLE_SWAY_FREQ2 = 0.075  -- 約13秒周期
+-- 喋っている間はアイドル揺れを増幅する(映像では発話中ほど大きくゆらゆらする)。
+-- 揺れ幅 = idle * (1 + lipEnv * IDLE_SWAY_TALK_BOOST)。最大音量で約1.8倍。
+local IDLE_SWAY_TALK_BOOST = 0.8
 -- 発話バウンス。映像では喋りに合わせて体全体が小刻みに弾む。
 -- 目標 = -(音量エンベロープ or aiBounce) * BOUNCE_AMP を弱減衰ばねで追う。
 local BOUNCE_AMP    = 16.0  -- 音量=1のときの持ち上がり量(px)
@@ -320,7 +357,11 @@ local BHAIR_Y_FOLLOW   = 0.8   -- 頭の縦移動(振り向き縦・うなずき
 --   [26-29] Center Back Locks 1〜4(後ろ髪・中央、毛量が多く重め)
 --   [30-33] Right Headear 1〜4(獣耳・右。髪ではないのでよく揺れる/跳ねる)
 --   [34-37] Left Headear 1〜4(獣耳・左)
-local HAIR_COUNT = 37
+--   [38-39] Right Arm 1〜2(腕・右。肩→肘。topwear のメッシュを変形させる)
+--   [40-41] Left Arm 1〜2(腕・左)
+-- 腕(⑭)も髪と同じ振り子physicsで揺らす。腕は体に付いた重い部位なので、髪より
+-- 反応(慣性)を弱く・減衰を強く・可動域を狭くして「体が動くと少しだけ横に揺れる」程度にする。
+local HAIR_COUNT = 41
 
 -- 各ボーンの静止回転(度)。Riveエディタでの実測値で、揺れはここからの相対で加算する。
 local HAIR_BASE_ROT: {number} = {
@@ -361,6 +402,10 @@ local HAIR_BASE_ROT: {number} = {
       6.300381386996745,   -- [35] Left Headear 2
      -5.911752823069244,   -- [36] Left Headear 3
     -13.15626138289343,    -- [37] Left Headear 4
+    108.97040896189253,    -- [38] Right Arm 1 (肩)
+      4.658949626925907,   -- [39] Right Arm 2 (肘)
+     72.1107057096501,     -- [40] Left Arm 1 (肩)
+     -3.912141204427345,   -- [41] Left Arm 2 (肘)
 }
 
 -- 各セグメントの親(0 = 頭に直結)。親の角速度がそのまま子への慣性入力になるので、
@@ -372,6 +417,8 @@ local HAIR_PARENT: {number} = {
     0, 26, 27, 28,  -- [26-29] Center Back Locks 1→2→3→4
     0, 30, 31, 32,  -- [30-33] Right Headear 1→2→3→4
     0, 34, 35, 36,  -- [34-37] Left Headear 1→2→3→4
+    0, 38,          -- [38-39] Right Arm 1→2(肩→肘)
+    0, 40,          -- [40-41] Left Arm 1→2
 }
 
 -- 頭の動きを受け取る向き。後ろ髪・獣耳は前髪と逆方向に振れるのが自然
@@ -384,6 +431,10 @@ local HAIR_DRIVE_SIGN: {number} = {
     -1, 1, 1, 1,  -- [26-29] Center Back Locks
     -1, 1, 1, 1,  -- [30-33] Right Headear
     -1, 1, 1, 1,  -- [34-37] Left Headear
+    -- 腕は前髪と同じく「体が動いた方向に取り残される」ので +1。
+    -- 実際に見て揺れる向きが逆だったら、根本(38/40)を -1 にすれば反転する。
+    1, 1,         -- [38-39] Right Arm
+    1, 1,         -- [40-41] Left Arm
 }
 
 -- チェーン内の位置(1=根本側 〜 4=毛先)ごとのばね/減衰/慣性/可動域。
@@ -430,6 +481,10 @@ local HAIR_LENGTH: {number} = {
     166.60840557140088,  -- [35] Left Headear 2
     170.0809209210052,   -- [36] Left Headear 3
     101.87316145062523,  -- [37] Left Headear 4
+    272.1880532203731,   -- [38] Right Arm 1
+    140.4806739154264,   -- [39] Right Arm 2
+    267.1008746230037,   -- [40] Left Arm 1
+    138.6165684290069,   -- [41] Left Arm 2
 }
 
 -- ばね定数: 長いボーンほど元の角度へ戻ろうとする力を強くする(ボーン自体の長さに比例)。
@@ -450,6 +505,12 @@ HAIR_STIFFNESS[32] = 6   -- Right Headear 3
 HAIR_STIFFNESS[33] = 4   -- Right Headear 4
 HAIR_STIFFNESS[36] = 6   -- Left Headear 3
 HAIR_STIFFNESS[37] = 4   -- Left Headear 4
+-- 腕は長さ比例だと 272*0.2≈54 と極端に硬くなってしまうので、個別に指定する。
+-- 髪より硬め(=すぐ元の位置に戻る)にして、揺れが尾を引かないようにする。
+HAIR_STIFFNESS[38] = 30  -- Right Arm 1 (肩)
+HAIR_STIFFNESS[39] = 22  -- Right Arm 2 (肘)
+HAIR_STIFFNESS[40] = 28  -- Left Arm 1 (左右で微妙に変えて完全同期を避ける)
+HAIR_STIFFNESS[41] = 20  -- Left Arm 2
 
 -- 減衰・慣性・可動域はチェーン内の位置(1=根本側 〜 4=毛先)で決める。
 local HAIR_DAMPING: {number}   = table.clone(repeat4(8, 5, 4, 2.5))
@@ -504,6 +565,16 @@ table.insert(HAIR_DAMPING, 1.8)  -- [36] Left Headear 3 (位置3、先端寄り)
 table.insert(HAIR_INERTIA, 10.5)
 table.insert(HAIR_DAMPING, 1.2)  -- [37] Left Headear 4 (位置4、先端)
 table.insert(HAIR_INERTIA, 10.5)
+-- 腕: 髪と違って重い部位なので、慣性(反応量)は髪の 1/3 程度・減衰は強めにして、
+-- 体が動いたときに「ゆっくり少しだけ遅れてついてくる」動きにする。
+table.insert(HAIR_DAMPING, 7)    -- [38] Right Arm 1 (肩)
+table.insert(HAIR_INERTIA, 2.0)
+table.insert(HAIR_DAMPING, 5)    -- [39] Right Arm 2 (肘。肩より少ししなる)
+table.insert(HAIR_INERTIA, 2.2)
+table.insert(HAIR_DAMPING, 6.5)  -- [40] Left Arm 1 (肩)
+table.insert(HAIR_INERTIA, 1.9)
+table.insert(HAIR_DAMPING, 4.6)  -- [41] Left Arm 2 (肘)
+table.insert(HAIR_INERTIA, 2.1)
 
 -- 親の動きが子へ「伝わる速さ」。値が大きいほど親の動きにほぼ即座に反応し、
 -- 小さいほど反応が遅れる(=伝わる力が弱まって遅く届く)。根本は速く、毛先ほど遅くする。
@@ -550,6 +621,16 @@ table.insert(HAIR_DRIVE_SMOOTH, 1.0)   -- [36] Left Headear 3 (位置3)
 table.insert(HAIR_MAX_ANGLE, 32)
 table.insert(HAIR_DRIVE_SMOOTH, 0.45)  -- [37] Left Headear 4 (位置4)
 table.insert(HAIR_MAX_ANGLE, 40)
+-- 腕: 「少しだけ横揺れ」にしたいので可動域を数度に絞る(髪は10〜40度)。
+-- 肘は肩より一拍遅れて・少し大きく振れるようにする。
+table.insert(HAIR_DRIVE_SMOOTH, 2.0)   -- [38] Right Arm 1 (肩)
+table.insert(HAIR_MAX_ANGLE, 3.5)
+table.insert(HAIR_DRIVE_SMOOTH, 0.9)   -- [39] Right Arm 2 (肘。遅れて効く)
+table.insert(HAIR_MAX_ANGLE, 5.0)
+table.insert(HAIR_DRIVE_SMOOTH, 1.9)   -- [40] Left Arm 1 (肩)
+table.insert(HAIR_MAX_ANGLE, 3.2)
+table.insert(HAIR_DRIVE_SMOOTH, 0.85)  -- [41] Left Arm 2 (肘)
+table.insert(HAIR_MAX_ANGLE, 4.6)
 
 -- 同じ位置(例: B2)でもチェーンによって実際のボーン長は違う(B2はA2よりだいぶ長い、等)のに
 -- ここまでの設定は位置だけで決めていたため、全部同じ動きに見えていた。
@@ -566,6 +647,8 @@ local HAIR_LENGTH_RATIO: {number} = {
     1.0, 1.0, 1.0, 1.0,            -- Center Back Locks 1-4(同上)
     1.0, 1.0, 1.0, 1.0,            -- Right Headear 1-4(同上、専用プロファイルで調整済み)
     1.0, 1.0, 1.0, 1.0,            -- Left Headear 1-4(同上)
+    1.0, 1.0,                      -- Right Arm 1-2(同上。上の値をそのまま使いたいので補正なし)
+    1.0, 1.0,                      -- Left Arm 1-2(同上)
 }
 -- 比率をそのまま使うと差が7〜30%程度にしかならず体感できないため、3乗して差を強く増幅する
 -- (比率0.7〜1.4 → 3乗で約0.33〜2.7倍まで広がる)。
@@ -671,6 +754,9 @@ do
     for c = 1, 2 do  -- [30-37] Right/Left Headear
         for p = 1, 4 do table.insert(HAIR_GRAV_FRAC, earFrac[p]) end
     end
+    -- [38-41] 腕は頭ではなく体(topwear)に付いていて、体と一緒に傾くのが自然
+    -- (髪のように「毛先だけ下を向く」必要がない)ので、重力補償はしない。
+    for i = 1, 4 do table.insert(HAIR_GRAV_FRAC, 0.0) end
 end
 
 -- turnX(-1〜1)の変化速度を「度/秒」相当へ換算する倍率。全体の揺れ量はここで一括調整できる。
@@ -771,17 +857,15 @@ local function updateBreathing(self: CharacterAnimation, seconds: number): numbe
     local breathY = -math.sin(self.breathTime * math.tau * BREATH_SPEED) * BREATH_AMP
     -- 発話バウンス(⑨)は呼吸と違い体全体が同じ量だけ弾むので、係数をかけずに全部へ足す
     local bounceY = self.bounceY
-    -- 後ろ髪と首の Y は振り向き・うなずき成分も要るので updateBodyFollow で書く
+    -- topwear/eri/wing/tail・後ろ髪・首の Y は振り向き・うなずき成分も要るので
+    -- updateBodyFollow で書く(BODY_Y_FOLLOW・NECK_Y_FOLLOW・BHAIR_Y_FOLLOW)
     self.breathY = breathY
-    if self.vmTopwearY  then self.vmTopwearY.value  = BASE_TOPWEAR_Y + breathY       + bounceY end
-    -- eri(襟)は topwear と同じ服なので、topwear とまったく同じ量だけ動かす
-    if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + breathY       + bounceY end
-    if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + breathY       + bounceY end
-    if self.vmTailY     then self.vmTailY.value     = BASE_TAIL_Y    + breathY       + bounceY end
     -- face 画像は頭ごと動くので自身は動かさない(バインド済みなので、書かないと
     -- ViewModelインスタンスの保存値に飛んでしまう。基準値を毎フレーム書いて固定する)
     if self.vmFaceX     then self.vmFaceX.value     = BASE_FACE_X                    end
     if self.vmFaceY     then self.vmFaceY.value     = BASE_FACE_Y                    end
+    -- 胴体固定ボーンも同様に基準値で固定する(⑭。腕だけが揺れ、胴体は動かないようにする)
+    if self.vmBodyRootRot then self.vmBodyRootRot.value = BASE_BODY_ROOT_ROT         end
     return breathY + bounceY
 end
 
@@ -873,6 +957,8 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     end
     local idle = math.sin(self.breathTime * math.tau * IDLE_SWAY_FREQ) * IDLE_SWAY_DEG
         + math.sin(self.breathTime * math.tau * IDLE_SWAY_FREQ2 + 1.7) * IDLE_SWAY_DEG2
+    -- 発話中はアイドル揺れを増幅(映像では喋っているときほど大きくゆらゆらする)
+    idle *= 1.0 + self.lipEnv * IDLE_SWAY_TALK_BOOST
     local tiltTarget = tiltInput * HEAD_TILT_MAX + hx * TURN_TILT_DEG + idle
     local dt = math.min(seconds, HAIR_MAX_STEP)
     local tiltAccel = (tiltTarget - self.tiltDeg) * TILT_SPRING - self.tiltVel * TILT_DAMP
@@ -907,11 +993,22 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     -- 体・首: 頭の振り向きにつられて傾く
     if self.vmBodyX     then self.vmBodyX.value     = BASE_BODY_X  + hx * BODY_X            end
     if self.vmNeckX     then self.vmNeckX.value     = BASE_NECK_X  + hx * NECK_X            end
+    -- 体(topwear/eri/wing/tail)の縦。頭が見上げ/見下ろし・うなずきで上下すると、
+    -- 体もその一部(BODY_Y_FOLLOW)だけついてくる(参照映像の「顔が上がると体もついてくる」動き)。
+    local bodyFollowY = (hy * HEAD_Y + self.nodY) * BODY_Y_FOLLOW
+    if self.vmTopwearY  then self.vmTopwearY.value  = BASE_TOPWEAR_Y + self.breathY + self.bounceY + bodyFollowY end
+    if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + self.breathY + self.bounceY + bodyFollowY end
+    if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + self.breathY + self.bounceY + bodyFollowY end
+    if self.vmTailY     then self.vmTailY.value     = BASE_TAIL_Y    + self.breathY + self.bounceY + bodyFollowY end
     -- 首の縦は頭とまったく同じ量だけ動かす(あご下に隙間ができないように)。
     -- 呼吸・バウンスは頭も同じ量を受けているので、ここで頭の式と揃える。
     if self.vmNeckY     then
         self.vmNeckY.value = BASE_NECK_Y + self.breathY + self.bounceY
             + (hy * HEAD_Y + self.nodY) * NECK_Y_FOLLOW
+    end
+    -- 首の回転。頭と同じ角度を書いて、大きく傾けても首から顔が離れて見えないようにする
+    if self.vmNeckRot   then
+        self.vmNeckRot.value = math.clamp(self.tiltDeg * NECK_TILT_RATIO, -NECK_ROT_MAX_DEG, NECK_ROT_MAX_DEG)
     end
 end
 
@@ -1275,8 +1372,10 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmBackHairX  = vm:getNumber("backHairX")
     self.vmBackHairY  = vm:getNumber("backHairY")
     self.vmBackHairRot = vm:getNumber("backHairRot")
+    self.vmBodyRootRot = vm:getNumber("bodyRootRot")
     self.vmNeckX      = vm:getNumber("neckX")
     self.vmNeckY      = vm:getNumber("neckY")
+    self.vmNeckRot    = vm:getNumber("neckRot")
     self.vmTopwearY   = vm:getNumber("topwearY")
     self.vmNoseX      = vm:getNumber("noseX")
     self.vmNoseY      = vm:getNumber("noseY")
@@ -1311,6 +1410,8 @@ function init(self: CharacterAnimation, context: Context): boolean
         vm:getNumber("backCenter1Rot"), vm:getNumber("backCenter2Rot"), vm:getNumber("backCenter3Rot"), vm:getNumber("backCenter4Rot"),
         vm:getNumber("rightEar1Rot"), vm:getNumber("rightEar2Rot"), vm:getNumber("rightEar3Rot"), vm:getNumber("rightEar4Rot"),
         vm:getNumber("leftEar1Rot"), vm:getNumber("leftEar2Rot"), vm:getNumber("leftEar3Rot"), vm:getNumber("leftEar4Rot"),
+        vm:getNumber("rightArm1Rot"), vm:getNumber("rightArm2Rot"),
+        vm:getNumber("leftArm1Rot"), vm:getNumber("leftArm2Rot"),
     }
     self.vmEyesDefault = vm:getNumber("eyesDefault")
     self.vmBlinkFrames = {
@@ -1360,6 +1461,7 @@ function init(self: CharacterAnimation, context: Context): boolean
     if self.vmHeadRot then self.vmHeadRot.value = 0 end
     if self.vmBodyRot then self.vmBodyRot.value = 0 end
     if self.vmBackHairRot then self.vmBackHairRot.value = 0 end
+    if self.vmNeckRot then self.vmNeckRot.value = 0 end
     self.hairAngles = {}
     self.hairVels   = {}
     self.hairVelsPrev = {}
@@ -1528,7 +1630,8 @@ return function(): Node<CharacterAnimation>
         vmBodyX = nil,
         vmBackHairX = nil, vmBackHairY = nil,
         vmBackHairRot = nil,
-        vmNeckX = nil, vmNeckY = nil,
+        vmBodyRootRot = nil,
+        vmNeckX = nil, vmNeckY = nil, vmNeckRot = nil,
         vmTopwearY = nil,
         vmNoseX = nil, vmNoseY = nil,
         vmMouthX = nil, vmMouthY = nil,
