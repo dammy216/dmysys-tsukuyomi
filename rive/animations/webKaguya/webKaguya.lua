@@ -257,6 +257,10 @@ local EYE_LERP_SPEED   = 5.0    -- 追従の滑らかさ(高いほど俊敏)
 local TURN_REACH = 900.0
 -- パーツごとの最大移動量(px)。顔サイズ 320x421 を基準に前方ほど大きく動かして奥行きを出す。
 local HEAD_X,  HEAD_Y  = 22.0, 14.0  -- 頭グループ全体(顔幅の約7% / 顔高の約3.3%)
+-- 下を向く(hy>0)ときだけ、頭・鼻・口・前髪・獣耳・後ろ髪・首・体の縦移動量を
+-- まとめて増幅する。参照映像は見下ろしたときの動きが見上げより大きかったため。
+-- 見上げ(hy<0)側は変えない(1.0倍のまま)。
+local DOWN_Y_BOOST     = 1.7
 local NOSE_X,  NOSE_Y  = 11.0,  7.0  -- 鼻(最前面: 頭移動に上乗せ = 頭の50%)
 local MOUTH_X, MOUTH_Y =  7.0,  4.0  -- 口(頭の約32%)
 local HAIR_X,  HAIR_Y  = 10.0,  6.0  -- 前髪(頭の約45%)
@@ -273,8 +277,9 @@ local NECK_Y_FOLLOW    =  1.0
 -- 体(topwear/eri/wing/tail)の縦追従。以前は呼吸・発話の弾みでしか上下せず、
 -- 見上げ/見下ろし・うなずきで頭が上下しても体はついてこなかった
 -- (「顔の動きに首しかついてきていない」の原因)。参照映像では顔が上がると
--- 体もついてくるので、頭の縦移動の一部(首より控えめ)を体にも足す。
-local BODY_Y_FOLLOW    =  0.4
+-- 体もついてくるので、頭の縦移動の一部を体にも足す。「もっと追従するように」との
+-- 指定で BODY_X・BODY_TILT_RATIO と揃えて6割に引き上げた。元0.4。
+local BODY_Y_FOLLOW    =  0.6
 -- 獣耳(headear)。前髪ほど顔の動きに追従させず、後ろ髪と同じ量・同じ向き(逆方向)にする。
 -- 頭グループの移動(22/14)には乗るので、実際の追従量は 22-7=15 と前髪(22+10=32)の半分弱になる。
 local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
@@ -945,6 +950,8 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     self.turnX += (targetTX - self.turnX) * a
     self.turnY += (targetTY - self.turnY) * a
     local hx, hy = self.turnX, self.turnY
+    -- 縦の追従だけ、下向きのときに DOWN_Y_BOOST 倍して見下ろしの動きを大きくする
+    local hyDown = if hy > 0.0 then hy * DOWN_Y_BOOST else hy
 
     -- ⑧ 頭の傾き(ロール)。映像の「ゆらゆら」の主成分。
     -- 指示(ドラッグ/AI) + 振り向き連動 + 常時アイドル揺れ を目標にして、
@@ -969,25 +976,25 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
 
     -- 中景: 頭グループ全体。縦は呼吸+バウンス(moveY)とうなずき(nodY)を合算する
     if self.vmHeadX     then self.vmHeadX.value     = BASE_HEAD_X  + hx * HEAD_X            end
-    if self.vmHeadY     then self.vmHeadY.value     = BASE_HEAD_Y  + moveY + hy * HEAD_Y + self.nodY end
+    if self.vmHeadY     then self.vmHeadY.value     = BASE_HEAD_Y  + moveY + hyDown * HEAD_Y + self.nodY end
     -- 前景: 頭の移動に上乗せ(前方ほど大きく → 奥行き)
     if self.vmNoseX     then self.vmNoseX.value     = BASE_NOSE_X  + hx * NOSE_X            end
-    if self.vmNoseY     then self.vmNoseY.value     = BASE_NOSE_Y  + hy * NOSE_Y            end
+    if self.vmNoseY     then self.vmNoseY.value     = BASE_NOSE_Y  + hyDown * NOSE_Y        end
     if self.vmMouthX    then self.vmMouthX.value    = BASE_MOUTH_X + hx * MOUTH_X           end
-    if self.vmMouthY    then self.vmMouthY.value    = BASE_MOUTH_Y + hy * MOUTH_Y           end
+    if self.vmMouthY    then self.vmMouthY.value    = BASE_MOUTH_Y + hyDown * MOUTH_Y       end
     if self.vmHairX     then self.vmHairX.value     = BASE_HAIR_X  + hx * HAIR_X            end
-    if self.vmHairY     then self.vmHairY.value     = BASE_HAIR_Y  + hy * HAIR_Y            end
+    if self.vmHairY     then self.vmHairY.value     = BASE_HAIR_Y  + hyDown * HAIR_Y        end
     -- 獣耳: hairs グループの子なので、親(前髪と共有)の移動分を引いて完全に切り離す。
     -- headear のワールド移動 = hairs の移動 + 自身のローカル値 なので、
     -- ローカルに (HEADEAR - HAIR) を入れると差し引きで純粋に hx * HEADEAR_X だけ動く。
     if self.vmHeadearX  then self.vmHeadearX.value  = BASE_HEADEAR_X + hx * (HEADEAR_X - HAIR_X) end
-    if self.vmHeadearY  then self.vmHeadearY.value  = BASE_HEADEAR_Y + hy * (HEADEAR_Y - HAIR_Y) end
+    if self.vmHeadearY  then self.vmHeadearY.value  = BASE_HEADEAR_Y + hyDown * (HEADEAR_Y - HAIR_Y) end
     -- 背景: 後ろ髪。横は逆方向に少し(振り向きで見えてくる)。
     -- head の子ではないので、頭の傾き(回転)・縦移動(振り向き縦+うなずき)にも明示的に追従させる。
     if self.vmBackHairX   then self.vmBackHairX.value   = BASE_BHAIR_X + hx * BHAIR_X       end
     if self.vmBackHairY   then
         self.vmBackHairY.value = BASE_BHAIR_Y + self.breathY * 0.6 + self.bounceY
-            + (hy * HEAD_Y + self.nodY) * BHAIR_Y_FOLLOW
+            + (hyDown * HEAD_Y + self.nodY) * BHAIR_Y_FOLLOW
     end
     if self.vmBackHairRot then self.vmBackHairRot.value = self.tiltDeg * BHAIR_TILT_RATIO   end
     -- 体・首: 頭の振り向きにつられて傾く
@@ -995,7 +1002,7 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     if self.vmNeckX     then self.vmNeckX.value     = BASE_NECK_X  + hx * NECK_X            end
     -- 体(topwear/eri/wing/tail)の縦。頭が見上げ/見下ろし・うなずきで上下すると、
     -- 体もその一部(BODY_Y_FOLLOW)だけついてくる(参照映像の「顔が上がると体もついてくる」動き)。
-    local bodyFollowY = (hy * HEAD_Y + self.nodY) * BODY_Y_FOLLOW
+    local bodyFollowY = (hyDown * HEAD_Y + self.nodY) * BODY_Y_FOLLOW
     if self.vmTopwearY  then self.vmTopwearY.value  = BASE_TOPWEAR_Y + self.breathY + self.bounceY + bodyFollowY end
     if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + self.breathY + self.bounceY + bodyFollowY end
     if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + self.breathY + self.bounceY + bodyFollowY end
@@ -1004,7 +1011,7 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     -- 呼吸・バウンスは頭も同じ量を受けているので、ここで頭の式と揃える。
     if self.vmNeckY     then
         self.vmNeckY.value = BASE_NECK_Y + self.breathY + self.bounceY
-            + (hy * HEAD_Y + self.nodY) * NECK_Y_FOLLOW
+            + (hyDown * HEAD_Y + self.nodY) * NECK_Y_FOLLOW
     end
     -- 首の回転。頭と同じ角度を書いて、大きく傾けても首から顔が離れて見えないようにする
     if self.vmNeckRot   then
