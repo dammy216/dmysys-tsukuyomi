@@ -11,6 +11,20 @@
 --          ④のリップシンクを動作確認する。事前解析した音量表を再生位置から引くだけなので、
 --          本番の singAmplitude 経路とは独立(テスト音声再生中はそちらを優先する)。
 --          本番運用では不要なため、確認が済んだら削除してよい。
+--       ⑧ 頭の傾き(ロール)＋常時アイドル揺れ。映像(超かぐや姫)の「ゆらゆら」の主成分。
+--          headRot(頭)・bodyRot(体)にばねで書き込み、傾き速度は髪・headearの揺れも駆動する。
+--       ⑨ 発話に合わせた体の弾み(バウンス)。lipEnv(音量エンベロープ)または aiBounce を
+--          目標にした弱減衰ばねで、喋ると体全体がぷるんと上下する。
+--       ⑩ AI操作入力。aiActive=1 のとき、以下を外部(AI/React)が書き込むと体を操作できる:
+--            aiTurnX/aiTurnY (-1〜1) 顔と視線の向き / aiTilt (-1〜1) 頭の傾き
+--            aiBounce (0〜1) 体の弾み / aiNod (0→1 の立ち上がりで1回うなずく)
+--          singAmplitude と併用すれば「喋りながら傾いて弾む」映像のような動きになる。
+--       ⑪ 動作確認用: 頭のあたりをドラッグすると頭がついてきて(傾き＋振り向き)、
+--          離すとばねで戻る。髪・headear が映像のように遅れて揺れるかを手で確かめられる。
+--       ⑫ 後ろ髪の追従: back hair は head の子ではないので、頭の傾き(backHairRot)と
+--          縦移動をスクリプトで明示的に追従させる。
+--       ⑬ 髪の重力補償: 頭をどれだけ傾けても、前髪・後ろ髪・headear の毛先が
+--          画面上で常に下を向くよう、各チェーンに -傾き を分配してばねの静止目標をずらす。
 --
 -- ■ 定数はすべて「かぐやベース」アートボードの実測値から算出している。
 --   ヤチヨ(WebYachiyo.lua)の数値をそのまま流用してはいけない(モデルの寸法・配置が違うため)。
@@ -55,6 +69,7 @@ type CharacterAnimation = {
     vmHeadX: Property<number>?, vmHeadY: Property<number>?,
     vmBodyX: Property<number>?,
     vmBackHairX: Property<number>?, vmBackHairY: Property<number>?,
+    vmBackHairRot: Property<number>?,  -- 後ろ髪の回転。頭の傾きに追従させる
     vmNeckX: Property<number>?, vmNeckY: Property<number>?,
     vmTopwearY: Property<number>?,
     vmWingY: Property<number>?, vmTailY: Property<number>?,  -- topwear と同じ服なので同じ量だけ動かす
@@ -63,7 +78,12 @@ type CharacterAnimation = {
     vmHairX: Property<number>?, vmHairY: Property<number>?,
     vmHeadearX: Property<number>?, vmHeadearY: Property<number>?,
     vmEriY: Property<number>?,
-    vmFaceY: Property<number>?,   -- 使わないが基準値を保持するために書く
+    vmFaceX: Property<number>?, vmFaceY: Property<number>?,  -- 使わないが基準値を保持するために書く
+    vmHeadRot: Property<number>?, vmBodyRot: Property<number>?,  -- 頭・体の傾き(ロール、度)
+    -- AI操作入力(aiActive=1 のとき有効。外部/React/AI が書き込む)
+    vmAiActive: Property<number>?,
+    vmAiTurnX: Property<number>?, vmAiTurnY: Property<number>?,
+    vmAiTilt: Property<number>?, vmAiBounce: Property<number>?, vmAiNod: Property<number>?,
     -- 髪(サイドロック)の慣性揺れ用。並びは HAIR_BASE_ROT と対応
     -- [1-4]=Right A1〜A4, [5-8]=Right B1〜B4, [9-12]=Left A1〜A4, [13-16]=Left B1〜B4
     vmHairRots: {Property<number>?},
@@ -80,6 +100,7 @@ type CharacterAnimation = {
     mouseX: number,
     mouseY: number,
     breathTime: number,
+    breathY: number,      -- 今フレームの呼吸オフセット(後ろ髪のY計算で使う)
     eyeOffsetX: number,
     eyeOffsetY: number,
     turnX: number,        -- 振り向き(横)のなめらかな値 (-1〜1)
@@ -91,6 +112,17 @@ type CharacterAnimation = {
     hairVels: {number},   -- 各セグメントの角速度(度/秒)
     hairVelsPrev: {number}, -- 1フレーム前の角速度(子が親を追いかける遅延を作るために使う)
     hairDriveSmooth: {number}, -- 親からの入力を平滑化した値(毛先ほど強く遅らせるため)
+    -- 頭の傾き・弾み・うなずきの内部状態
+    tiltDeg: number,   -- 現在の頭の傾き(度)。ばねで目標へ追従する
+    tiltVel: number,   -- 傾きの角速度(度/秒)。髪の揺れの駆動にも使う
+    bounceY: number,   -- 体の弾みの現在オフセット(px、上が負)
+    bounceVel: number, -- 弾みの速度(px/秒)。髪の揺れの駆動にも使う
+    nodActive: boolean, nodT: number, nodY: number, nodVel: number, prevNodVal: number,
+    -- 頭ドラッグ(動作確認用)
+    grabbing: boolean,
+    grabOriginX: number, grabOriginY: number,   -- つかんだ瞬間のカーソル位置
+    grabStartTurnX: number, grabStartTurnY: number, -- つかんだ瞬間の振り向き量
+    grabTurnX: number, grabTurnY: number, grabTilt: number, -- ドラッグ中の目標値
     blinking: boolean,
     blinkT: number,       -- まばたき開始からの経過秒
     blinkTimer: number,   -- 次のまばたきまでの残り秒
@@ -194,7 +226,7 @@ local BASE_HEADEAR_X, BASE_HEADEAR_Y = 0.94, -1.5  -- hairs グループ相対
 local BASE_ERI_Y                 =  19.5
 local BASE_WING_Y                =   0.0   -- wing(topwear と同じ服なので同じ量だけ動かす)
 local BASE_TAIL_Y                = 424.0   -- tail(同上)
-local BASE_FACE_Y                = -229.5
+local BASE_FACE_X, BASE_FACE_Y   =   4.5, -229.5
 
 -- 瞳の可動域。eyewhite と irides のサイズ差(＝白目の中で瞳が動ける余白)から決める。
 --   右目: (85-52)/2 = 16.5 [X], (65-56)/2 = 4.5 [Y]
@@ -221,9 +253,57 @@ local HAIR_X,  HAIR_Y  = 10.0,  6.0  -- 前髪(頭の約45%)
 local BHAIR_X          = -7.0        -- 後ろ髪(逆方向 → 振り向きで見えてくる)
 local BODY_X           =  8.0        -- 体(頭につられて傾く)
 local NECK_X           =  6.0        -- 首(体に上乗せ)
+-- 首の縦追従。頭は振り向き(縦)とうなずきで上下するが、首がついていかないと
+-- あご下に隙間ができる。首の上端はあごの裏、下端は topwear の裏に隠れているので、
+-- 頭の縦移動をそのまま(1.0)追従させても下端が襟から出ることはない。
+local NECK_Y_FOLLOW    =  1.0
 -- 獣耳(headear)。前髪ほど顔の動きに追従させず、後ろ髪と同じ量・同じ向き(逆方向)にする。
 -- 頭グループの移動(22/14)には乗るので、実際の追従量は 22-7=15 と前髪(22+10=32)の半分弱になる。
 local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
+
+--==========================================================================
+-- 頭の傾き(ロール)・弾み・うなずき・頭ドラッグ(映像「超かぐや姫」の動きの再現)
+--==========================================================================
+-- 頭の傾き。映像ではおおよそ ±10〜15度の範囲でゆらゆら傾く。
+local HEAD_TILT_MAX   = 12.0  -- aiTilt/ドラッグ = ±1 のときの頭の傾き(度)
+local TURN_TILT_DEG   = 4.0   -- 振り向き(turnX=±1)に連動して自然につく傾き(度)
+local BODY_TILT_RATIO = 0.35  -- 体は頭の何割傾くか(映像では体は頭より控えめに傾く)
+-- 傾きのばね。減衰を臨界(2*sqrt(TILT_SPRING)≈12.6)より弱くして、
+-- 目標を通り過ぎて「ゆらっ」と揺り戻すオーバーシュートを出す(映像の質感)。
+local TILT_SPRING = 40.0
+local TILT_DAMP   = 8.0
+-- 常時アイドル揺れ。周期の違う正弦波を2つ重ね、機械的な単振動に見えないようにする。
+local IDLE_SWAY_DEG   = 1.6
+local IDLE_SWAY_FREQ  = 0.13   -- 約7.7秒周期
+local IDLE_SWAY_DEG2  = 0.9
+local IDLE_SWAY_FREQ2 = 0.047  -- 約21秒周期
+-- 発話バウンス。映像では喋りに合わせて体全体が小刻みに弾む。
+-- 目標 = -(音量エンベロープ or aiBounce) * BOUNCE_AMP を弱減衰ばねで追う。
+local BOUNCE_AMP    = 16.0  -- 音量=1のときの持ち上がり量(px)
+local BOUNCE_SPRING = 90.0
+local BOUNCE_DAMP   = 9.0
+-- うなずき(aiNod が 0→1 に立ち上がると1回)。sin半波で下げて戻す。
+local NOD_TIME = 0.45  -- 1回のうなずきにかける時間(秒)
+local NOD_AMP  = 26.0  -- 頭の下がり量(px)
+-- 頭ドラッグ(動作確認用)。頭の中心あたりをつかむとドラッグモードに入る。
+-- event.position は EYE_CENTER_X/Y=(0,0) と同じ座標系(=目の中心が原点)。
+-- 顔は目の中心からやや下(あご側)に広がるので、判定の中心を少し下にずらし、
+-- 半径は顔+前髪がまるごと入るくらい広めにしておく(掴みやすさ優先)。
+local GRAB_CENTER_X, GRAB_CENTER_Y = 0.0, 60.0
+local GRAB_RADIUS     = 380.0  -- 当たり判定の半径(顔まわり全体をカバー)
+local GRAB_RANGE      = 300.0  -- この距離ドラッグすると振り向き±1(最大)
+local GRAB_TILT_RANGE = 260.0  -- この距離の横ドラッグで傾き±1(最大)
+local GRAB_LERP_SPEED = 14.0   -- ドラッグ中の追従速度(通常より俊敏に手についてくる)
+-- 傾き・弾みの速度を髪物理の駆動信号(headVelX 相当)へ混ぜる倍率。
+-- これにより頭を傾けた/弾んだときも髪と headear が映像のように遅れて揺れる。
+local TILT_HAIR_DRIVE   = 0.5
+local BOUNCE_HAIR_DRIVE = 0.12
+-- 後ろ髪の追従。back hair は head の子ではない(root 直下の別グループ)ので、
+-- 頭の傾き・縦移動をスクリプトで明示的に追従させる。
+-- 回転ピボットは back hair(954.8, 960.7)と head(959.5, 958)がほぼ同位置なので、
+-- 同じ角度を書けば頭と一体に見える。
+local BHAIR_TILT_RATIO = 1.0   -- 頭の傾きに対する後ろ髪の回転比
+local BHAIR_Y_FOLLOW   = 0.8   -- 頭の縦移動(振り向き縦・うなずき)に対する追従比
 
 --==========================================================================
 -- 髪(サイドロック)の慣性揺れ(Live2D 風の振り子物理)のパラメータ
@@ -557,6 +637,42 @@ HAIR_STIFFNESS[14]    = 18   -- Left Locks B2
 HAIR_DAMPING[14]       = 3.2
 HAIR_MAX_ANGLE[14]     = 24
 
+-- 映像(超かぐや姫)に合わせた headear の追調整:
+-- 映像では長い耳が根本からゆったり大きくスイングし、先端が遅れてしなってついてくる。
+-- 位置2(根本の次)のバネを弱めて根本側からも曲がるようにし、可動域を広げる。
+-- 根本の減衰も少し軽くして、頭が止まったあとの残揺れを長引かせる。
+HAIR_STIFFNESS[31] = 10   -- Right Headear 2
+HAIR_MAX_ANGLE[31] = 20
+HAIR_STIFFNESS[35] = 10   -- Left Headear 2
+HAIR_MAX_ANGLE[35] = 19
+HAIR_DAMPING[30]   = 5.5  -- Right Headear 1 (根本)
+HAIR_DAMPING[34]   = 5.0  -- Left Headear 1 (左右で微妙に変えて完全同期を避ける)
+
+-- 重力補償: 頭(または後ろ髪)が傾いても、髪の毛先が画面上で常に下を向くようにする。
+-- 各チェーンのボーンに親の傾き -θ を分配して打ち消す(合計で -θ になるよう根本ほど大きく)。
+-- ボーンの回転は親から子へ累積するので、チェーン合計が -θ なら毛先のワールド回転は
+-- 頭がどれだけ傾いても静止時と同じ(=毛先は下向きのまま)になる。
+-- ばねの静止目標をこの角度へずらす方式なので、揺れの物理はそのまま生きる。
+local function grav4(a: number, b: number, c: number, d: number): {number}
+    return {a, b, c, d}
+end
+local HAIR_GRAV_FRAC: {number} = {}
+do
+    local sideFrac = grav4(0.40, 0.30, 0.20, 0.10)  -- サイドロック(合計1.0=完全補償)
+    local backFrac = grav4(0.40, 0.30, 0.20, 0.10)  -- 後ろ髪(同上)
+    local earFrac  = grav4(0.35, 0.30, 0.20, 0.15)  -- headear(同上。先端寄りにも少し残す)
+    for c = 1, 4 do  -- [1-16] Right A/B, Left A/B
+        for p = 1, 4 do table.insert(HAIR_GRAV_FRAC, sideFrac[p]) end
+    end
+    table.insert(HAIR_GRAV_FRAC, 0.25)  -- [17] Bangs Tip(前髪は短く頭に付くので部分補償)
+    for c = 1, 3 do  -- [18-29] Right/Left/Center Back Locks
+        for p = 1, 4 do table.insert(HAIR_GRAV_FRAC, backFrac[p]) end
+    end
+    for c = 1, 2 do  -- [30-37] Right/Left Headear
+        for p = 1, 4 do table.insert(HAIR_GRAV_FRAC, earFrac[p]) end
+    end
+end
+
 -- turnX(-1〜1)の変化速度を「度/秒」相当へ換算する倍率。全体の揺れ量はここで一括調整できる。
 local HEAD_VEL_SCALE  = 20.0
 -- 振り向き速度の平滑化(高いほど俊敏に反応)。カーソルが飛んだときの跳ねを抑える。
@@ -653,30 +769,45 @@ local function updateBreathing(self: CharacterAnimation, seconds: number): numbe
     self.breathTime += seconds
     -- 正弦波: 上方向(-Y)がピーク
     local breathY = -math.sin(self.breathTime * math.tau * BREATH_SPEED) * BREATH_AMP
-    -- 頭の Y は ② の振り向き成分と合算するので、ここでは体側だけ書き込む
-    if self.vmBackHairY then self.vmBackHairY.value = BASE_BHAIR_Y   + breathY * 0.6 end
-    if self.vmNeckY     then self.vmNeckY.value     = BASE_NECK_Y    + breathY       end
-    if self.vmTopwearY  then self.vmTopwearY.value  = BASE_TOPWEAR_Y + breathY       end
+    -- 発話バウンス(⑨)は呼吸と違い体全体が同じ量だけ弾むので、係数をかけずに全部へ足す
+    local bounceY = self.bounceY
+    -- 後ろ髪と首の Y は振り向き・うなずき成分も要るので updateBodyFollow で書く
+    self.breathY = breathY
+    if self.vmTopwearY  then self.vmTopwearY.value  = BASE_TOPWEAR_Y + breathY       + bounceY end
     -- eri(襟)は topwear と同じ服なので、topwear とまったく同じ量だけ動かす
-    if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + breathY       end
-    if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + breathY       end
-    if self.vmTailY     then self.vmTailY.value     = BASE_TAIL_Y    + breathY       end
-    -- face 画像は頭ごと動くので自身は動かさない(既定値に飛ばないよう基準値を保持)
+    if self.vmEriY      then self.vmEriY.value      = BASE_ERI_Y     + breathY       + bounceY end
+    if self.vmWingY     then self.vmWingY.value     = BASE_WING_Y    + breathY       + bounceY end
+    if self.vmTailY     then self.vmTailY.value     = BASE_TAIL_Y    + breathY       + bounceY end
+    -- face 画像は頭ごと動くので自身は動かさない(バインド済みなので、書かないと
+    -- ViewModelインスタンスの保存値に飛んでしまう。基準値を毎フレーム書いて固定する)
+    if self.vmFaceX     then self.vmFaceX.value     = BASE_FACE_X                    end
     if self.vmFaceY     then self.vmFaceY.value     = BASE_FACE_Y                    end
-    return breathY
+    return breathY + bounceY
 end
 
 --==========================================================================
 -- ②-a カーソル追従(近距離): 目だけを動かす
 --==========================================================================
 local function updateEyeFollow(self: CharacterAnimation, seconds: number)
-    local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
-    -- 中心から EYE_REACH までで追従量が 0→1 に上がりきる
-    local reach = math.min(dist / EYE_REACH, 1.0)
-    local targetX = ux * reach * EYE_MAX_OFFSET_X
-    -- uy < 0 はカーソルが中心より上(Yは下が正) → 上方向の可動域を使う
-    local yRange = if uy < 0 then EYE_MAX_OFFSET_Y_UP else EYE_MAX_OFFSET_Y_DOWN
-    local targetY = uy * reach * yRange
+    local targetX: number
+    local targetY: number
+    local aiOn = self.vmAiActive ~= nil and self.vmAiActive.value > 0.5
+    if aiOn and not self.grabbing then
+        -- AI操作モード(⑩): aiTurnX/Y を視線の向きとして使う(カーソルは無視)
+        local nx = math.clamp(if self.vmAiTurnX then self.vmAiTurnX.value else 0.0, -1.0, 1.0)
+        local ny = math.clamp(if self.vmAiTurnY then self.vmAiTurnY.value else 0.0, -1.0, 1.0)
+        targetX = nx * EYE_MAX_OFFSET_X
+        local yRangeAi = if ny < 0 then EYE_MAX_OFFSET_Y_UP else EYE_MAX_OFFSET_Y_DOWN
+        targetY = ny * yRangeAi
+    else
+        local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
+        -- 中心から EYE_REACH までで追従量が 0→1 に上がりきる
+        local reach = math.min(dist / EYE_REACH, 1.0)
+        targetX = ux * reach * EYE_MAX_OFFSET_X
+        -- uy < 0 はカーソルが中心より上(Yは下が正) → 上方向の可動域を使う
+        local yRange = if uy < 0 then EYE_MAX_OFFSET_Y_UP else EYE_MAX_OFFSET_Y_DOWN
+        targetY = uy * reach * yRange
+    end
 
     -- 目標オフセットへ滑らかに補間 (フレームレート非依存)
     local a = math.min(EYE_LERP_SPEED * seconds, 1.0)
@@ -706,20 +837,53 @@ end
 --==========================================================================
 -- ②-b カーソル追従(遠距離): 頭・体も一緒に振り向く(深度パララックス)
 --==========================================================================
-local function updateBodyFollow(self: CharacterAnimation, seconds: number, breathY: number)
-    local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
-    -- 目は EYE_REACH までで最大(②-a)。ここではそれを超えた分で「振り向き」を立ち上げる。
-    -- これが「中心付近は目だけ / 一定範囲を超えたら体も動く」の要。
-    local turnFrac = math.clamp((dist - EYE_REACH) / (TURN_REACH - EYE_REACH), 0.0, 1.0)
+local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY: number)
+    -- 目標の振り向き量(-1〜1)を決める。優先度: 頭ドラッグ(⑪) > AI操作(⑩) > カーソル追従
+    local targetTX: number
+    local targetTY: number
+    local lerpSpeed = EYE_LERP_SPEED
+    local aiOn = self.vmAiActive ~= nil and self.vmAiActive.value > 0.5
+    if self.grabbing then
+        targetTX, targetTY = self.grabTurnX, self.grabTurnY
+        lerpSpeed = GRAB_LERP_SPEED  -- 手についてくるよう俊敏に
+    elseif aiOn then
+        targetTX = math.clamp(if self.vmAiTurnX then self.vmAiTurnX.value else 0.0, -1.0, 1.0)
+        targetTY = math.clamp(if self.vmAiTurnY then self.vmAiTurnY.value else 0.0, -1.0, 1.0)
+    else
+        local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
+        -- 目は EYE_REACH までで最大(②-a)。ここではそれを超えた分で「振り向き」を立ち上げる。
+        -- これが「中心付近は目だけ / 一定範囲を超えたら体も動く」の要。
+        local turnFrac = math.clamp((dist - EYE_REACH) / (TURN_REACH - EYE_REACH), 0.0, 1.0)
+        targetTX, targetTY = ux * turnFrac, uy * turnFrac
+    end
 
-    local a = math.min(EYE_LERP_SPEED * seconds, 1.0)
-    self.turnX += (ux * turnFrac - self.turnX) * a
-    self.turnY += (uy * turnFrac - self.turnY) * a
+    local a = math.min(lerpSpeed * seconds, 1.0)
+    self.turnX += (targetTX - self.turnX) * a
+    self.turnY += (targetTY - self.turnY) * a
     local hx, hy = self.turnX, self.turnY
 
-    -- 中景: 頭グループ全体。縦は呼吸と合算する
+    -- ⑧ 頭の傾き(ロール)。映像の「ゆらゆら」の主成分。
+    -- 指示(ドラッグ/AI) + 振り向き連動 + 常時アイドル揺れ を目標にして、
+    -- 弱減衰ばねで「ゆらっ」とオーバーシュートしながら追従させる。
+    local tiltInput = 0.0
+    if self.grabbing then
+        tiltInput = self.grabTilt
+    elseif aiOn and self.vmAiTilt then
+        tiltInput = math.clamp(self.vmAiTilt.value, -1.0, 1.0)
+    end
+    local idle = math.sin(self.breathTime * math.tau * IDLE_SWAY_FREQ) * IDLE_SWAY_DEG
+        + math.sin(self.breathTime * math.tau * IDLE_SWAY_FREQ2 + 1.7) * IDLE_SWAY_DEG2
+    local tiltTarget = tiltInput * HEAD_TILT_MAX + hx * TURN_TILT_DEG + idle
+    local dt = math.min(seconds, HAIR_MAX_STEP)
+    local tiltAccel = (tiltTarget - self.tiltDeg) * TILT_SPRING - self.tiltVel * TILT_DAMP
+    self.tiltVel += tiltAccel * dt
+    self.tiltDeg += self.tiltVel * dt
+    if self.vmHeadRot then self.vmHeadRot.value = self.tiltDeg end
+    if self.vmBodyRot then self.vmBodyRot.value = self.tiltDeg * BODY_TILT_RATIO end
+
+    -- 中景: 頭グループ全体。縦は呼吸+バウンス(moveY)とうなずき(nodY)を合算する
     if self.vmHeadX     then self.vmHeadX.value     = BASE_HEAD_X  + hx * HEAD_X            end
-    if self.vmHeadY     then self.vmHeadY.value     = BASE_HEAD_Y  + breathY + hy * HEAD_Y  end
+    if self.vmHeadY     then self.vmHeadY.value     = BASE_HEAD_Y  + moveY + hy * HEAD_Y + self.nodY end
     -- 前景: 頭の移動に上乗せ(前方ほど大きく → 奥行き)
     if self.vmNoseX     then self.vmNoseX.value     = BASE_NOSE_X  + hx * NOSE_X            end
     if self.vmNoseY     then self.vmNoseY.value     = BASE_NOSE_Y  + hy * NOSE_Y            end
@@ -732,11 +896,23 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, breat
     -- ローカルに (HEADEAR - HAIR) を入れると差し引きで純粋に hx * HEADEAR_X だけ動く。
     if self.vmHeadearX  then self.vmHeadearX.value  = BASE_HEADEAR_X + hx * (HEADEAR_X - HAIR_X) end
     if self.vmHeadearY  then self.vmHeadearY.value  = BASE_HEADEAR_Y + hy * (HEADEAR_Y - HAIR_Y) end
-    -- 背景: 後ろ髪は逆方向に少し(振り向きで見えてくる)
-    if self.vmBackHairX then self.vmBackHairX.value = BASE_BHAIR_X + hx * BHAIR_X           end
+    -- 背景: 後ろ髪。横は逆方向に少し(振り向きで見えてくる)。
+    -- head の子ではないので、頭の傾き(回転)・縦移動(振り向き縦+うなずき)にも明示的に追従させる。
+    if self.vmBackHairX   then self.vmBackHairX.value   = BASE_BHAIR_X + hx * BHAIR_X       end
+    if self.vmBackHairY   then
+        self.vmBackHairY.value = BASE_BHAIR_Y + self.breathY * 0.6 + self.bounceY
+            + (hy * HEAD_Y + self.nodY) * BHAIR_Y_FOLLOW
+    end
+    if self.vmBackHairRot then self.vmBackHairRot.value = self.tiltDeg * BHAIR_TILT_RATIO   end
     -- 体・首: 頭の振り向きにつられて傾く
     if self.vmBodyX     then self.vmBodyX.value     = BASE_BODY_X  + hx * BODY_X            end
     if self.vmNeckX     then self.vmNeckX.value     = BASE_NECK_X  + hx * NECK_X            end
+    -- 首の縦は頭とまったく同じ量だけ動かす(あご下に隙間ができないように)。
+    -- 呼吸・バウンスは頭も同じ量を受けているので、ここで頭の式と揃える。
+    if self.vmNeckY     then
+        self.vmNeckY.value = BASE_NECK_Y + self.breathY + self.bounceY
+            + (hy * HEAD_Y + self.nodY) * NECK_Y_FOLLOW
+    end
 end
 
 --==========================================================================
@@ -757,10 +933,20 @@ local function updateHairPhysics(self: CharacterAnimation, seconds: number)
     local dt = math.min(seconds, HAIR_MAX_STEP)
     if dt <= 0 then return end
 
-    -- 頭の振り向き速度(turnX の時間微分)を求めて平滑化する
-    local rawVel = math.clamp((self.turnX - self.prevTurnX) / dt * HEAD_VEL_SCALE, -HEAD_VEL_MAX, HEAD_VEL_MAX)
+    -- 頭の振り向き速度(turnX の時間微分)に、傾き(⑧)・弾み/うなずき(⑨)の速度も混ぜる。
+    -- どの動きでも髪と headear が映像のように遅れて揺れるようになる。
+    local rawVel = math.clamp(
+        (self.turnX - self.prevTurnX) / dt * HEAD_VEL_SCALE
+            + self.tiltVel * TILT_HAIR_DRIVE
+            + (self.bounceVel + self.nodVel) * BOUNCE_HAIR_DRIVE,
+        -HEAD_VEL_MAX, HEAD_VEL_MAX)
     self.prevTurnX = self.turnX
     self.headVelX += (rawVel - self.headVelX) * math.min(HEAD_VEL_SMOOTH * dt, 1.0)
+
+    -- 重力補償の基準角。前髪・headear は head の子なので頭の傾きを、
+    -- 後ろ髪チェーン[18-29]は back hair 自体の回転(頭に追従して書いた値)を打ち消す。
+    local headTilt = self.tiltDeg
+    local backTilt = self.tiltDeg * BHAIR_TILT_RATIO
 
     for i = 1, HAIR_COUNT do
         -- 慣性の入力源: 頭に直結(親=0)なら頭の速度(今フレーム)、そうでなければ
@@ -774,18 +960,24 @@ local function updateHairPhysics(self: CharacterAnimation, seconds: number)
         self.hairDriveSmooth[i] += (rawDrive - self.hairDriveSmooth[i]) * math.min(HAIR_DRIVE_SMOOTH[i] * dt, 1.0)
         local driveVel = self.hairDriveSmooth[i]
 
+        -- 重力: ばねの静止目標を -傾き×分配率 にずらす。頭がどれだけ傾いても、
+        -- チェーン合計で傾きを打ち消し、毛先は画面上で常に下を向いたままになる。
+        local carrier = if i >= 18 and i <= 29 then backTilt else headTilt
+        local gravTarget = -carrier * HAIR_GRAV_FRAC[i]
+
         local accel = -driveVel * HAIR_INERTIA[i]
-            - self.hairAngles[i] * HAIR_STIFFNESS[i]
+            - (self.hairAngles[i] - gravTarget) * HAIR_STIFFNESS[i]
             - self.hairVels[i] * HAIR_DAMPING[i]
         local vel = self.hairVels[i] + accel * dt
         local angle = self.hairAngles[i] + vel * dt
 
-        -- 可動域の端では跳ね返らせず速度を殺す(髪が暴れて見えないように)
+        -- 可動域の端では跳ね返らせず速度を殺す(髪が暴れて見えないように)。
+        -- 可動域は重力目標を中心にとる(大きく傾けても補償分が可動域に食われないように)
         local limit = HAIR_MAX_ANGLE[i]
-        if angle > limit then
-            angle, vel = limit, 0.0
-        elseif angle < -limit then
-            angle, vel = -limit, 0.0
+        if angle > gravTarget + limit then
+            angle, vel = gravTarget + limit, 0.0
+        elseif angle < gravTarget - limit then
+            angle, vel = gravTarget - limit, 0.0
         end
 
         self.hairVels[i] = vel
@@ -798,6 +990,50 @@ local function updateHairPhysics(self: CharacterAnimation, seconds: number)
     for i = 1, HAIR_COUNT do
         self.hairVelsPrev[i] = self.hairVels[i]
     end
+end
+
+--==========================================================================
+-- ⑨ 発話バウンス: 音量(lipEnv)または aiBounce を目標にした弱減衰ばね
+--==========================================================================
+-- 映像では喋りに合わせて体全体が小刻みに弾む。音量エンベロープ(前フレームの値で十分)を
+-- そのまま使い、ばねの揺り戻しで「ぷるん」とした質感を出す。
+local function updateBounce(self: CharacterAnimation, seconds: number)
+    local dt = math.min(seconds, HAIR_MAX_STEP)
+    if dt <= 0 then return end
+    local amp = self.lipEnv  -- 喋っていれば自動で弾む
+    if self.vmAiBounce then
+        amp = math.max(amp, math.clamp(self.vmAiBounce.value, 0.0, 1.0))
+    end
+    local target = -amp * BOUNCE_AMP  -- 上方向(-Y)へ持ち上げる
+    local accel = (target - self.bounceY) * BOUNCE_SPRING - self.bounceVel * BOUNCE_DAMP
+    self.bounceVel += accel * dt
+    self.bounceY += self.bounceVel * dt
+end
+
+--==========================================================================
+-- ⑩-b うなずき: aiNod が 0→1 に立ち上がったら1回だけ、sin半波で頭を下げて戻す
+--==========================================================================
+local function updateNod(self: CharacterAnimation, seconds: number)
+    local v = if self.vmAiNod then self.vmAiNod.value else 0.0
+    if v > 0.5 and self.prevNodVal <= 0.5 then
+        self.nodActive = true
+        self.nodT = 0
+    end
+    self.prevNodVal = v
+
+    local prevY = self.nodY
+    if self.nodActive then
+        self.nodT += seconds
+        if self.nodT >= NOD_TIME then
+            self.nodActive = false
+            self.nodY = 0
+        else
+            self.nodY = math.sin(math.pi * self.nodT / NOD_TIME) * NOD_AMP
+        end
+    end
+    -- うなずきの速度は髪物理の駆動にも使う(頭を振ると耳・髪が揺れる)
+    local dt = math.min(seconds, HAIR_MAX_STEP)
+    self.nodVel = if dt > 0 then (self.nodY - prevY) / dt else 0.0
 end
 
 --==========================================================================
@@ -1038,6 +1274,7 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmBodyX      = vm:getNumber("bodyX")
     self.vmBackHairX  = vm:getNumber("backHairX")
     self.vmBackHairY  = vm:getNumber("backHairY")
+    self.vmBackHairRot = vm:getNumber("backHairRot")
     self.vmNeckX      = vm:getNumber("neckX")
     self.vmNeckY      = vm:getNumber("neckY")
     self.vmTopwearY   = vm:getNumber("topwearY")
@@ -1052,7 +1289,17 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmEriY       = vm:getNumber("eriY")
     self.vmWingY      = vm:getNumber("wingY")
     self.vmTailY      = vm:getNumber("tailY")
+    self.vmFaceX      = vm:getNumber("faceX")
     self.vmFaceY      = vm:getNumber("faceY")
+    self.vmHeadRot    = vm:getNumber("headRot")
+    self.vmBodyRot    = vm:getNumber("bodyRot")
+    -- AI操作入力(⑩)
+    self.vmAiActive   = vm:getNumber("aiActive")
+    self.vmAiTurnX    = vm:getNumber("aiTurnX")
+    self.vmAiTurnY    = vm:getNumber("aiTurnY")
+    self.vmAiTilt     = vm:getNumber("aiTilt")
+    self.vmAiBounce   = vm:getNumber("aiBounce")
+    self.vmAiNod      = vm:getNumber("aiNod")
     self.vmHairRots = {
         vm:getNumber("rightA1Rot"), vm:getNumber("rightA2Rot"), vm:getNumber("rightA3Rot"), vm:getNumber("rightA4Rot"),
         vm:getNumber("rightB1Rot"), vm:getNumber("rightB2Rot"), vm:getNumber("rightB3Rot"), vm:getNumber("rightB4Rot"),
@@ -1098,6 +1345,21 @@ function init(self: CharacterAnimation, context: Context): boolean
     -- 髪は静止状態(基準角度・速度0)から始める
     self.prevTurnX  = 0
     self.headVelX   = 0
+    -- 傾き・弾み・うなずき・ドラッグは静止状態から始める
+    self.tiltDeg   = 0
+    self.tiltVel   = 0
+    self.bounceY   = 0
+    self.bounceVel = 0
+    self.nodActive = false
+    self.nodT      = 0
+    self.nodY      = 0
+    self.nodVel    = 0
+    self.prevNodVal = 0
+    self.grabbing  = false
+    self.breathY   = 0
+    if self.vmHeadRot then self.vmHeadRot.value = 0 end
+    if self.vmBodyRot then self.vmBodyRot.value = 0 end
+    if self.vmBackHairRot then self.vmBackHairRot.value = 0 end
     self.hairAngles = {}
     self.hairVels   = {}
     self.hairVelsPrev = {}
@@ -1164,9 +1426,11 @@ function init(self: CharacterAnimation, context: Context): boolean
 end
 
 function advance(self: CharacterAnimation, seconds: number): boolean
-    local breathY = updateBreathing(self, seconds)
+    updateBounce(self, seconds)   -- lipEnv は前フレームの値を使う(1フレーム遅れで十分)
+    updateNod(self, seconds)
+    local moveY = updateBreathing(self, seconds)  -- 呼吸 + バウンスの合算Y
     updateEyeFollow(self, seconds)
-    updateBodyFollow(self, seconds, breathY)
+    updateBodyFollow(self, seconds, moveY)
     updateHairPhysics(self, seconds)
     updateBlink(self, seconds)
     updateLipSync(self, seconds)
@@ -1184,6 +1448,15 @@ end
 function pointerMove(self: CharacterAnimation, event: PointerEvent)
     self.mouseX = event.position.x
     self.mouseY = event.position.y
+    -- ⑪ 頭ドラッグ中: つかんだ位置からの移動量を振り向き・傾きの目標値に変換する。
+    -- 横に動かすと振り向き+傾き、縦に動かすと見上げ/うつむき。離すとばねで戻る。
+    if self.grabbing then
+        local dx = event.position.x - self.grabOriginX
+        local dy = event.position.y - self.grabOriginY
+        self.grabTurnX = math.clamp(self.grabStartTurnX + dx / GRAB_RANGE, -1.0, 1.0)
+        self.grabTurnY = math.clamp(self.grabStartTurnY + dy / GRAB_RANGE, -1.0, 1.0)
+        self.grabTilt  = math.clamp(dx / GRAB_TILT_RANGE, -1.0, 1.0)
+    end
     event:hit()
 end
 
@@ -1212,6 +1485,25 @@ function pointerDown(self: CharacterAnimation, event: PointerEvent)
     else
         self.lastClickAt = now
     end
+    -- ⑪ 頭のあたりをつかんだらドラッグモード開始(動作確認用)
+    local gx = event.position.x - GRAB_CENTER_X
+    local gy = event.position.y - GRAB_CENTER_Y
+    if gx * gx + gy * gy <= GRAB_RADIUS * GRAB_RADIUS then
+        self.grabbing = true
+        self.grabOriginX = event.position.x
+        self.grabOriginY = event.position.y
+        self.grabStartTurnX = self.turnX
+        self.grabStartTurnY = self.turnY
+        self.grabTurnX = self.turnX
+        self.grabTurnY = self.turnY
+        self.grabTilt = 0
+    end
+    event:hit()
+end
+
+-- ドラッグ終了。目標値の供給が止まり、頭・髪はばねで自然に戻る。
+function pointerUp(self: CharacterAnimation, event: PointerEvent)
+    self.grabbing = false
     event:hit()
 end
 
@@ -1223,6 +1515,7 @@ return function(): Node<CharacterAnimation>
         draw = draw,
         pointerMove = pointerMove,
         pointerDown = pointerDown,
+        pointerUp = pointerUp,
         vmIrisRX = nil, vmIrisRY = nil,
         vmIrisLX = nil, vmIrisLY = nil,
         vmEyelashRX = nil, vmEyelashRY = nil,
@@ -1234,6 +1527,7 @@ return function(): Node<CharacterAnimation>
         vmHeadX = nil, vmHeadY = nil,
         vmBodyX = nil,
         vmBackHairX = nil, vmBackHairY = nil,
+        vmBackHairRot = nil,
         vmNeckX = nil, vmNeckY = nil,
         vmTopwearY = nil,
         vmNoseX = nil, vmNoseY = nil,
@@ -1242,7 +1536,11 @@ return function(): Node<CharacterAnimation>
         vmHeadearX = nil, vmHeadearY = nil,
         vmEriY = nil,
         vmWingY = nil, vmTailY = nil,
-        vmFaceY = nil,
+        vmFaceX = nil, vmFaceY = nil,
+        vmHeadRot = nil, vmBodyRot = nil,
+        vmAiActive = nil,
+        vmAiTurnX = nil, vmAiTurnY = nil,
+        vmAiTilt = nil, vmAiBounce = nil, vmAiNod = nil,
         vmHairRots = {},
         vmEyesDefault = nil,
         vmBlinkFrames = {},
@@ -1251,10 +1549,18 @@ return function(): Node<CharacterAnimation>
         vmMouthDefault = nil,
         mouseX = EYE_CENTER_X, mouseY = EYE_CENTER_Y,
         breathTime = 0,
+        breathY = 0,
         eyeOffsetX = 0, eyeOffsetY = 0,
         turnX = 0, turnY = 0,
         prevTurnX = 0, headVelX = 0,
         hairAngles = {}, hairVels = {}, hairVelsPrev = {}, hairDriveSmooth = {},
+        tiltDeg = 0, tiltVel = 0,
+        bounceY = 0, bounceVel = 0,
+        nodActive = false, nodT = 0, nodY = 0, nodVel = 0, prevNodVal = 0,
+        grabbing = false,
+        grabOriginX = 0, grabOriginY = 0,
+        grabStartTurnX = 0, grabStartTurnY = 0,
+        grabTurnX = 0, grabTurnY = 0, grabTilt = 0,
         blinking = false, blinkT = 0, blinkTimer = 0,
         lipEnv = 0, lipFrame = 1, lipSpeaking = false,
         autoVowel = 1, vowelTimer = 0,
@@ -1268,3 +1574,7 @@ return function(): Node<CharacterAnimation>
         testAudioPlaying = false, lastClickAt = -100,
     }
 end
+
+
+
+
