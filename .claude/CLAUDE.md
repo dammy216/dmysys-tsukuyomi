@@ -202,4 +202,16 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
 Read the exact versioned docs at https://docs.expo.dev/versions/v54.0.0/ before writing any code.
 
 # 重要事項
-必ず日本語で答えること
+
+## 回答時のルール
+
+- 必ず日本語で答えること
+- コードを書き換えたとき・コードについて説明するときは、ユーザーがその箇所へ直接飛べるよう
+  **markdownリンクを付ける**こと。バッククォートでのファイル名表記だけで済ませない。
+  - ファイル: `[webKaguya.lua](rive/animations/webKaguya/webKaguya.lua)`
+  - 特定行: `[webKaguya.lua:1087](rive/animations/webKaguya/webKaguya.lua#L1087)`
+  - 行範囲: `[webKaguya.lua:1080-1095](rive/animations/webKaguya/webKaguya.lua#L1080-L1095)`
+  - フォルダ: `[server/features/](server/features/)`
+  - パスはワークスペースルートからの相対パスで書く
+- 定数やパラメータの値を変更した場合は、その定数が定義されている行へのリンクを添えること
+  （例: `HAIR_SPREAD_DRIVE` を変更したなら定義行へのリンク）

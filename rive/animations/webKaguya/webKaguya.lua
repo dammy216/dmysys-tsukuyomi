@@ -113,7 +113,9 @@ type CharacterAnimation = {
     turnY: number,        -- 振り向き(縦)のなめらかな値 (-1〜1)
     -- 髪の慣性揺れ(Live2D 風の振り子物理)。詳細は updateHairPhysics を参照
     prevTurnX: number,    -- 前フレームの turnX(振り向き速度を差分で求めるため)
+    prevTurnY: number,    -- 前フレームの turnY(縦の振り向き速度も髪の揺れの駆動に使う)
     headVelX: number,     -- 平滑化した頭の振り向き速度。これが髪を振らせる唯一の入力
+    hairSpread: number,   -- 平滑化した「下からの風」の強さ(⑮)。左右へ広げる駆動に使う
     hairAngles: {number}, -- 各セグメントの静止角からの相対回転(度)
     hairVels: {number},   -- 各セグメントの角速度(度/秒)
     hairVelsPrev: {number}, -- 1フレーム前の角速度(子が親を追いかける遅延を作るために使う)
@@ -315,13 +317,13 @@ local NECK_ROT_MAX_DEG = 9.0
 -- 目標を通り過ぎて「ゆらっ」と揺り戻すオーバーシュートを出す(映像の質感)。
 local TILT_SPRING = 40.0
 local TILT_DAMP   = 8.0
--- 常時アイドル揺れ。周期の違う正弦波を2つ重ね、機械的な単振動に見えないようにする。
--- 映像の「ゆらゆら」の主成分。速いほう(約4.5秒周期)が見た目のリズムを作り、
--- 遅いほう(約13秒周期)が揺れ幅の波(大きく揺れる時間帯・静かな時間帯)を作る。
-local IDLE_SWAY_DEG   = 4.2
-local IDLE_SWAY_FREQ  = 0.22   -- 約4.5秒周期
-local IDLE_SWAY_DEG2  = 1.8
-local IDLE_SWAY_FREQ2 = 0.075  -- 約13秒周期
+-- 常時アイドル揺れ。通常状態(ドラッグ/AI操作していないとき)は横揺れさせない
+-- 指定のため 0 にしてある。振り向き連動(TURN_TILT_DEG)やドラッグ(HEAD_TILT_MAX)
+-- による傾きはそのまま残る。
+local IDLE_SWAY_DEG   = 0.0
+local IDLE_SWAY_FREQ  = 0.22   -- 約4.5秒周期(DEGが0なので現在は無効)
+local IDLE_SWAY_DEG2  = 0.0
+local IDLE_SWAY_FREQ2 = 0.075  -- 約13秒周期(DEGが0なので現在は無効)
 -- 喋っている間はアイドル揺れを増幅する(映像では発話中ほど大きくゆらゆらする)。
 -- 揺れ幅 = idle * (1 + lipEnv * IDLE_SWAY_TALK_BOOST)。最大音量で約1.8倍。
 local IDLE_SWAY_TALK_BOOST = 0.8
@@ -342,10 +344,24 @@ local GRAB_RADIUS     = 380.0  -- 当たり判定の半径(顔まわり全体を
 local GRAB_RANGE      = 300.0  -- この距離ドラッグすると振り向き±1(最大)
 local GRAB_TILT_RANGE = 260.0  -- この距離の横ドラッグで傾き±1(最大)
 local GRAB_LERP_SPEED = 14.0   -- ドラッグ中の追従速度(通常より俊敏に手についてくる)
--- 傾き・弾みの速度を髪物理の駆動信号(headVelX 相当)へ混ぜる倍率。
--- これにより頭を傾けた/弾んだときも髪と headear が映像のように遅れて揺れる。
+-- 傾き・弾み・縦の振り向きの速度を髪物理の駆動信号(headVelX 相当)へ混ぜる倍率。
+-- これにより頭を傾けた/弾んだ/上下させたときも髪と headear が映像のように遅れて揺れる。
 local TILT_HAIR_DRIVE   = 0.5
 local BOUNCE_HAIR_DRIVE = 0.12
+-- ⑮ 顔が縦に動いたときの髪・獣耳の反応。
+-- 縦の動きは上の共通の揺れ(HAIR_DRIVE_SIGN、左右が同じ回転方向)には入れない。
+-- 左右のボーンは鏡像配置なので、同じ回転方向へ振ると片側は外・もう片側は内へ動き、
+-- 「左耳だけ外へ開く」といった左右ちぐはぐな見た目になってしまうため。
+-- 代わりに左右逆向き(HAIR_SPREAD_SIGN)のこちらだけで表現する:
+--   下向き = 下から風を受けて外へ「ファサッ」と広がる
+--   上向き = 逆にほんの少し内側へ寄る
+local HAIR_SPREAD_DRIVE  = 10.0  -- 下向き速度 → 広がりの強さ
+local HAIR_SPREAD_MAX    = 40.0  -- 広がり駆動の上限(素早く下げても開きすぎないように)
+local HAIR_SPREAD_SMOOTH = 10.0  -- 広がりの立ち上がり/収まりの速さ
+-- 上向きの内寄せ。「ほんの少し」でよいので広がりより弱くするが、共通の揺れを
+-- 抜いたぶんこれが縦の動きの唯一の駆動になるので、極端に小さくはしない。
+local HAIR_GATHER_DRIVE  = 3.0   -- 上向き速度 → 内側へ寄る強さ
+local HAIR_GATHER_MAX    = 12.0  -- 内寄せ駆動の上限
 -- 後ろ髪の追従。back hair は head の子ではない(root 直下の別グループ)ので、
 -- 頭の傾き・縦移動をスクリプトで明示的に追従させる。
 -- 回転ピボットは back hair(954.8, 960.7)と head(959.5, 958)がほぼ同位置なので、
@@ -448,6 +464,29 @@ local HAIR_DRIVE_SIGN: {number} = {
     1, 1,         -- [40-41] Left Arm
 }
 
+-- ⑮ 下からの風で「外向きに広がる」向きと強さ。左右で符号を逆にすることで、
+-- 上の HAIR_DRIVE_SIGN(左右同じ向きに流れる揺れ)とは別に、左右へ開く動きになる。
+-- ±1 が基準の強さで、駆動にそのまま掛かるので、小数にするとその部位だけ広がりが弱まる。
+-- 中央にあるもの(前髪の毛先・後ろ髪中央)は開きようがないので 0。
+-- 腕(服)は広がると布が破綻するので 0。
+-- 獣耳は髪と同じ強さで開くと大きく開きすぎるので、0.35 に落として控えめにしてある。
+-- 実際に見て内側に閉じるようなら、+ と - を入れ替えれば反転する。
+local HAIR_SPREAD_SIGN: {number} = {
+    -1, -1, -1, -1,  -1, -1, -1, -1,  -- [1-8]   Right Locks A/B
+     1,  1,  1,  1,   1,  1,  1,  1,  -- [9-16]  Left Locks A/B
+     0,                               -- [17]    Bangs Tip(中央)
+    -1, -1, -1, -1,                   -- [18-21] Right Back Locks
+     1,  1,  1,  1,                   -- [22-25] Left Back Locks
+     0,  0,  0,  0,                   -- [26-29] Center Back Locks(中央)
+    -- 獣耳。ボーンの基準角が左右対称(鏡像)なので、符号も左右で逆にする。
+    -- 以前ここを同符号にしていたのは、縦の動きが共通の揺れ側に入っていて
+    -- そちらが支配的だったのを打ち消そうとしていたため。原因を直したので鏡像に戻す。
+    -0.35, -0.35, -0.35, -0.35,       -- [30-33] Right Headear(控えめ)
+     0.35,  0.35,  0.35,  0.35,       -- [34-37] Left Headear(控えめ)
+     0,  0,                           -- [38-39] Right Arm(服なので広げない)
+     0,  0,                           -- [40-41] Left Arm(同上)
+}
+
 -- チェーン内の位置(1=根本側 〜 4=毛先)ごとのばね/減衰/慣性/可動域。
 -- 4本×4チェーン分(Right A/B, Left A/B)、同じ位置なら同じ挙動になるよう繰り返す。
 local function repeat4(a: number, b: number, c: number, d: number): {number}
@@ -512,10 +551,11 @@ HAIR_STIFFNESS[20] = 14  -- Right Back Locks 3 (263px と特に長く、最も�
 HAIR_STIFFNESS[23] = 18  -- Left Back Locks 2
 HAIR_STIFFNESS[24] = 12  -- Left Back Locks 3
 -- 獣耳の先端(位置3・4)はもっとしなってよいので、バネをさらに弱める。
-HAIR_STIFFNESS[32] = 6   -- Right Headear 3
-HAIR_STIFFNESS[33] = 4   -- Right Headear 4
-HAIR_STIFFNESS[36] = 6   -- Left Headear 3
-HAIR_STIFFNESS[37] = 4   -- Left Headear 4
+-- (先端のしなりが大きすぎたため、バネを 6/4 → 9/6.5 に強めて戻りを速くした)
+HAIR_STIFFNESS[32] = 9    -- Right Headear 3
+HAIR_STIFFNESS[33] = 6.5  -- Right Headear 4
+HAIR_STIFFNESS[36] = 9    -- Left Headear 3
+HAIR_STIFFNESS[37] = 6.5  -- Left Headear 4
 -- 腕は長さ比例だと 272*0.2≈54 と極端に硬くなってしまうので、個別に指定する。
 -- 髪より硬め(=すぐ元の位置に戻る)にして、揺れが尾を引かないようにする。
 HAIR_STIFFNESS[38] = 30  -- Right Arm 1 (肩)
@@ -564,17 +604,17 @@ table.insert(HAIR_DAMPING, 7)    -- [30] Right Headear 1 (位置1)
 table.insert(HAIR_INERTIA, 7)
 table.insert(HAIR_DAMPING, 5)    -- [31] Right Headear 2 (位置2)
 table.insert(HAIR_INERTIA, 7.5)
-table.insert(HAIR_DAMPING, 2)    -- [32] Right Headear 3 (位置3、先端寄りなのでよくしなるように)
+table.insert(HAIR_DAMPING, 3.0)  -- [32] Right Headear 3 (位置3、先端寄り。元2でしなりすぎたため増やした)
 table.insert(HAIR_INERTIA, 11)
-table.insert(HAIR_DAMPING, 1.3)  -- [33] Right Headear 4 (位置4、先端)
+table.insert(HAIR_DAMPING, 2.0)  -- [33] Right Headear 4 (位置4、先端。元1.3から増やしてしなりを抑制)
 table.insert(HAIR_INERTIA, 11)
 table.insert(HAIR_DAMPING, 6.5)  -- [34] Left Headear 1 (位置1、右より少し柔らかい)
 table.insert(HAIR_INERTIA, 6.5)
 table.insert(HAIR_DAMPING, 4.5)  -- [35] Left Headear 2 (位置2)
 table.insert(HAIR_INERTIA, 7)
-table.insert(HAIR_DAMPING, 1.8)  -- [36] Left Headear 3 (位置3、先端寄り)
+table.insert(HAIR_DAMPING, 2.8)  -- [36] Left Headear 3 (位置3、先端寄り。元1.8から増やした)
 table.insert(HAIR_INERTIA, 10.5)
-table.insert(HAIR_DAMPING, 1.2)  -- [37] Left Headear 4 (位置4、先端)
+table.insert(HAIR_DAMPING, 1.9)  -- [37] Left Headear 4 (位置4、先端。元1.2から増やしてしなりを抑制)
 table.insert(HAIR_INERTIA, 10.5)
 -- 腕: 髪と違って重い部位なので、慣性(反応量)は髪の 1/3 程度・減衰は強めにして、
 -- 体が動いたときに「ゆっくり少しだけ遅れてついてくる」動きにする。
@@ -621,17 +661,17 @@ table.insert(HAIR_MAX_ANGLE, 10)
 table.insert(HAIR_DRIVE_SMOOTH, 1.1)   -- [31] Right Headear 2 (位置2)
 table.insert(HAIR_MAX_ANGLE, 14)
 table.insert(HAIR_DRIVE_SMOOTH, 1.1)   -- [32] Right Headear 3 (位置3)
-table.insert(HAIR_MAX_ANGLE, 35)
+table.insert(HAIR_MAX_ANGLE, 26)       -- 元35。先端のしなりを抑えるため可動域を縮小
 table.insert(HAIR_DRIVE_SMOOTH, 0.5)   -- [33] Right Headear 4 (位置4)
-table.insert(HAIR_MAX_ANGLE, 42)
+table.insert(HAIR_MAX_ANGLE, 31)       -- 元42。同上
 table.insert(HAIR_DRIVE_SMOOTH, 2.7)   -- [34] Left Headear 1 (位置1)
 table.insert(HAIR_MAX_ANGLE, 9)
 table.insert(HAIR_DRIVE_SMOOTH, 1.0)   -- [35] Left Headear 2 (位置2)
 table.insert(HAIR_MAX_ANGLE, 13)
 table.insert(HAIR_DRIVE_SMOOTH, 1.0)   -- [36] Left Headear 3 (位置3)
-table.insert(HAIR_MAX_ANGLE, 32)
+table.insert(HAIR_MAX_ANGLE, 24)       -- 元32。先端のしなりを抑えるため可動域を縮小
 table.insert(HAIR_DRIVE_SMOOTH, 0.45)  -- [37] Left Headear 4 (位置4)
-table.insert(HAIR_MAX_ANGLE, 40)
+table.insert(HAIR_MAX_ANGLE, 29)       -- 元40。同上
 -- 腕: 「少しだけ横揺れ」にしたいので可動域を数度に絞る(髪は10〜40度)。
 -- 肘は肩より一拍遅れて・少し大きく振れるようにする。
 table.insert(HAIR_DRIVE_SMOOTH, 2.0)   -- [38] Right Arm 1 (肩)
@@ -1047,13 +1087,30 @@ local function updateHairPhysics(self: CharacterAnimation, seconds: number)
 
     -- 頭の振り向き速度(turnX の時間微分)に、傾き(⑧)・弾み/うなずき(⑨)の速度も混ぜる。
     -- どの動きでも髪と headear が映像のように遅れて揺れるようになる。
+    local turnVelX = (self.turnX - self.prevTurnX) / dt
+    local turnVelY = (self.turnY - self.prevTurnY) / dt
+    -- 縦の動き(turnVelY)はここには入れない。この揺れは左右が同じ回転方向に振れるので、
+    -- 鏡像配置の左右のボーンでは片側が外・もう片側が内へ動いてしまう
+    -- (「左耳だけ外へ開く」の原因)。縦の動きは左右逆向きの⑮側だけで表現する。
     local rawVel = math.clamp(
-        (self.turnX - self.prevTurnX) / dt * HEAD_VEL_SCALE
+        turnVelX * HEAD_VEL_SCALE
             + self.tiltVel * TILT_HAIR_DRIVE
             + (self.bounceVel + self.nodVel) * BOUNCE_HAIR_DRIVE,
         -HEAD_VEL_MAX, HEAD_VEL_MAX)
     self.prevTurnX = self.turnX
+    self.prevTurnY = self.turnY
     self.headVelX += (rawVel - self.headVelX) * math.min(HEAD_VEL_SMOOTH * dt, 1.0)
+
+    -- ⑮ 下からの風。下向き(turnVelY > 0)なら正の値が立ち、左右逆向き
+    -- (HAIR_SPREAD_SIGN)に配ると外へ開く。上向き(turnVelY < 0)なら負の値になり、
+    -- 同じ配分がそのまま反転して内側へ寄る(こちらはほんの少しだけ)。静止では 0。
+    local rawSpread
+    if turnVelY >= 0.0 then
+        rawSpread = math.min(turnVelY * HAIR_SPREAD_DRIVE, HAIR_SPREAD_MAX)
+    else
+        rawSpread = math.max(turnVelY * HAIR_GATHER_DRIVE, -HAIR_GATHER_MAX)
+    end
+    self.hairSpread += (rawSpread - self.hairSpread) * math.min(HAIR_SPREAD_SMOOTH * dt, 1.0)
 
     -- 重力補償の基準角。前髪・headear は head の子なので頭の傾きを、
     -- 後ろ髪チェーン[18-29]は back hair 自体の回転(頭に追従して書いた値)を打ち消す。
@@ -1064,7 +1121,10 @@ local function updateHairPhysics(self: CharacterAnimation, seconds: number)
         -- 慣性の入力源: 頭に直結(親=0)なら頭の速度(今フレーム)、そうでなければ
         -- 親セグメントの「前フレーム」の角速度(=最低でも1テンポ遅れて伝わる)
         local parent = HAIR_PARENT[i]
+        -- 揺れ(左右同じ向き)に、下からの風による広がり(左右逆向き=外向き)を足す。
+        -- accel = -driveVel * 慣性 なので、外へ開かせたい向きとは符号が逆になる。
         local rawDrive = (if parent == 0 then self.headVelX else self.hairVelsPrev[parent]) * HAIR_DRIVE_SIGN[i]
+            + self.hairSpread * HAIR_SPREAD_SIGN[i]
 
         -- さらに、この入力を各セグメントごとの速さでなめらかに追いかけさせる。
         -- HAIR_DRIVE_SMOOTH が小さいほど反応が遅く、毛先ほど小さい値にしてあるので
@@ -1460,7 +1520,9 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.turnY      = 0
     -- 髪は静止状態(基準角度・速度0)から始める
     self.prevTurnX  = 0
+    self.prevTurnY  = 0
     self.headVelX   = 0
+    self.hairSpread = 0
     -- 傾き・弾み・うなずき・ドラッグは静止状態から始める
     self.tiltDeg   = 0
     self.tiltVel   = 0
@@ -1670,7 +1732,7 @@ return function(): Node<CharacterAnimation>
         breathY = 0,
         eyeOffsetX = 0, eyeOffsetY = 0,
         turnX = 0, turnY = 0,
-        prevTurnX = 0, headVelX = 0,
+        prevTurnX = 0, prevTurnY = 0, headVelX = 0, hairSpread = 0,
         hairAngles = {}, hairVels = {}, hairVelsPrev = {}, hairDriveSmooth = {},
         tiltDeg = 0, tiltVel = 0,
         bounceY = 0, bounceVel = 0,
@@ -1692,7 +1754,3 @@ return function(): Node<CharacterAnimation>
         testAudioPlaying = false, lastClickAt = -100,
     }
 end
-
-
-
-
