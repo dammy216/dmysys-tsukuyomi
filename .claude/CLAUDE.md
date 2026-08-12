@@ -192,6 +192,9 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
 - `gemini-live-api-dev/` — Gemini Live API のリファレンス
 - `vercel-react-native-skills/rules/` — React Native のベストプラクティス（アニメーション・リスト最適化・ナビゲーション等）
 - `vertical-slice-architecture/` — Vertical Slice Architecture のリファレンス（patterns-by-language, principles, testing）
+- `threejs-animation/` — Three.js アニメーション（keyframe / skeletal / morph target / AnimationMixer）のリファレンス
+- `threejs-shaders/` — Three.js シェーダー（GLSL, ShaderMaterial, uniforms）のリファレンス
+- `react-three-fiber/` — React Three Fiber（R3F）のリファレンス（Canvas, useFrame, useThree, drei連携, パフォーマンス最適化等）
 
 ## MCP サーバー
 

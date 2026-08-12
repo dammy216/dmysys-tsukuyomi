@@ -4,11 +4,4 @@
   max-width: 1000px;
   margin: auto;
   padding: 20px;
-  padding-top: 90px; /* 固定ヘッダーと被らないための余白 */
-}
-
-@media (max-width: 768px) {
-  .container {
-    padding-top: 80px;
-  }
 }
