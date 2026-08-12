@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { StarSongPage } from "@/features/starSong";
+import { Sandbox3D } from "@/features/sandbox";
 
 export const metadata: Metadata = {
-  title: "流れ星の正体 - 月詠交流会",
-  description: "「流れ星の正体」に合わせてヤチヨが歌う特別ページです。",
+  title: "3D Sandbox - 月詠交流会",
+  description: "Three.js / React Three Fiber の実験用サンドボックス。",
 };
 
 export default function Page() {
-  return <StarSongPage />;
+  return <Sandbox3D />;
 }
