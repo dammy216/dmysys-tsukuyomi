@@ -14,35 +14,6 @@ body {
   margin: 0;
   font-family: var(--font-sans), sans-serif;
   color: #ffffff;
-  background-color: #0f172a; /* 背景画像が読み込まれるまでのベース色 */
+  background-color: #0f172a;
   overflow-x: hidden;
-}
-
-/* 共通の虹色アニメーション（ヒーロー見出し・鯖主名） */
-.rainbow-text {
-  background: linear-gradient(
-    90deg,
-    red,
-    orange,
-    yellow,
-    green,
-    blue,
-    indigo,
-    violet,
-    red
-  );
-  background-size: 400% 400%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: rainbowMove 8s linear infinite;
-}
-
-@keyframes rainbowMove {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 100% 50%;
-  }
 }

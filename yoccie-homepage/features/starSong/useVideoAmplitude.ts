@@ -3,8 +3,7 @@
 import { useCallback, useRef } from "react";
 
 /**
- * <video> 要素の音声を Web Audio API で解析し、0〜1 の振幅を返すフック。
- * features/music/MusicProvider の opus 解析と同じ RMS 方式。
+ * <video> 要素の音声を Web Audio API で解析し、0〜1 の振幅を返すフック（RMS方式）。
  */
 export function useVideoAmplitude() {
   const audioCtxRef = useRef<AudioContext | null>(null);

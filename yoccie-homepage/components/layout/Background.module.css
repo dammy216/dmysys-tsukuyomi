@@ -1,8 +1,0 @@
-.bg {
-  position: fixed;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  transition: opacity 1s ease;
-  z-index: 0;
-}

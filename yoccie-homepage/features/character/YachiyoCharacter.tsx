@@ -6,20 +6,19 @@ import {
   useViewModel,
   useViewModelInstance,
 } from "@rive-app/react-webgl2";
-import { useMusic } from "@/features/music";
 import { RIV_SRC, STATE_MACHINE, VM_SING_AMPLITUDE } from "./constants";
 
 type YachiyoCharacterProps = {
   onAmplitude?: (value: number) => void;
   placeholder?: ReactNode;
-  /** 振幅の取得元を差し替える（省略時は共有 BGM の useMusic().getAmplitude を使う） */
-  getAmplitude?: () => number;
+  /** 振幅の取得元（動画/音声の解析結果など） */
+  getAmplitude: () => number;
 };
 
 export function YachiyoCharacter({
   onAmplitude,
   placeholder,
-  getAmplitude: getAmplitudeProp,
+  getAmplitude,
 }: YachiyoCharacterProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -34,9 +33,6 @@ export function YachiyoCharacter({
     useDefault: true,
     rive,
   });
-
-  const { getAmplitude: getMusicAmplitude } = useMusic();
-  const getAmplitude = getAmplitudeProp ?? getMusicAmplitude;
 
   // 振幅を毎フレーム ViewModel に書き込む
   useEffect(() => {
