@@ -28,5 +28,12 @@
       "type": "node-terminal",
       "cwd": "${workspaceFolder}/rive/scripts"
     },
+    {
+      "command": "npm run dev",
+      "name": "web",
+      "request": "launch",
+      "type": "node-terminal",
+      "cwd": "${workspaceFolder}/yoccie-homepage"
+    },
   ]
 }
