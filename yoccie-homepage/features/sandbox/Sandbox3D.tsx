@@ -6,6 +6,7 @@ import { MeshReflectorMaterial, OrbitControls, Stats } from "@react-three/drei";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import { MiyajimaTorii } from "./MiyajimaTorii";
 import { Lanterns } from "./Lanterns";
+import { Fish } from "./Fish";
 import { SkyBackground } from "./SkyBackground";
 import { Credits } from "./Credits";
 
@@ -50,6 +51,12 @@ export function Sandbox3D() {
         <Suspense fallback={null}>
           <SkyBackground />
           <MiyajimaTorii position={[0, 0, -2]} scale={0.18} />
+          <Fish
+            position={[0, 2, -2]}
+            scale={0.15}
+            fishScale={0.55}
+            showSwirl={false}
+          />
           <Lanterns />
           <Water />
         </Suspense>

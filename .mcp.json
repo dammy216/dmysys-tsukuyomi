@@ -2,6 +2,13 @@
   "mcpServers": {
       "rive": {
           "url": "http://127.0.0.1:9791/mcp"
+      },
+      "sketchfab": {
+          "command": "npx",
+          "args": ["-y", "sketchfab-mcp-server"],
+          "env": {
+              "SKETCHFAB_API_KEY": ""
+          }
       }
   }
 }

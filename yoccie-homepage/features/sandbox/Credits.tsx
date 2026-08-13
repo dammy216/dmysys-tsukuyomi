@@ -11,6 +11,12 @@ const CREDITS = [
     author: "K",
     authorUrl: "https://sketchfab.com/tanaka.ko91",
   },
+  {
+    title: "Fish Hologram",
+    url: "https://sketchfab.com/3d-models/fish-hologram-adc420289ced44b79cf3142e071d680a",
+    author: "Pat Sipes",
+    authorUrl: "https://sketchfab.com/pasipes",
+  },
 ];
 
 /** Sketchfab CC-BY-4.0モデルのクレジット表記（利用規約で表示が必須） */
