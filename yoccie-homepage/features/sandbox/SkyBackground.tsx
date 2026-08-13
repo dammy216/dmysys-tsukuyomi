@@ -5,11 +5,11 @@ import { useTexture } from "@react-three/drei";
 import { EquirectangularReflectionMapping, SRGBColorSpace } from "three";
 
 /**
- * sky-milkyway.png(milky1)を上、sky-milkyway-2.png(milky2)を下に縦連結した画像。
+ * aurora.png(オーロラ)を上、既存sky-vertical.pngの下半分(水面下用)を流用して縦連結した画像。
  * 全天球マッピングでは画像の上半分が天頂側(水面より上)、下半分が天底側(水面より下、隠れる)になるため、
- * milky1だけが水面より上に表示される。
+ * オーロラだけが水面より上に表示される。
  */
-const SKY_PATH = "/sky-vertical.png";
+const SKY_PATH = "/aurora-vertical.png";
 
 /** 通常の画像(png/jpg)を全天球の空として貼る。反射(水面)にも同じ空が映り込む */
 export function SkyBackground() {

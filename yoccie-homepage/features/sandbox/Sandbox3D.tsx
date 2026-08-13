@@ -41,7 +41,7 @@ export function Sandbox3D() {
         background: "#0b1626",
       }}
     >
-      <Canvas camera={{ position: [0, 2.5, 9], fov: 50 }}>
+      <Canvas camera={{ position: [0, 3, 11], fov: 50 }}>
         <color attach="background" args={["#1c2540"]} />
         <fog attach="fog" args={["#1c2540", 20, 300]} />
 
@@ -52,10 +52,31 @@ export function Sandbox3D() {
           <SkyBackground />
           <MiyajimaTorii position={[0, 0, -2]} scale={0.18} />
           <Fish
-            position={[0, 2, -2]}
-            scale={0.15}
-            fishScale={0.55}
+            position={[0, 0, -2]}
+            radius={6.5}
+            height={5.2}
+            heightSpread={8}
+            fishScale={0.02}
             showSwirl={false}
+            count={60}
+          />
+          <Fish
+            position={[0, 0, -2]}
+            radius={9.5}
+            height={10.2}
+            heightSpread={8}
+            fishScale={0.02}
+            showSwirl={false}
+            count={60}
+          />
+           <Fish
+            position={[0, 0, -2]}
+            radius={12.5}
+            height={13.2}
+            heightSpread={8}
+            fishScale={0.02}
+            showSwirl={false}
+            count={60}
           />
           <Lanterns />
           <Water />
