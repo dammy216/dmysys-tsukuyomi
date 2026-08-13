@@ -6,16 +6,17 @@ import { MeshReflectorMaterial, OrbitControls, Stats } from "@react-three/drei";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
 import { MiyajimaTorii } from "./MiyajimaTorii";
 import { Lanterns } from "./Lanterns";
+import { SkyBackground } from "./SkyBackground";
 import { Credits } from "./Credits";
 
 /** 反射する水面 */
 function Water() {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-      <planeGeometry args={[60, 60]} />
+      <circleGeometry args={[400, 64]} />
       <MeshReflectorMaterial
-        blur={[400, 120]}
-        resolution={1024}
+        blur={[200, 60]}
+        resolution={512}
         mixBlur={1}
         mixStrength={35}
         roughness={0.6}
@@ -39,15 +40,16 @@ export function Sandbox3D() {
         background: "#0b1626",
       }}
     >
-      <Canvas camera={{ position: [0, 2.5, 9], fov: 50 }} shadows>
+      <Canvas camera={{ position: [0, 2.5, 9], fov: 50 }}>
         <color attach="background" args={["#1c2540"]} />
-        <fog attach="fog" args={["#1c2540", 12, 40]} />
+        <fog attach="fog" args={["#1c2540", 20, 300]} />
 
-        <ambientLight intensity={0.35} />
-        <directionalLight position={[6, 8, 4]} intensity={1.1} color="#ffb37a" />
+        <ambientLight intensity={0.7} color="#5a6fa8" />
+        <directionalLight position={[9, 14, 5]} intensity={2} color="#bcd3ff" />
 
         <Suspense fallback={null}>
-          <MiyajimaTorii position={[0, 0.3, -2]} scale={0.18} />
+          <SkyBackground />
+          <MiyajimaTorii position={[0, 0, -2]} scale={0.18} />
           <Lanterns />
           <Water />
         </Suspense>

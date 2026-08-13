@@ -3,7 +3,8 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
-import type { Group, Object3D } from "three";
+import { Matrix4, Mesh, Object3D } from "three";
+import type { BufferGeometry, InstancedMesh, Material } from "three";
 
 const MODEL_PATH = "/3DModel/old_japanese_lamp__andon/scene.gltf";
 const BASE_Y = 0.05;
@@ -45,7 +46,7 @@ function useLanternField(
       items.push({
         x: Math.cos(angle) * r,
         z: Math.sin(angle) * r,
-        scale: 0.4 + random() * 0.25,
+        scale: 0.14 + random() * 0.09,
         rotationY: random() * Math.PI * 2,
         phase: random() * Math.PI * 2,
         speed: 0.5 + random() * 0.4,
@@ -55,27 +56,34 @@ function useLanternField(
   }, [count, radius, innerRadius]);
 }
 
-/** 灯籠1個。テンプレートのGLTFシーンを複製して独立に浮遊アニメーションさせる */
-function Lantern({ template, data }: { template: Object3D; data: LanternData }) {
-  const groupRef = useRef<Group>(null);
-  const model = useMemo(() => template.clone(true), [template]);
+type LanternPart = {
+  geometry: BufferGeometry;
+  material: Material | Material[];
+  /** モデルのルートから見たこのパーツのローカル変換行列 */
+  localMatrix: Matrix4;
+};
 
-  useFrame(({ clock }) => {
-    if (!groupRef.current) return;
-    const t = clock.elapsedTime * data.speed + data.phase;
-    groupRef.current.position.y = BASE_Y + Math.sin(t) * 0.04;
-  });
+/** GLTFシーンを走査し、パーツ(メッシュ)ごとにジオメトリ・マテリアル・ローカル行列を集める。
+ * InstancedMeshはパーツ単位でしか作れない(1個のInstancedMeshは1ジオメトリ+1マテリアル)ため、
+ * 灯籠モデルを丸ごとcloneする代わりに、パーツごとに55個分のインスタンスをまとめて描画する。 */
+function useLanternParts(): LanternPart[] {
+  const { scene } = useGLTF(MODEL_PATH);
 
-  return (
-    <group
-      ref={groupRef}
-      position={[data.x, BASE_Y, data.z]}
-      rotation={[0, data.rotationY, 0]}
-      scale={data.scale}
-    >
-      <primitive object={model} />
-    </group>
-  );
+  return useMemo(() => {
+    const clone = scene.clone(true);
+    clone.updateMatrixWorld(true);
+    const parts: LanternPart[] = [];
+    clone.traverse((child) => {
+      if (child instanceof Mesh) {
+        parts.push({
+          geometry: child.geometry,
+          material: child.material,
+          localMatrix: child.matrixWorld.clone(),
+        });
+      }
+    });
+    return parts;
+  }, [scene]);
 }
 
 type LanternsProps = {
@@ -85,23 +93,55 @@ type LanternsProps = {
 };
 
 /**
- * 水面に浮かぶ灯籠群。
+ * 水面に浮かぶ灯籠群。パーツごとにInstancedMeshでまとめて描画する
+ * (灯籠55個 x パーツ13個 = 715描画コールだったのを、パーツ数=13描画コールまで削減)。
  * Old Japanese Lamp : Andon (CC-BY-4.0)
  * https://sketchfab.com/3d-models/old-japanese-lamp-andon-0f5cff9fb78b4657b26ddefff4e10fcf
  * by K (https://sketchfab.com/tanaka.ko91)
  */
 export function Lanterns({
-  count = 28,
-  radius = 9,
+  count = 500,
+  radius = 80,
   innerRadius = 2.5,
 }: LanternsProps) {
-  const { scene } = useGLTF(MODEL_PATH);
+  const parts = useLanternParts();
   const items = useLanternField(count, radius, innerRadius);
+  const meshRefs = useRef<(InstancedMesh | null)[]>([]);
+  const dummy = useMemo(() => new Object3D(), []);
+  const partWorldMatrix = useMemo(() => new Matrix4(), []);
+
+  useFrame(({ clock }) => {
+    const elapsed = clock.elapsedTime;
+
+    items.forEach((data, i) => {
+      const t = elapsed * data.speed + data.phase;
+      dummy.position.set(data.x, BASE_Y + Math.sin(t) * 0.04, data.z);
+      dummy.rotation.set(0, data.rotationY, 0);
+      dummy.scale.setScalar(data.scale);
+      dummy.updateMatrix();
+
+      parts.forEach((part, partIndex) => {
+        partWorldMatrix.multiplyMatrices(dummy.matrix, part.localMatrix);
+        meshRefs.current[partIndex]?.setMatrixAt(i, partWorldMatrix);
+      });
+    });
+
+    meshRefs.current.forEach((mesh) => {
+      if (mesh) mesh.instanceMatrix.needsUpdate = true;
+    });
+  });
 
   return (
     <>
-      {items.map((data, i) => (
-        <Lantern key={i} template={scene} data={data} />
+      {parts.map((part, i) => (
+        <instancedMesh
+          key={i}
+          ref={(el) => {
+            meshRefs.current[i] = el;
+          }}
+          args={[part.geometry, part.material, count]}
+          frustumCulled={false}
+        />
       ))}
     </>
   );
