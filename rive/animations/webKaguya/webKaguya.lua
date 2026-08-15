@@ -89,6 +89,9 @@ type CharacterAnimation = {
     vmAiActive: Property<number>?,
     vmAiTurnX: Property<number>?, vmAiTurnY: Property<number>?,
     vmAiTilt: Property<number>?, vmAiBounce: Property<number>?, vmAiNod: Property<number>?,
+    -- 表情(笑顔)。smile > 0.5 の間、まばたき/リップシンクの自動更新を止めて
+    -- blink_001(目)+ mouth_i(口)の見た目に固定する(⑯)
+    vmSmile: Property<number>?,
     -- 髪(サイドロック)・獣耳・腕の慣性揺れ用。並びは HAIR_BASE_ROT と対応
     -- [1-4]=Right A1〜A4, [5-8]=Right B1〜B4, [9-12]=Left A1〜A4, [13-16]=Left B1〜B4,
     -- …[38-39]=Right Arm 1〜2, [40-41]=Left Arm 1〜2
@@ -134,6 +137,8 @@ type CharacterAnimation = {
     blinking: boolean,
     blinkT: number,       -- まばたき開始からの経過秒
     blinkTimer: number,   -- 次のまばたきまでの残り秒
+    -- 表情(笑顔、⑯)。0=普段の目/1=笑顔(閉じ目)。まばたきと同じ速さでここを近づける
+    smileEyeAmt: number,
     -- リップシンク内部状態
     lipEnv: number,       -- 音量エンベロープ(平滑化した音量 0〜1)
     lipFrame: number,     -- 音量から算出した現在のフレーム(1〜8)。母音遷移中でも裏で更新し続ける
@@ -1429,6 +1434,35 @@ local function updateLipSync(self: CharacterAnimation, seconds: number)
 end
 
 --==========================================================================
+-- ⑯ 表情(笑顔): 目だけ blink_008(閉じ切り)へまばたきと同じ速さで遷移させる
+--==========================================================================
+-- 口には触れない(リップシンクは smile 中もそのまま動く)。
+-- smile の目標値(0=普段/1=笑顔)へ、まばたきの開閉と同じ速さ(BLINK_CLOSE/BLINK_OPEN)で
+-- smileEyeAmt をなめらかに近づけ、blinkFrameIndex() でコマ(1〜8)に変換して表示する。
+-- smileEyeAmt が 0 に戻りきっている間だけ、通常のランダムまばたき(updateBlink)を動かす。
+local function updateSmileEyes(self: CharacterAnimation, seconds: number)
+    local smileOn = self.vmSmile ~= nil and self.vmSmile.value > 0.5
+    local target = if smileOn then 1.0 else 0.0
+    if target > self.smileEyeAmt then
+        self.smileEyeAmt = math.min(self.smileEyeAmt + seconds / BLINK_CLOSE, target)
+    elseif target < self.smileEyeAmt then
+        self.smileEyeAmt = math.max(self.smileEyeAmt - seconds / BLINK_OPEN, target)
+    end
+
+    if self.smileEyeAmt <= 0.0 then
+        updateBlink(self, seconds)
+        return
+    end
+
+    local frame = blinkFrameIndex(self.smileEyeAmt)
+    if self.vmEyesDefault then self.vmEyesDefault.value = 0.0 end
+    for i = 1, BLINK_FRAMES do
+        local prop = self.vmBlinkFrames[i]
+        if prop then prop.value = if i == frame then 1.0 else 0.0 end
+    end
+end
+
+--==========================================================================
 -- ライフサイクル
 --==========================================================================
 
@@ -1487,6 +1521,8 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmAiTilt     = vm:getNumber("aiTilt")
     self.vmAiBounce   = vm:getNumber("aiBounce")
     self.vmAiNod      = vm:getNumber("aiNod")
+    -- 表情(笑顔、⑯)
+    self.vmSmile      = vm:getNumber("smile")
     self.vmHairRots = {
         vm:getNumber("rightA1Rot"), vm:getNumber("rightA2Rot"), vm:getNumber("rightA3Rot"), vm:getNumber("rightA4Rot"),
         vm:getNumber("rightB1Rot"), vm:getNumber("rightB2Rot"), vm:getNumber("rightB3Rot"), vm:getNumber("rightB4Rot"),
@@ -1568,6 +1604,7 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.blinking   = false
     self.blinkT     = 0
     self.blinkTimer = nextBlinkInterval()
+    self.smileEyeAmt = 0.0
     if self.vmEyesDefault then self.vmEyesDefault.value = 1.0 end
     for i = 1, BLINK_FRAMES do
         local prop = self.vmBlinkFrames[i]
@@ -1624,7 +1661,7 @@ function advance(self: CharacterAnimation, seconds: number): boolean
     updateEyeFollow(self, seconds)
     updateBodyFollow(self, seconds, moveY)
     updateHairPhysics(self, seconds)
-    updateBlink(self, seconds)
+    updateSmileEyes(self, seconds)
     updateLipSync(self, seconds)
     return true
 end
@@ -1734,6 +1771,7 @@ return function(): Node<CharacterAnimation>
         vmAiActive = nil,
         vmAiTurnX = nil, vmAiTurnY = nil,
         vmAiTilt = nil, vmAiBounce = nil, vmAiNod = nil,
+        vmSmile = nil,
         vmHairRots = {},
         vmEyesDefault = nil,
         vmBlinkFrames = {},
@@ -1755,6 +1793,7 @@ return function(): Node<CharacterAnimation>
         grabStartTurnX = 0, grabStartTurnY = 0,
         grabTurnX = 0, grabTurnY = 0, grabTilt = 0,
         blinking = false, blinkT = 0, blinkTimer = 0,
+        smileEyeAmt = 0.0,
         lipEnv = 0, lipFrame = 1, lipSpeaking = false,
         autoVowel = 1, vowelTimer = 0,
         activeVowel = 1, vowelTransitioning = false,
