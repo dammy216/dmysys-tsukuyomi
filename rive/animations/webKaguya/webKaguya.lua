@@ -156,6 +156,23 @@ type CharacterAnimation = {
     vowelCrossfadeT: number,   -- クロスフェード開始からの経過秒
     vowelFadeFrom: number,     -- フェードアウトする母音(旧)
     vowelFadeTo: number,       -- フェードインする母音(新)
+    -- ⑰ タバコ吸うモード
+    -- コマ画像は185枚もあるため init() で一括ロードすると起動が遅くなる。
+    -- 実際に表示する瞬間だけ context:image() で取得し、一度取得したコマは
+    -- cigImages/puffImages にキャッシュして使い回す(遅延ロード)。
+    scriptContext: Context?,  -- 遅延ロード用に init() の context を保持
+    vmSmoking: Property<number>?,
+    smokePhase: number,   -- 0=off / 1=吸う(タバコ表示) / 2=吐く(煙表示)
+    smokeT: number,       -- 現在フェーズの経過秒
+    cigAlpha: number,     -- タバコの不透明度(0〜1)。吐く/オフでフェードアウトさせる
+    smokeBounceEase: number,  -- 吸う/吐くの上下イージング(0〜1)。bounceYを専用に上書きする
+    cigImages: {Image?},   -- [1]=_a_frm0,70 〜 [26]=_a_frm25,70。未取得の間は nil
+    puffImages: {Image?},  -- [1]=_a_frm1,40 〜 [159]=_a_frm159,40。未取得の間は nil
+    smokeSampler: ImageSampler?,
+    -- draw() でタバコ・煙を口元に置くために、advance() で計算した位置を持ち回る
+    headPosX: number, headPosY: number,    -- head のアートボード座標
+    mouthPosX: number, mouthPosY: number,  -- head 相対の口の位置
+    puffOriginX: number, puffOriginY: number,  -- 煙: 吐き始めた瞬間の口の位置で固定(体の動きを追従しない)
     -- 当たり判定用(描画リソースはファクトリで一度だけ生成する)
     hitPath: Path,
     hitPaint: Paint,
@@ -381,6 +398,108 @@ local HAIR_GATHER_MAX    = 12.0  -- 内寄せ駆動の上限
 -- 同じ角度を書けば頭と一体に見える。
 local BHAIR_TILT_RATIO = 1.0   -- 頭の傾きに対する後ろ髪の回転比
 local BHAIR_Y_FOLLOW   = 0.8   -- 頭の縦移動(振り向き縦・うなずき)に対する追従比
+
+--==========================================================================
+-- ⑰ タバコ吸うモード のパラメータ
+--==========================================================================
+-- smoking > 0.5 の間、「吸う」→「吐く」を繰り返す。
+--   フェーズ1「吸う」: 顔を少し左に傾け、口を「う」にして、口元にタバコを
+--                      SMOKE_INHALE_TIME 秒ぶんループ再生する。
+--   フェーズ2「吐く」: タバコを消し、口を「あ」にして、煙を1周だけ再生する。
+-- コマ画像は PSD から取り込んだアセットを context:image() で直接読み、draw() の
+-- renderer:drawImage() で描く。そのため ViewModel プロパティは smoking の1つで済む
+-- (コマごとに不透明度プロパティを作ると 26+159=185 個必要になってしまう)。
+-- [位置調整用] true にすると、口元追従・頭の傾きを無視してアートボード中央
+-- (≒キャラ画像の真ん中、頭の位置とほぼ一致)にタバコ・煙を固定する。
+-- ANCHOR/OFFSET/SCALE を調整し終えたら false に戻すこと。
+local SMOKE_DEBUG_CENTER = false
+local SMOKE_INHALE_TIME = 5.0   -- 「吸う」フェーズの長さ(秒)
+local CIG_FRAME_COUNT   = 26
+local CIG_FRAME_TIME    = 0.07  -- アセット名の ",70" = 1コマ 70ms
+local PUFF_FRAME_COUNT  = 159
+local PUFF_FRAME_TIME   = 0.04  -- アセット名の ",40" = 1コマ 40ms
+-- 首の向き(-1〜1、②-bの振り向きと同じ値域)。正だと画面の左を向く(実測で確認済み)。
+-- 体を傾ける(ロール)のではなく、通常のカーソル追従・AI操作と同じ「振り向き」を使う。
+local SMOKE_TURN_X = 0.7
+-- 口を開ききるまでの時間(秒)。パッと切り替わらないよう 1→目標コマへ送る。
+local SMOKE_MOUTH_OPEN_TIME = 0.15
+-- 吸っている間(う)の口の目標コマ(1〜8)。吐く(あ)は LIP_FRAMES(8、開ききり)固定。
+local SMOKE_INHALE_MOUTH_FRAME = 7
+-- 吸っている間、体を持ち上げておく強さ。1.0 で通常の発話バウンス最大(BOUNCE_AMP=16px)
+-- と同じ、それ以上も指定可能。深呼吸のような大きな動きにするため大きめの値にしてある。
+local SMOKE_BOUNCE_AMOUNT     = 1.8
+-- 上げ下げの速さ(秒)。発話バウンスの速いばねとは別のゆっくりしたイージングを使う。
+local SMOKE_BOUNCE_RISE_TIME = 3.0
+local SMOKE_BOUNCE_FALL_TIME = 2.5
+-- タバコの表示/非表示: 吸う=フェードイン(cigAlpha→1) / 吐く・オフ=フェードアウト(→0)。
+-- CIG_FADE_TIME は 0↔1 の遷移にかける秒数。
+local CIG_FADE_TIME = 0.35
+
+-- 口元への合わせ込み。元スティッカーは 480x480 で、その座標系の ANCHOR 点が
+-- キャラの口の中心に来るように描く。OFFSET はそこからのズラし(アートボード座標)。
+-- 見ながら調整する用のパラメータ。
+local CIG_SCALE     = 0.55
+local CIG_ANCHOR_X  = 138.0   -- 回転の軸(画像左側)。CIG_CX(229)を挟んで元の320と対称の位置
+local CIG_ANCHOR_Y  = 245.0
+local CIG_OFFSET_X  = -964.0
+local CIG_OFFSET_Y  = -790.0
+-- 左右の振り向き(turnX)によるタバコの横移動量の倍率。
+-- 1.0以外にすると振れ幅は変わるが、動く"速さ"も同じ倍率で変わってしまい
+-- (turnXの変化速度をそのまま倍にするため)、口より速く/遅く動いて見える。
+-- 速さのズレを避けるため 1.0(口と完全に同じ量・同じ速さ)固定にしてある。
+local CIG_TURN_SCALE = 1.5
+
+local PUFF_SCALE    = 15
+local PUFF_ANCHOR_X = 170.0   -- 煙が出はじめる位置(1コマ目のあたり)
+local PUFF_ANCHOR_Y = 330.0
+local PUFF_OFFSET_X = -960.0
+local PUFF_OFFSET_Y = -765.0
+
+-- 各コマの「中心位置」(元スティッカー 480x480 座標系)の実測値。
+-- GIF のフレームは余白を切り詰めてあるのでコマごとに中心がズレており、
+-- この値どおりに置かないとパラパラ動画がガタつく。
+local CIG_CX = 229.0  -- タバコは全コマ同じ
+local CIG_CY: {number} = {
+    196.5, 195.5, 222.5, 222.0, 223.0, 226.0, 225.5, 223.5, 223.0, 221.5,
+    220.0, 218.5, 216.5, 215.5, 214.0, 213.0, 210.5, 207.5, 206.5, 205.0,
+    204.5, 203.0, 201.5, 201.0, 200.0, 199.0,
+}
+local PUFF_CX: {number} = {
+    170.5, 174.5, 173.0, 177.5, 179.0, 181.0, 182.5, 183.5, 185.0, 186.5,
+    188.5, 190.0, 191.0, 192.5, 194.0, 195.0, 195.5, 197.5, 198.0, 199.5,
+    200.0, 201.0, 201.5, 201.5, 202.5, 203.0, 204.0, 204.0, 205.0, 205.5,
+    206.5, 206.5, 207.5, 208.0, 209.0, 210.0, 210.0, 211.0, 211.5, 212.0,
+    213.0, 214.0, 214.0, 215.0, 216.0, 216.5, 217.5, 218.0, 219.0, 220.0,
+    220.0, 220.5, 221.0, 221.5, 221.5, 222.5, 223.0, 223.5, 224.5, 224.5,
+    226.0, 226.5, 227.0, 228.0, 228.5, 229.0, 229.5, 230.5, 231.0, 231.0,
+    232.0, 232.5, 232.5, 233.5, 233.5, 234.5, 235.0, 235.0, 235.5, 236.5,
+    236.5, 237.0, 238.0, 238.0, 238.5, 239.0, 239.0, 239.5, 239.0, 239.0,
+    239.0, 239.0, 239.0, 239.5, 240.0, 240.0, 240.5, 240.5, 241.0, 241.0,
+    241.5, 242.0, 242.0, 242.0, 243.0, 243.0, 243.0, 243.0, 243.5, 243.5,
+    244.0, 244.0, 244.0, 244.0, 245.0, 245.0, 245.0, 245.5, 245.0, 245.5,
+    245.0, 245.5, 245.0, 245.5, 245.5, 245.0, 245.0, 244.5, 245.0, 244.0,
+    245.0, 244.5, 245.0, 244.5, 244.5, 244.0, 244.0, 244.0, 244.5, 244.0,
+    244.0, 244.5, 244.5, 244.5, 245.0, 245.5, 244.5, 245.5, 245.0, 245.0,
+    238.5, 238.5, 238.0, 216.0, 216.0, 151.5, 168.5, 169.0, 260.5,
+}
+local PUFF_CY: {number} = {
+    323.5, 320.5, 321.5, 320.0, 317.5, 320.0, 317.5, 315.5, 314.0, 311.5,
+    309.5, 308.0, 306.0, 304.5, 302.5, 301.5, 300.5, 299.5, 299.0, 298.0,
+    297.5, 296.0, 295.5, 295.0, 294.0, 293.5, 292.5, 292.0, 291.0, 290.0,
+    289.5, 288.5, 287.5, 286.5, 285.5, 284.5, 283.5, 283.0, 282.5, 281.5,
+    280.5, 279.5, 279.0, 278.0, 277.0, 276.0, 275.0, 274.0, 273.5, 272.5,
+    272.0, 271.0, 270.5, 270.0, 269.5, 268.5, 268.5, 267.5, 267.0, 266.5,
+    266.5, 265.5, 264.5, 264.5, 264.0, 263.5, 264.0, 263.0, 262.0, 261.5,
+    261.0, 261.0, 260.0, 259.5, 259.0, 258.5, 258.0, 257.5, 257.5, 257.5,
+    257.5, 257.5, 257.0, 256.5, 255.5, 255.0, 254.5, 254.0, 253.5, 253.0,
+    252.5, 251.5, 251.5, 251.0, 251.0, 250.0, 250.0, 249.5, 249.5, 248.5,
+    248.5, 248.0, 247.5, 247.0, 247.0, 246.5, 246.5, 246.0, 246.0, 246.0,
+    246.0, 245.5, 245.5, 245.5, 245.0, 245.0, 245.0, 244.5, 244.5, 244.5,
+    244.0, 244.0, 244.0, 244.0, 243.5, 243.5, 243.5, 244.0, 244.0, 244.0,
+    244.5, 244.0, 243.5, 244.0, 243.5, 243.0, 242.5, 242.5, 242.0, 242.0,
+    241.5, 241.5, 241.0, 240.5, 240.5, 239.0, 234.5, 233.5, 233.0, 232.0,
+    232.0, 231.5, 231.5, 231.0, 230.5, 152.0, 52.0, 51.0, 30.0,
+}
 
 --==========================================================================
 -- 髪(サイドロック)の慣性揺れ(Live2D 風の振り子物理)のパラメータ
@@ -923,7 +1042,9 @@ end
 local function updateBreathing(self: CharacterAnimation, seconds: number): number
     self.breathTime += seconds
     -- 正弦波: 上方向(-Y)がピーク
-    local breathY = -math.sin(self.breathTime * math.tau * BREATH_SPEED) * BREATH_AMP
+    -- ⑰ 吸っている間(phase1)だけ呼吸を止め、吸う動作の弾み(⑨のSMOKE_BOUNCE_AMOUNT)だけで
+    -- 上下させる。吐き終わって phase2 に入ったら通常の呼吸サイクルを再開する。
+    local breathY = if self.smokePhase == 1 then 0.0 else -math.sin(self.breathTime * math.tau * BREATH_SPEED) * BREATH_AMP
     -- 発話バウンス(⑨)は呼吸と違い体全体が同じ量だけ弾むので、係数をかけずに全部へ足す
     local bounceY = self.bounceY
     -- topwear/eri/wing/tail・後ろ髪・首の Y は振り向き・うなずき成分も要るので
@@ -945,7 +1066,11 @@ local function updateEyeFollow(self: CharacterAnimation, seconds: number)
     local targetX: number
     local targetY: number
     local aiOn = self.vmAiActive ~= nil and self.vmAiActive.value > 0.5
-    if aiOn and not self.grabbing then
+    if self.smokePhase == 1 and not self.grabbing then
+        -- ⑰ タバコを咥えている間(吸う)だけカーソル/AI追従を止め、正面(オフセット0)へ戻す。
+        -- 吐いている間(phase2)は通常通り追従してよい。
+        targetX, targetY = 0.0, 0.0
+    elseif aiOn and not self.grabbing then
         -- AI操作モード(⑩): aiTurnX/Y を視線の向きとして使う(カーソルは無視)
         local nx = math.clamp(if self.vmAiTurnX then self.vmAiTurnX.value else 0.0, -1.0, 1.0)
         local ny = math.clamp(if self.vmAiTurnY then self.vmAiTurnY.value else 0.0, -1.0, 1.0)
@@ -1009,6 +1134,12 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
         local turnFrac = math.clamp((dist - EYE_REACH) / (TURN_REACH - EYE_REACH), 0.0, 1.0)
         targetTX, targetTY = ux * turnFrac, uy * turnFrac
     end
+    -- ⑰ タバコを咥えている間(吸う)だけ、指定がなければ首を左に向けたままにする
+    -- (体を傾ける(ロール)のではなく、通常のカーソル追従と同じ「振り向き」の仕組みを使う)。
+    -- 吐いている間(phase2)は通常通り追従してよい。
+    if self.smokePhase == 1 and not self.grabbing then
+        targetTX, targetTY = SMOKE_TURN_X, 0.0
+    end
 
     local a = math.min(lerpSpeed * seconds, 1.0)
     self.turnX += (targetTX - self.turnX) * a
@@ -1039,13 +1170,18 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     if self.vmBodyRot then self.vmBodyRot.value = self.tiltDeg * BODY_TILT_RATIO end
 
     -- 中景: 頭グループ全体。縦は呼吸+バウンス(moveY)とうなずき(nodY)を合算する
-    if self.vmHeadX     then self.vmHeadX.value     = BASE_HEAD_X  + hx * HEAD_X            end
-    if self.vmHeadY     then self.vmHeadY.value     = BASE_HEAD_Y  + moveY + hyDown * HEAD_Y + self.nodY end
+    -- ⑰ タバコ・煙を口元に描くのに使うので、頭と口の位置は self にも控えておく
+    self.headPosX  = BASE_HEAD_X  + hx * HEAD_X
+    self.headPosY  = BASE_HEAD_Y  + moveY + hyDown * HEAD_Y + self.nodY
+    self.mouthPosX = BASE_MOUTH_X + hx * MOUTH_X
+    self.mouthPosY = BASE_MOUTH_Y + hyDown * MOUTH_Y
+    if self.vmHeadX     then self.vmHeadX.value     = self.headPosX                         end
+    if self.vmHeadY     then self.vmHeadY.value     = self.headPosY                         end
     -- 前景: 頭の移動に上乗せ(前方ほど大きく → 奥行き)
     if self.vmNoseX     then self.vmNoseX.value     = BASE_NOSE_X  + hx * NOSE_X            end
     if self.vmNoseY     then self.vmNoseY.value     = BASE_NOSE_Y  + hyDown * NOSE_Y        end
-    if self.vmMouthX    then self.vmMouthX.value    = BASE_MOUTH_X + hx * MOUTH_X           end
-    if self.vmMouthY    then self.vmMouthY.value    = BASE_MOUTH_Y + hyDown * MOUTH_Y       end
+    if self.vmMouthX    then self.vmMouthX.value    = self.mouthPosX                        end
+    if self.vmMouthY    then self.vmMouthY.value    = self.mouthPosY                        end
     if self.vmHairX     then self.vmHairX.value     = BASE_HAIR_X  + hx * HAIR_X            end
     if self.vmHairY     then self.vmHairY.value     = BASE_HAIR_Y  + hyDown * HAIR_Y        end
     -- 獣耳: hairs グループの子なので、親(前髪と共有)の移動分を引いて完全に切り離す。
@@ -1188,6 +1324,21 @@ end
 -- 映像では喋りに合わせて体全体が小刻みに弾む。音量エンベロープ(前フレームの値で十分)を
 -- そのまま使い、ばねの揺り戻しで「ぷるん」とした質感を出す。
 local function updateBounce(self: CharacterAnimation, seconds: number)
+    -- ⑰ タバコの上下は、発話バウンス用の速いばね(BOUNCE_SPRING/DAMP)とは別に、
+    -- ゆっくりしたイージングで動かす。吸う(phase1)で上げ、吐く(phase2)に切り替わったら下げる。
+    -- smokeBounceEase が残っている間は(モードが切れた後も)ここで下げ切る。
+    if self.smokePhase ~= 0 or self.smokeBounceEase > 0.0 then
+        local target = if self.smokePhase == 1 then 1.0 else 0.0
+        if target > self.smokeBounceEase then
+            self.smokeBounceEase = math.min(self.smokeBounceEase + seconds / SMOKE_BOUNCE_RISE_TIME, target)
+        else
+            self.smokeBounceEase = math.max(self.smokeBounceEase - seconds / SMOKE_BOUNCE_FALL_TIME, target)
+        end
+        self.bounceY = -self.smokeBounceEase * SMOKE_BOUNCE_AMOUNT * BOUNCE_AMP
+        self.bounceVel = 0.0
+        return
+    end
+
     local dt = math.min(seconds, HAIR_MAX_STEP)
     if dt <= 0 then return end
     local amp = self.lipEnv  -- 喋っていれば自動で弾む
@@ -1463,6 +1614,147 @@ local function updateSmileEyes(self: CharacterAnimation, seconds: number)
 end
 
 --==========================================================================
+-- ⑰ タバコ吸うモード
+--==========================================================================
+-- フェーズを進める。smoking が 0 に戻ったら即座に通常状態へ戻す。
+local function updateSmoking(self: CharacterAnimation, seconds: number)
+    local on = self.vmSmoking ~= nil and self.vmSmoking.value > 0.5
+    if not on then
+        self.smokePhase = 0
+        self.smokeT = 0
+    elseif self.smokePhase == 0 then
+        -- モードに入った瞬間。「吸う」から始める
+        self.smokePhase = 1
+        self.smokeT = 0
+    else
+        self.smokeT += seconds
+        if self.smokePhase == 1 then
+            if self.smokeT >= SMOKE_INHALE_TIME then
+                self.smokePhase = 2   -- 吸い終わり → 吐く
+                self.smokeT = 0
+                -- ⑰ 煙は体の動きに追従させない。吐き始めた瞬間の口の位置で固定する
+                self.puffOriginX = self.headPosX + self.mouthPosX
+                self.puffOriginY = self.headPosY + self.mouthPosY
+            end
+        else
+            if self.smokeT >= PUFF_FRAME_COUNT * PUFF_FRAME_TIME then
+                self.smokePhase = 1   -- 吐き終わり → また吸う
+                self.smokeT = 0
+            end
+        end
+    end
+
+    -- タバコの不透明度(⑰)。吸う=1(表示)へ、それ以外=0(フェードで消す)へなめらかに近づける
+    local alphaTarget = if self.smokePhase == 1 then 1.0 else 0.0
+    local alphaSpeed = seconds / CIG_FADE_TIME
+    if alphaTarget > self.cigAlpha then
+        self.cigAlpha = math.min(self.cigAlpha + alphaSpeed, alphaTarget)
+    elseif alphaTarget < self.cigAlpha then
+        self.cigAlpha = math.max(self.cigAlpha - alphaSpeed, alphaTarget)
+    end
+end
+
+-- 喫煙中の口。リップシンク(④)の結果を上書きして、
+-- 吸う=「う」の006 / 吐く=「あ」の008 にする。
+-- パッと切り替わらないよう、フェーズの頭で 001→目標コマへ送る。
+local function applySmokingMouth(self: CharacterAnimation)
+    if self.smokePhase == 0 then return end
+    local vowel = if self.smokePhase == 1 then VOWEL_U else VOWEL_A
+    local targetFrame = if self.smokePhase == 1 then SMOKE_INHALE_MOUTH_FRAME else LIP_FRAMES
+    local t = math.min(self.smokeT / SMOKE_MOUTH_OPEN_TIME, 1.0)
+    local frame = math.clamp(math.floor(1.0 + t * (targetFrame - 1) + 0.5), 1, LIP_FRAMES)
+    if self.vmMouthDefault then self.vmMouthDefault.value = 0.0 end
+    for v = 1, 5 do
+        local prop = self.vmMouthShapes[v]
+        if prop then prop.value = if v == vowel then 1.0 else 0.0 end
+    end
+    for f = 1, LIP_FRAMES do
+        local prop = self.vmMouthFrames[f]
+        if prop then prop.value = if f == frame then 1.0 else 0.0 end
+    end
+end
+
+-- スティッカーの1コマを描く。
+-- 元画像(480x480座標系)の (ax, ay) が画面の (px, py) に来るように、
+-- scale 倍・rot ラジアン回転して置く。cx/cy はそのコマの中心位置。opacity は 0〜1。
+local function drawSticker(renderer: Renderer, sampler: ImageSampler, img: Image,
+    cx: number, cy: number, ax: number, ay: number,
+    scale: number, rot: number, px: number, py: number, opacity: number)
+    -- drawImage は画像の左上を原点に描くので、中心位置から左上を求める
+    local tlx = cx - img.width * 0.5
+    local tly = cy - img.height * 0.5
+    local m = Mat2D.withTranslation(px, py)
+        * Mat2D.withRotation(rot)
+        * Mat2D.withScale(scale, scale)
+        * Mat2D.withTranslation(tlx - ax, tly - ay)
+    renderer:save()
+    renderer:transform(m)
+    renderer:drawImage(img, sampler, 'srcOver', opacity)
+    renderer:restore()
+end
+
+-- コマ画像を遅延取得する。一度取得できたコマは cache(cigImages/puffImages)に憶えておき、
+-- 次回以降は context:image() を呼ばず即座に返す。
+-- 名前は "_a_frm<n>,<ms>" (PSD取り込み時のアセット名)。タバコは 0始まり(frm0〜frm25)、
+-- 煙は 1始まり(frm1〜frm159)とズレているため、呼び出し側が frameNum を渡す。
+local function getStickerFrame(self: CharacterAnimation, cache: {Image?}, cacheIndex: number, frameNum: number, suffix: string): Image?
+    local img = cache[cacheIndex]
+    if img then return img end
+    if not self.scriptContext then return nil end
+    img = self.scriptContext:image("_a_frm" .. frameNum .. suffix)
+    if img then cache[cacheIndex] = img end
+    return img
+end
+
+local function drawSmoking(self: CharacterAnimation, renderer: Renderer)
+    if self.smokePhase == 0 then return end
+    local sampler = self.smokeSampler
+    if not sampler then return end
+
+    -- 口のアートボード座標 = head の位置 + 口のローカル位置(そのまま平行移動)。
+    -- 位置の計算には頭の傾きを反映しない(回転させると位置がズレる問題があったため)。
+    -- タバコの絵自体の向きだけ、頭の傾き(tiltDeg)に合わせて回転させる。
+    local rot = math.rad(self.tiltDeg)
+    local mx: number, my: number
+    if SMOKE_DEBUG_CENTER then
+        -- [位置調整用] アートボード中央に固定
+        mx, my = ARTBOARD_W * 0.5, ARTBOARD_H * 0.5
+    else
+        -- 口(vmMouthX/Y)と同じタイミング(turnX)で動くが、横方向だけ振れ幅を
+        -- CIG_TURN_SCALE 倍に拡大する(速度のタイミングはそのまま、動く量だけ増やす)。
+        local baseX = BASE_HEAD_X + BASE_MOUTH_X
+        mx = baseX + self.turnX * (HEAD_X + MOUTH_X) * CIG_TURN_SCALE
+        my = self.headPosY + self.mouthPosY
+    end
+
+    -- タバコ: 位置は口元に固定したまま、cigAlpha(⑰)でフェードイン/アウトする
+    -- (吸う=フェードイン、吐く=フェードアウトで消える)。
+    if self.cigAlpha > 0.0 then
+        local idx = (math.floor(self.smokeT / CIG_FRAME_TIME) % CIG_FRAME_COUNT) + 1
+        local img = getStickerFrame(self, self.cigImages, idx, idx - 1, ",70")
+        if img then
+            drawSticker(renderer, sampler, img, CIG_CX, CIG_CY[idx],
+                CIG_ANCHOR_X, CIG_ANCHOR_Y, CIG_SCALE, rot,
+                mx + CIG_OFFSET_X, my + CIG_OFFSET_Y, self.cigAlpha)
+        end
+    end
+
+    if self.smokePhase == 2 then
+        -- 吐く: 煙を1周だけ再生。体の動き(頭の位置・傾き)には追従させず、
+        -- 吐き始めた瞬間の口の位置(puffOriginX/Y)に固定する。
+        local idx = math.floor(self.smokeT / PUFF_FRAME_TIME) + 1
+        if idx >= 1 and idx <= PUFF_FRAME_COUNT then
+            local img = getStickerFrame(self, self.puffImages, idx, idx, ",40")
+            if img then
+                drawSticker(renderer, sampler, img, PUFF_CX[idx], PUFF_CY[idx],
+                    PUFF_ANCHOR_X, PUFF_ANCHOR_Y, PUFF_SCALE, 0.0,
+                    self.puffOriginX + PUFF_OFFSET_X, self.puffOriginY + PUFF_OFFSET_Y, 1.0)
+            end
+        end
+    end
+end
+
+--==========================================================================
 -- ライフサイクル
 --==========================================================================
 
@@ -1523,6 +1815,8 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmAiNod      = vm:getNumber("aiNod")
     -- 表情(笑顔、⑯)
     self.vmSmile      = vm:getNumber("smile")
+    -- タバコ吸うモード(⑰)
+    self.vmSmoking    = vm:getNumber("smoking")
     self.vmHairRots = {
         vm:getNumber("rightA1Rot"), vm:getNumber("rightA2Rot"), vm:getNumber("rightA3Rot"), vm:getNumber("rightA4Rot"),
         vm:getNumber("rightB1Rot"), vm:getNumber("rightB2Rot"), vm:getNumber("rightB3Rot"), vm:getNumber("rightB4Rot"),
@@ -1635,6 +1929,22 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.testAudioSound   = nil
     self.testAudioPlaying = false
     self.lastClickAt      = -100
+
+    -- ⑰ タバコ吸うモード: コマ画像は185枚あるため、ここでは読み込まず
+    -- 実際に表示する瞬間に getStickerFrame() が遅延取得する(起動を遅くしないため)。
+    self.scriptContext = context
+    self.smokeSampler  = ImageSampler('clamp', 'clamp', 'bilinear')
+    self.smokePhase    = 0
+    self.smokeT        = 0
+    self.cigAlpha      = 0
+    self.smokeBounceEase = 0
+    self.headPosX, self.headPosY   = BASE_HEAD_X, BASE_HEAD_Y
+    self.mouthPosX, self.mouthPosY = BASE_MOUTH_X, BASE_MOUTH_Y
+    self.puffOriginX = BASE_HEAD_X + BASE_MOUTH_X
+    self.puffOriginY = BASE_HEAD_Y + BASE_MOUTH_Y
+    self.cigImages  = {}
+    self.puffImages = {}
+
     if not self.testAudioSource then
         print("[かぐや:テスト] 音声アセットが見つかりません: " .. TEST_AUDIO_ASSET_NAME)
     end
@@ -1655,6 +1965,8 @@ function init(self: CharacterAnimation, context: Context): boolean
 end
 
 function advance(self: CharacterAnimation, seconds: number): boolean
+    -- ⑰ 先に進める(このフレームの顔の傾きを updateBodyFollow が使うため)
+    updateSmoking(self, seconds)
     updateBounce(self, seconds)   -- lipEnv は前フレームの値を使う(1フレーム遅れで十分)
     updateNod(self, seconds)
     local moveY = updateBreathing(self, seconds)  -- 呼吸 + バウンスの合算Y
@@ -1663,6 +1975,8 @@ function advance(self: CharacterAnimation, seconds: number): boolean
     updateHairPhysics(self, seconds)
     updateSmileEyes(self, seconds)
     updateLipSync(self, seconds)
+    -- ⑰ 喫煙中はリップシンクの口を「う」「あ」で上書きする
+    applySmokingMouth(self)
     return true
 end
 
@@ -1672,6 +1986,8 @@ function update(self: CharacterAnimation) end
 -- パスは init() で組み立て済みなので、ここでは描くだけ。
 function draw(self: CharacterAnimation, renderer: Renderer)
     renderer:drawPath(self.hitPath, self.hitPaint)
+    -- ⑰ タバコ・煙のコマをここで直接描く
+    drawSmoking(self, renderer)
 end
 
 function pointerMove(self: CharacterAnimation, event: PointerEvent)
@@ -1804,5 +2120,14 @@ return function(): Node<CharacterAnimation>
         hitPaint = Paint.new(),
         testAudioSource = nil, testAudioSound = nil,
         testAudioPlaying = false, lastClickAt = -100,
+        -- ⑰ タバコ吸うモード
+        scriptContext = nil,
+        vmSmoking = nil,
+        smokePhase = 0, smokeT = 0, cigAlpha = 0, smokeBounceEase = 0,
+        cigImages = {}, puffImages = {},
+        smokeSampler = nil,
+        headPosX = BASE_HEAD_X, headPosY = BASE_HEAD_Y,
+        mouthPosX = BASE_MOUTH_X, mouthPosY = BASE_MOUTH_Y,
+        puffOriginX = BASE_HEAD_X + BASE_MOUTH_X, puffOriginY = BASE_HEAD_Y + BASE_MOUTH_Y,
     }
 end
