@@ -97,7 +97,7 @@ const DOLLY_LEVEL_RELEASE_SECONDS = 3;
  * 転調(DOLLY_IN_END_SECONDS)から、寄り切り → 「行き過ぎの底」まで一気に引く秒数。
  * 短いほど閃光に突き放されたような鋭い引きになる。
  */
-const DOLLY_PULL_SECONDS = 1.5;
+const DOLLY_PULL_SECONDS = 1;
 /**
  * 「行き過ぎの底」から AFTER_SURGE_DISTANCE へ戻る秒数。
  * DOLLY_OUT_OVERSHOOT=0 のときは戻る先が底と同じなので、実質この時間ぶん
@@ -114,7 +114,7 @@ const AFTER_SURGE_DISTANCE = 1.1;
  * 引くときに AFTER_SURGE_DISTANCE をどれだけ通り越すか(0=通り越さない)。
  * 一度行き過ぎてから戻ることで、閃光に突き放されたような勢いが出る。
  */
-const DOLLY_OUT_OVERSHOOT = 0.4;
+const DOLLY_OUT_OVERSHOOT = 0.3;
 
 /*
   転調直後、PATH(旋回)の進みを一時的に遅くする。PATH の24秒周期は曲と
@@ -123,11 +123,11 @@ const DOLLY_OUT_OVERSHOOT = 0.4;
   転調〜引き切りの間だけ PATH をスローにして、そのあと通常速度へ戻す。
 */
 /** 転調直後の PATH の進み倍率(1=通常, 小さいほどスロー) */
-const PATH_SURGE_SLOWDOWN = 1;
+const PATH_SURGE_SLOWDOWN = 0.3;
 /** 転調の何秒前から PATH を緩め始めるか(閃光でごまかせる範囲で) */
 const PATH_SLOWDOWN_ENTER_SECONDS = 1;
 /** 引き切ったあと、PATH を通常速度へ戻すまでの秒数 */
-const PATH_SLOWDOWN_RECOVER_SECONDS = 5;
+const PATH_SLOWDOWN_RECOVER_SECONDS = 1;
 
 /**
  * 動画の終わりの何秒前から、AFTER_SURGE_DISTANCE ぶん引いていた位置を
