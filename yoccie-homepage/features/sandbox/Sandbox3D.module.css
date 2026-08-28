@@ -1,0 +1,21 @@
+/*
+ * @react-three/drei の Stats(FPS表示) は stats.js を直接 document.body に差し込み、
+ * インラインstyleで position:fixed; top:0; left:0 を強制してくる。
+ * 画面右側・ヘッダーのロゴバッジと同じ高さ(--header-offset)に配置し、
+ * 本来クリックでFPS/MS/MB(赤緑青のパネル)を1枚ずつ切り替える仕様を、
+ * 3枚とも常時表示の縦並びに変える(見た目上クリックしても切り替わらなくなる)。
+ */
+.stats {
+  top: var(--header-offset, 1.25rem) !important;
+  left: auto !important;
+  right: 0.75rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px;
+  cursor: default !important;
+}
+
+.stats > canvas {
+  position: static !important;
+  display: block !important;
+}

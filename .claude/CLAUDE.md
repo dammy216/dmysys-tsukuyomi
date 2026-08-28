@@ -9,7 +9,7 @@ yachiyoGPT は、キャラクター「ヤチヨ」を中心とした **モノレ
 
 - **mobile/** — Expo (React Native) 製のモバイルアプリ。カメラ＋マイクで Gemini とマルチモーダル会話し、ヤチヨが応答音声に合わせて動く。
 - **server/** — FastAPI + Socket.IO のリレーサーバー。Gemini Live と Fish Audio TTS を仲介する。
-- **yoccie-homepage/** — Next.js 製の公開サイト。「歌ってみた」動画1ページのみの単機能サイトで、動画の音声に合わせてヤチヨが歌う（口パク＋弾み）。
+- **yoccie-homepage/** — Next.js 製の公開サイト。ルート("/")は3Dサンドボックス（Three.js実験場）で、画面右上のトグルUIから「かぐや」「ヤチヨ」のRiveキャラクター表示を重ねて切り替えられる。`/song`は「歌ってみた」動画に合わせてヤチヨが歌うページ（口パク＋弾み）。
 - **rive/** — キャラクター「ヤチヨ」の Rive 素材と、Riveエディタ上で動く **Luau スクリプト**（Node Script）。
 
 `.riv` ファイル本体は Rive エディタが管理しており、このリポジトリには含まれない。
@@ -21,7 +21,8 @@ Luau スクリプトはファイルで編集し、Rive エディタに貼り付�
 ```
 mobile/          # Expo アプリ（features/ ごとに分割: camera / character / conversation / home）
 server/          # FastAPI + Socket.IO（vertical slice。エントリ: main.py。sandbox/ は実験用の使い捨て）
-yoccie-homepage/ # Next.js サイト（App Router。ルート("/")=歌ってみたページのみ。features/ に character / starSong）
+yoccie-homepage/ # Next.js サイト（App Router。ルート("/")=3Dサンドボックス+かぐや/ヤチヨ表示切替UI、/song。
+                 #   features/ に sandbox（CharacterOverlay含む）/ kaguya / character / starSong）
 rive/            # Rive 素材 + Luau スクリプト
 .agents/skills/  # 各技術のリファレンス（Rive / Gemini Live / Fish Audio / FastAPI / React Native 等。後述）
 .mcp.json        # Rive MCP サーバー設定

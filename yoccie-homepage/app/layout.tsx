@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
+import { Header } from "@/components/layout/Header";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,7 +20,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja" className={`${geistSans.variable} antialiased`}>
-      <body>{children}</body>
+      {/*
+        ブラウザ拡張(ColorZilla 等)が <body> に cz-shortcut-listen などの
+        属性を差し込むため、その1点だけ hydration 差分の警告を黙らせる。
+        中身(children)の hydration チェックには影響しない。
+      */}
+      <body suppressHydrationWarning>
+        <Header />
+        {children}
+      </body>
     </html>
   );
 }

@@ -5,8 +5,17 @@ import {
   useRive,
   useViewModel,
   useViewModelInstance,
+  Layout,
+  Fit,
 } from "@rive-app/react-webgl2";
-import { RIV_SRC, STATE_MACHINE, VM_SING_AMPLITUDE } from "./constants";
+import { ARTBOARD, RIV_SRC, STATE_MACHINE, VM_SING_AMPLITUDE } from "./constants";
+
+// "ベース"アートボードは正方形(1025x1025)。既定のFit.Containだと、パネルの
+// 短い方の辺だけを基準にキャラの大きさが決まるため、リサイズハンドルで
+// 片方の辺だけ伸ばしても見た目の大きさが変わらない(余白が増減するだけ)。
+// Fit.Coverにすると常に枠いっぱいに拡大されるので、どちらの辺をリサイズしても
+// かぐや(KaguyaCharacter)と同様に追従して拡大縮小するようになる。
+const YACHIYO_LAYOUT = new Layout({ fit: Fit.Cover });
 
 type YachiyoCharacterProps = {
   onAmplitude?: (value: number) => void;
@@ -24,8 +33,10 @@ export function YachiyoCharacter({
 
   const { rive, RiveComponent } = useRive({
     src: RIV_SRC,
+    artboard: ARTBOARD,
     stateMachines: STATE_MACHINE,
     autoplay: true,
+    layout: YACHIYO_LAYOUT,
   });
 
   const viewModel = useViewModel(rive, { useDefault: true });

@@ -7,20 +7,24 @@
 --       ⑥ 母音切り替え時の遷移(あ→い 等は、あを一度閉じてから → 閉じた状態で短く
 --          クロスフェード → いで開き直す。開いた口同士を長くクロスフェードすると
 --          二重露光っぽくなるため、閉じきった瞬間だけの短いクロスフェードにしている)
---       ⑦ [テスト用] ダブルクリックでテスト音声(test音声.mp3)を再生し、その音量で
---          ④のリップシンクを動作確認する。事前解析した音量表を再生位置から引くだけなので、
---          本番の singAmplitude 経路とは独立(テスト音声再生中はそちらを優先する)。
---          本番運用では不要なため、確認が済んだら削除してよい。
 --       ⑧ 頭の傾き(ロール)＋常時アイドル揺れ。映像(超かぐや姫)の「ゆらゆら」の主成分。
 --          headRot(頭)・bodyRot(体)にばねで書き込み、傾き速度は髪・headearの揺れも駆動する。
 --       ⑨ 発話に合わせた体の弾み(バウンス)。lipEnv(音量エンベロープ)または aiBounce を
 --          目標にした弱減衰ばねで、喋ると体全体がぷるんと上下する。
+--       ⑨-b 歌唱モード中(swayGate)の振り向き・傾き。⑪の頭ドラッグ(GRAB_RANGE/
+--          GRAB_TILT_RANGE/GRAB_LERP_SPEED)と全く同じ計算式に、実際のマウス位置の
+--          代わりに singPhase から自動生成した仮想dx/dy(SING_GRAB_*)を流し込む。
+--          「頭を掴んで前髪の外側の輪郭をなぞるようにマウスを動かした動き」を
+--          再現するのが狙いで、中央(分け目/三日月飾り)が高く左右の房の外側に
+--          向かって下がっていく弓なりを、dx=サイン波の左右往復・dy=dxが端に
+--          振れている間だけ深くなる形で近似している(updateBodyFollow参照)。
 --       ⑩ AI操作入力。aiActive=1 のとき、以下を外部(AI/React)が書き込むと体を操作できる:
 --            aiTurnX/aiTurnY (-1〜1) 顔と視線の向き / aiTilt (-1〜1) 頭の傾き
 --            aiBounce (0〜1) 体の弾み / aiNod (0→1 の立ち上がりで1回うなずく)
 --          singAmplitude と併用すれば「喋りながら傾いて弾む」映像のような動きになる。
---       ⑪ 動作確認用: 頭のあたりをドラッグすると頭がついてきて(傾き＋振り向き)、
---          離すとばねで戻る。髪・headear が映像のように遅れて揺れるかを手で確かめられる。
+--       ⑪ 頭ドラッグ。頭のあたりをつかむと頭がついてきて(傾き＋振り向き)、
+--          離すとばねで戻る。髪・headear が映像のように遅れて揺れる。⑨-bはこれと
+--          同じ計算式を歌唱モード用に自動化したもの。
 --       ⑫ 後ろ髪の追従: back hair は head の子ではないので、頭の傾き(backHairRot)と
 --          縦移動をスクリプトで明示的に追従させる。
 --       ⑬ 髪の重力補償: 頭をどれだけ傾けても、前髪・後ろ髪・headear の毛先が
@@ -101,6 +105,7 @@ type CharacterAnimation = {
     vmBlinkFrames: {Property<number>?},  -- [1]=blink_001 〜 [8]=blink_008
     -- リップシンク用
     vmSingAmp: Property<number>?,        -- 入力: 音量(0〜1)。React 等が書き込む
+    vmSingGrabPeriod: Property<number>?, -- 入力: SING_GRAB_PERIODの上書き(秒)。React等が書き込む(未バインド/0以下ならデフォルト値を使う)
     vmMouthVowel: Property<number>?,     -- 入力: 母音の選択(1=a 2=i 3=u 4=e 5=o)
     vmMouthShapes: {Property<number>?},  -- [1]=mouth_a 〜 [5]=mouth_o フォルダの不透明度
     vmMouthFrames: {Property<number>?},  -- [1]=001 〜 [8]=008 (全母音フォルダで共有)
@@ -139,10 +144,16 @@ type CharacterAnimation = {
     blinkTimer: number,   -- 次のまばたきまでの残り秒
     -- 表情(笑顔、⑯)。0=普段の目/1=笑顔(閉じ目)。まばたきと同じ速さでここを近づける
     smileEyeAmt: number,
+    -- 歌唱中、たまにニコッと笑う(ヤチヨ WebYachiyo.lua の singSmile* と同じ仕組み)
+    singSmiling: boolean,    -- 笑顔の最中か
+    singSmileHold: number,   -- 笑顔の残り保持時間(秒)
+    singSmileTimer: number,  -- 次の笑顔までの残り秒
     -- リップシンク内部状態
     lipEnv: number,       -- 音量エンベロープ(平滑化した音量 0〜1)
     lipFrame: number,     -- 音量から算出した現在のフレーム(1〜8)。母音遷移中でも裏で更新し続ける
     lipSpeaking: boolean, -- 発話中か(ヒステリシスでチャタリング防止)
+    swayGate: number,     -- 歌唱モードか(0=通常〜1=歌唱中)。息継ぎでは落とさない
+    singPhase: number,    -- 歌唱の弾み・首かしげ用の自走位相(秒。回り続ける)
     -- 母音の自動選択(音量の大小で口の傾向を変え、一定間隔で切り替える)
     autoVowel: number,         -- 自動選択中の母音(1〜5)
     vowelTimer: number,        -- 次の母音切り替えまでの残り秒
@@ -173,15 +184,10 @@ type CharacterAnimation = {
     headPosX: number, headPosY: number,    -- head のアートボード座標
     mouthPosX: number, mouthPosY: number,  -- head 相対の口の位置
     puffOriginX: number, puffOriginY: number,  -- 煙: 吐き始めた瞬間の口の位置で固定(体の動きを追従しない)
+    puffOriginRot: number,  -- 煙: 吐き始めた瞬間の頭の傾き(ラジアン)で固定。タバコと同じ傾きのまま維持する
     -- 当たり判定用(描画リソースはファクトリで一度だけ生成する)
     hitPath: Path,
     hitPaint: Paint,
-    -- テスト用: ダブルクリックでテスト音声を再生し、その音量でリップシンクを動作確認する。
-    -- 本番では singAmplitude(外部/React) をそのまま使うので、このブロックは動作確認用。
-    testAudioSource: AudioSource?,
-    testAudioSound: AudioSound?,
-    testAudioPlaying: boolean,
-    lastClickAt: number,  -- ダブルクリック判定用(breathTime を時計として使う)
 }
 
 --==========================================================================
@@ -203,35 +209,13 @@ local EYE_CENTER_Y = 0
 
 -- true にすると、クリック位置をコンソールに出力する(追従中心のキャリブレーション用)。
 -- キャラの瞳の真上をクリックした値が EYE_CENTER_X/Y と一致していれば正しい。
-local DEBUG_POINTER = true
+local DEBUG_POINTER = false
 
---==========================================================================
--- テスト用: ダブルクリックでテスト音声を再生し、その音量でリップシンクを確認する
---==========================================================================
--- Rive の AudioSound には再生中の音量を測る API が無いため、テスト音声(rive/assets/
--- test音声.mp3, 7.31秒)を事前に Python で解析し、50ms刻みのRMS音量(0〜1に正規化)を
--- 埋め込んでいる。再生中は soundInstance:time() で今の再生位置を取り、この表を引く。
--- 母音・開閉のロジックは本番の singAmplitude 経路(updateFrameFromVolume)を丸ごと再利用する。
-local TEST_AUDIO_ASSET_NAME = "testAudio"  -- Riveに音声をインポートした時につけるアセット名
-local TEST_AUDIO_WINDOW     = 0.05         -- 解析した窓の長さ(秒)
-local DOUBLE_CLICK_TIME     = 0.3          -- この秒数以内の2クリックをダブルクリックとみなす
-local TEST_AUDIO_ENVELOPE: {number} = {
-    0.0001, 0.1589, 0.7176, 0.9520, 0.8041, 0.4774, 0.3894, 0.4799, 0.4004, 0.4506,
-    0.5378, 0.5475, 0.5265, 0.4537, 0.3407, 0.3376, 0.3133, 0.2352, 0.0577, 0.0878,
-    0.1370, 0.1354, 0.4759, 0.3678, 0.3712, 0.4711, 0.3609, 0.0887, 0.6315, 0.1923,
-    0.2075, 0.7847, 0.6118, 0.2530, 0.2779, 0.0501, 0.1713, 0.1409, 0.0868, 0.2771,
-    0.5087, 0.6133, 0.2884, 0.6050, 0.3625, 0.4300, 0.6330, 0.0500, 0.0697, 0.3540,
-    0.3167, 0.2359, 0.3474, 0.1510, 0.0889, 0.0480, 0.5688, 0.2819, 0.0407, 0.3832,
-    0.5381, 0.2720, 0.0651, 0.1382, 0.2792, 1.0000, 0.0916, 0.0294, 0.3516, 0.4159,
-    0.9455, 0.4670, 0.0112, 0.0016, 0.0012, 0.0211, 0.1148, 0.7794, 0.6614, 0.1910,
-    0.1871, 0.4418, 0.3295, 0.1693, 0.0444, 0.4504, 0.0278, 0.7356, 0.6931, 0.1822,
-    0.3602, 0.1524, 0.2313, 0.3386, 0.1801, 0.2640, 0.3731, 0.3276, 0.1737, 0.0224,
-    0.0010, 0.0006, 0.0006, 0.0006, 0.0008, 0.0016, 0.2134, 0.4182, 0.7264, 0.6221,
-    0.5029, 0.4741, 0.4718, 0.5012, 0.2493, 0.4802, 0.3445, 0.0725, 0.2797, 0.4605,
-    0.3381, 0.2651, 0.2770, 0.4786, 0.4212, 0.5083, 0.5017, 0.2281, 0.2254, 0.8080,
-    0.1694, 0.0042, 0.5103, 0.8858, 0.3670, 0.1006, 0.5798, 0.3302, 0.2096, 0.2086,
-    0.5497, 0.6365, 0.2643, 0.0055, 0.0009, 0.0002, 0.0000,
-}
+-- false にすると、リップシンク(音量→口の開閉)そのものを止める。
+-- singAmplitude は通常の発話バウンス(lipEnv)や歌唱中の笑顔切り替え(swayGate、
+-- updateFrameFromVolume参照)には引き続き使われるが、口は常に既定の閉じ表示
+-- (default_mouth)のまま動かなくなる。本番(React側の実音声連動)でも口は動かない。
+local LIP_SYNC_ENABLED = false
 
 -- 目パーツの基準ローカル座標(実測値)
 local IRIS_RX, IRIS_RY = -70.5,  8.5
@@ -266,11 +250,11 @@ local BASE_BODY_ROOT_ROT         =  90.0
 --   右目: (85-52)/2 = 16.5 [X], (65-56)/2 = 4.5 [Y]
 --   左目: (82-51)/2 = 15.5 [X], (61-55)/2 = 3.0 [Y]
 -- 狭いほうの目に合わせ、さらに余裕を持たせて瞳が白目からはみ出さないようにする。
-local EYE_MAX_OFFSET_X = 11.5
+local EYE_MAX_OFFSET_X = 9.5
 -- 縦方向は上下で余白が違う(瞳は白目の中心よりやや下寄りに配置されているため、
 -- 上方向のほうが余白が広い)。マウスが上にあるときに瞳がもっと上まで動くよう、
 -- 上方向だけ広めに、下方向は元の値のまま安全側にしておく。
-local EYE_MAX_OFFSET_Y_UP   = 9   -- カーソルが上にあるとき(瞳を上へ)
+local EYE_MAX_OFFSET_Y_UP   = 5   -- カーソルが上にあるとき(瞳を上へ)
 local EYE_MAX_OFFSET_Y_DOWN = 2.5   -- カーソルが下にあるとき(瞳を下へ)
 -- 顔幅(320)の約1.2倍。カーソルが顔の周辺にいる間は「目だけ」で追う。
 local EYE_REACH        = 380.0
@@ -325,6 +309,8 @@ local HEADEAR_X, HEADEAR_Y = -14.0, -4.0
 -- 頭の傾き自体も控えめにして両立させている。
 local HEAD_TILT_MAX   = 7.0   -- aiTilt/ドラッグ = ±1 のときの頭の傾き(度)。元12.0
 local TURN_TILT_DEG   = 2.5   -- 振り向き(turnX=±1)に連動して自然につく傾き(度)。元4.0
+local SING_BODY_TILT_SOFTEN = 1  -- 歌唱モード(swayGate=1)で体(BODY_TILT_RATIO)側だけを
+                                  -- 何割弱めるか。頭・髪・首の傾きには影響しない
 local BODY_TILT_RATIO = 0.35  -- 体は頭の何割傾くか(映像では体は頭より控えめに傾く)
 -- 首の回転追従。首は body の子で回転を持たないため、頭だけ傾くとあご下に
 -- 隙間が見える。neckRot に頭の傾きの一部を書いて首も傾けるが、大きく傾けると
@@ -368,6 +354,16 @@ local GRAB_RADIUS     = 380.0  -- 当たり判定の半径(顔まわり全体を
 local GRAB_RANGE      = 300.0  -- この距離ドラッグすると振り向き±1(最大)
 local GRAB_TILT_RANGE = 260.0  -- この距離の横ドラッグで傾き±1(最大)
 local GRAB_LERP_SPEED = 14.0   -- ドラッグ中の追従速度(通常より俊敏に手についてくる)
+-- 歌唱モード(swayGate)中は、⑪の頭ドラッグと同じ計算式(GRAB_RANGE/GRAB_TILT_RANGE/
+-- GRAB_LERP_SPEED)に、実際のマウス位置の代わりにこの節で自動生成した仮想のdx/dyを
+-- 流し込む。前髪の外側の輪郭(中央の分け目・三日月飾りのあたりが高く、左右の房の
+-- 外側に向かって下がっていく弓なり)をなぞるように、dxはサイン波で左右に往復させ、
+-- dyはdxが左右どちらかの端に振れているときだけ深くする(sin^2で0〜最大)。
+local SING_GRAB_RANGE_X = 180.0  -- 仮想ドラッグの横振れ幅(px、GRAB_RANGE基準)
+local SING_GRAB_DEPTH_Y = 450.0   -- 左右の端での縦のたわみ量(px、GRAB_RANGE基準)
+local SING_GRAB_LIFT_Y  = 300.0  -- ∩の頂点(中心)を見上げ側へ持ち上げる量(px)。手動で
+                                  -- 頭を持ち上げたときの可動域も使うようにするためのオフセット
+local SING_GRAB_PERIOD  = 2.4    -- 左右1往復にかける秒数(遅めのゆったりした動き)
 -- 傾き・弾み・縦の振り向きの速度を髪物理の駆動信号(headVelX 相当)へ混ぜる倍率。
 -- これにより頭を傾けた/弾んだ/上下させたときも髪と headear が映像のように遅れて揺れる。
 local TILT_HAIR_DRIVE   = 0.5
@@ -413,7 +409,7 @@ local BHAIR_Y_FOLLOW   = 0.8   -- 頭の縦移動(振り向き縦・うなずき
 -- (≒キャラ画像の真ん中、頭の位置とほぼ一致)にタバコ・煙を固定する。
 -- ANCHOR/OFFSET/SCALE を調整し終えたら false に戻すこと。
 local SMOKE_DEBUG_CENTER = false
-local SMOKE_INHALE_TIME = 5.0   -- 「吸う」フェーズの長さ(秒)
+local SMOKE_INHALE_TIME = 4.0   -- 「吸う」フェーズの長さ(秒)
 local CIG_FRAME_COUNT   = 26
 local CIG_FRAME_TIME    = 0.07  -- アセット名の ",70" = 1コマ 70ms
 local PUFF_FRAME_COUNT  = 159
@@ -449,7 +445,7 @@ local CIG_OFFSET_Y  = -790.0
 -- 速さのズレを避けるため 1.0(口と完全に同じ量・同じ速さ)固定にしてある。
 local CIG_TURN_SCALE = 1.5
 
-local PUFF_SCALE    = 15
+local PUFF_SCALE    = 2.3
 local PUFF_ANCHOR_X = 170.0   -- 煙が出はじめる位置(1コマ目のあたり)
 local PUFF_ANCHOR_Y = 330.0
 local PUFF_OFFSET_X = -960.0
@@ -984,6 +980,20 @@ local VOWEL_CROSSFADE_TIME = 0.05
 -- 音量そのものから母音を「当てる」ことはできないので、音量の大小で口の傾向を変える:
 --   大きい音 → 開いた口(あ/お/え) / 小さい音 → 狭い口(い/う/え) をランダムに選び、
 --   音量が大きいほど短い間隔で切り替えて、速くパクパク喋っているように見せる。
+-- 歌唱モードの判定。React が歌唱中だけ実音量を SING_MODE_FLOOR(0.02) まで
+-- 底上げして送ってくるので、それより下の値をしきい値にする。
+-- 口パクの LIP_OFF(0.03) より小さいので、口の開閉には影響しない。
+local SING_GATE_EPS  = 0.01
+local SING_GATE_LERP = 2.5    -- ゲートの出入りのなめらかさ(高いほど早く切り替わる)
+-- (歌唱モード中の自動の弾み・首かしげ・振り向きはリセット済み。頭を掴んで
+-- ドラッグする⑪の手動操作で十分なため、swayGate/singPhase自体は他機能
+-- 「歌唱中、たまにニコッと笑う」で使うのでそのまま残してある)
+
+-- 歌唱中、たまにニコッと笑う間隔(ヤチヨ WebYachiyo.lua の SING_SMILE_* と同じ値)。
+local SING_SMILE_MIN  = 4.0   -- 次の笑顔までの最短間隔(秒)
+local SING_SMILE_MAX  = 9.0   -- 次の笑顔までの最長間隔(秒)
+local SING_SMILE_HOLD = 2.5   -- 笑顔を保つ時間(秒)
+
 local VOWEL_A, VOWEL_I, VOWEL_U, VOWEL_E, VOWEL_O = 1, 2, 3, 4, 5
 local AUTO_VOWEL      = true   -- false にすると mouthVowel(外部指定)をそのまま使う
 local VOWEL_LOUD      = 0.35   -- この音量を超えたら「開いた口」グループを使う
@@ -1098,14 +1108,16 @@ local function updateEyeFollow(self: CharacterAnimation, seconds: number)
     if self.vmIrisRY     then self.vmIrisRY.value     = IRIS_RY + oy        end
     if self.vmIrisLX     then self.vmIrisLX.value     = IRIS_LX + ox        end
     if self.vmIrisLY     then self.vmIrisLY.value     = IRIS_LY + oy        end
-    if self.vmEyelashRX  then self.vmEyelashRX.value  = LASH_RX + ox * 0.6  end
-    if self.vmEyelashRY  then self.vmEyelashRY.value  = LASH_RY + oy * 0.4  end
-    if self.vmEyelashLX  then self.vmEyelashLX.value  = LASH_LX + ox * 0.6  end
-    if self.vmEyelashLY  then self.vmEyelashLY.value  = LASH_LY + oy * 0.4  end
-    if self.vmEyewhiteRX then self.vmEyewhiteRX.value = WHIT_RX + ox * 0.2  end
-    if self.vmEyewhiteRY then self.vmEyewhiteRY.value = WHIT_RY + oy * 0.2  end
-    if self.vmEyewhiteLX then self.vmEyewhiteLX.value = WHIT_LX + ox * 0.2  end
-    if self.vmEyewhiteLY then self.vmEyewhiteLY.value = WHIT_LY + oy * 0.2  end
+    -- まつ毛も白目と同じく固定(目本体は追従させず、虹彩だけ動かす)
+    if self.vmEyelashRX  then self.vmEyelashRX.value  = LASH_RX end
+    if self.vmEyelashRY  then self.vmEyelashRY.value  = LASH_RY end
+    if self.vmEyelashLX  then self.vmEyelashLX.value  = LASH_LX end
+    if self.vmEyelashLY  then self.vmEyelashLY.value  = LASH_LY end
+    -- 白目(目本体)はカーソル/振り向き方向に追従させない(虹彩だけ動けば十分なため固定)
+    if self.vmEyewhiteRX then self.vmEyewhiteRX.value = WHIT_RX end
+    if self.vmEyewhiteRY then self.vmEyewhiteRY.value = WHIT_RY end
+    if self.vmEyewhiteLX then self.vmEyewhiteLX.value = WHIT_LX end
+    if self.vmEyewhiteLY then self.vmEyewhiteLY.value = WHIT_LY end
     if self.vmEyebrowRX  then self.vmEyebrowRX.value  = BROW_RX + ox * 0.15 end
     if self.vmEyebrowRY  then self.vmEyebrowRY.value  = BROW_RY + oy * 0.1  end
     if self.vmEyebrowLX  then self.vmEyebrowLX.value  = BROW_LX + ox * 0.15 end
@@ -1116,17 +1128,38 @@ end
 -- ②-b カーソル追従(遠距離): 頭・体も一緒に振り向く(深度パララックス)
 --==========================================================================
 local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY: number)
-    -- 目標の振り向き量(-1〜1)を決める。優先度: 頭ドラッグ(⑪) > AI操作(⑩) > カーソル追従
+    -- 目標の振り向き量(-1〜1)を決める。優先度: 頭ドラッグ(⑪) > AI操作(⑩) > 歌唱モード > カーソル追従
     local targetTX: number
     local targetTY: number
     local lerpSpeed = EYE_LERP_SPEED
     local aiOn = self.vmAiActive ~= nil and self.vmAiActive.value > 0.5
+    -- 歌唱モード(swayGate)用の仮想ドラッグdx/dy(SING_GRAB_*の説明を参照)。
+    -- grabbing/aiOnより優先度が低いのでここで先に計算しておき、下のtiltInputでも使う。
+    -- React等からsingGrabPeriod(秒)が書き込まれていればそちらを使う(0以下/未バインドなら
+    -- SING_GRAB_PERIODのデフォルト値のまま。0除算を避けるための下限つき)。
+    local grabPeriod = SING_GRAB_PERIOD
+    if self.vmSingGrabPeriod and self.vmSingGrabPeriod.value > 0.05 then
+        grabPeriod = self.vmSingGrabPeriod.value
+    end
+    local singPhaseNorm = self.singPhase * math.tau / grabPeriod
+    local singGrabSin = math.sin(singPhaseNorm)
+    local singDx = singGrabSin * SING_GRAB_RANGE_X
+    -- 縦はdx(横振れ)の2乗に比例させ、中心(dx=0)で山の頂点、左右の端(dx=±最大)で
+    -- 沈み込む「∩」型の弧を描く(sin/cosの90°ずらしは円軌道に、符号付き2乗は直線に、
+    -- 2倍周期は8の字になってしまうため不採用。この形が唯一、中心で必ず谷に戻りつつ
+    -- 単純な山型になる)。SING_GRAB_LIFT_Yで弧全体を持ち上げ、頂点(中心)が見上げ側
+    -- (負のdy)まで届くようにする(手動ドラッグの可動域を活かすため)。
+    local singDy = singGrabSin * singGrabSin * SING_GRAB_DEPTH_Y - SING_GRAB_LIFT_Y
     if self.grabbing then
         targetTX, targetTY = self.grabTurnX, self.grabTurnY
         lerpSpeed = GRAB_LERP_SPEED  -- 手についてくるよう俊敏に
     elseif aiOn then
         targetTX = math.clamp(if self.vmAiTurnX then self.vmAiTurnX.value else 0.0, -1.0, 1.0)
         targetTY = math.clamp(if self.vmAiTurnY then self.vmAiTurnY.value else 0.0, -1.0, 1.0)
+    elseif self.swayGate > 0.01 then
+        targetTX = math.clamp(singDx / GRAB_RANGE, -1.0, 1.0) * self.swayGate
+        targetTY = math.clamp(singDy / GRAB_RANGE, -1.0, 1.0) * self.swayGate
+        lerpSpeed = GRAB_LERP_SPEED  -- 実際のドラッグと同じ俊敏さで追従させる
     else
         local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
         -- 目は EYE_REACH までで最大(②-a)。ここではそれを超えた分で「振り向き」を立ち上げる。
@@ -1156,6 +1189,9 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
         tiltInput = self.grabTilt
     elseif aiOn and self.vmAiTilt then
         tiltInput = math.clamp(self.vmAiTilt.value, -1.0, 1.0)
+    elseif self.swayGate > 0.01 then
+        -- ⑪の頭ドラッグと同じ式(dx/GRAB_TILT_RANGE)に仮想dxを流し込む
+        tiltInput = math.clamp(singDx / GRAB_TILT_RANGE, -1.0, 1.0) * self.swayGate
     end
     local idle = math.sin(self.breathTime * math.tau * IDLE_SWAY_FREQ) * IDLE_SWAY_DEG
         + math.sin(self.breathTime * math.tau * IDLE_SWAY_FREQ2 + 1.7) * IDLE_SWAY_DEG2
@@ -1167,7 +1203,9 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
     self.tiltVel += tiltAccel * dt
     self.tiltDeg += self.tiltVel * dt
     if self.vmHeadRot then self.vmHeadRot.value = self.tiltDeg end
-    if self.vmBodyRot then self.vmBodyRot.value = self.tiltDeg * BODY_TILT_RATIO end
+    -- 体だけ、歌唱モード(swayGate)中は顔の向きに合わせた傾きを弱める(頭・髪・首はそのまま)
+    local bodyTiltRatio = BODY_TILT_RATIO * (1.0 - self.swayGate * SING_BODY_TILT_SOFTEN)
+    if self.vmBodyRot then self.vmBodyRot.value = self.tiltDeg * bodyTiltRatio end
 
     -- 中景: 頭グループ全体。縦は呼吸+バウンス(moveY)とうなずき(nodY)を合算する
     -- ⑰ タバコ・煙を口元に描くのに使うので、頭と口の位置は self にも控えておく
@@ -1341,10 +1379,16 @@ local function updateBounce(self: CharacterAnimation, seconds: number)
 
     local dt = math.min(seconds, HAIR_MAX_STEP)
     if dt <= 0 then return end
-    local amp = self.lipEnv  -- 喋っていれば自動で弾む
+
+    -- 歌唱モード(swayGate)中は音量ベースの縦弾みを止める。歌唱中の動きは
+    -- ⑨-b(頭ドラッグと同じ仕組みのtargetTX/TY)だけに任せるため、ここでは
+    -- swayGateに応じて弾み目標をゼロへ寄せる。
+    local amp = self.lipEnv
     if self.vmAiBounce then
+        -- ⑩ AI操作入力。aiNodと同じくaiActive不要(元からの仕様)。
         amp = math.max(amp, math.clamp(self.vmAiBounce.value, 0.0, 1.0))
     end
+    amp *= 1.0 - self.swayGate
     local target = -amp * BOUNCE_AMP  -- 上方向(-Y)へ持ち上げる
     local accel = (target - self.bounceY) * BOUNCE_SPRING - self.bounceVel * BOUNCE_DAMP
     self.bounceVel += accel * dt
@@ -1417,18 +1461,8 @@ end
 -- ・母音(mouthVowel 1〜5)は外部から切替可能。全母音で同じ処理を共有する
 -- ・母音が切り替わる瞬間は updateVowelTransition が間に入り、一度閉じてから切り替える
 
--- 現在の音量(0〜1)を返す。テスト音声を再生中はそちらを優先し、それ以外は
--- singAmplitude(本番: 外部が書き込む)を使う。呼び出し側はどちらが音源かを意識しなくてよい。
+-- 現在の音量(0〜1)を返す。singAmplitude(外部/Reactが書き込む)をそのまま使う。
 local function currentRawAmplitude(self: CharacterAnimation): number
-    if self.testAudioPlaying and self.testAudioSound then
-        if self.testAudioSound:completed() then
-            self.testAudioPlaying = false
-            return 0.0
-        end
-        local t = self.testAudioSound:time()
-        local idx = math.clamp(math.floor(t / TEST_AUDIO_WINDOW) + 1, 1, #TEST_AUDIO_ENVELOPE)
-        return TEST_AUDIO_ENVELOPE[idx]
-    end
     if self.vmSingAmp then return math.clamp(self.vmSingAmp.value, 0.0, 1.0) end
     return 0.0
 end
@@ -1439,6 +1473,21 @@ local function updateFrameFromVolume(self: CharacterAnimation, seconds: number)
     local raw = currentRawAmplitude(self)
     local rate = if raw > self.lipEnv then LIP_ATTACK else LIP_RELEASE
     self.lipEnv += (raw - self.lipEnv) * math.min(rate * seconds, 1.0)
+
+    -- 歌唱モードに入っているかどうかのゲート(0〜1)。
+    -- 口パク用のヒステリシス(LIP_ON/OFF)とは別に持つ。あちらは息継ぎや
+    -- フレーズの合間で普通に false へ落ちるので、それでリズム動作まで
+    -- 止めると曲の合間ごとに体の弾みが消えてしまうため。
+    -- React 側は歌唱モード中、実音量が0でも SING_MODE_FLOOR(0.02) まで
+    -- 底上げして送ってくるので、raw がこの床を上回っている間は
+    -- 「モードON」とみなす(ヤチヨ WebYachiyo.lua の swayGate と同じ作り)。
+    local gateTarget = if raw > SING_GATE_EPS then 1.0 else 0.0
+    self.swayGate += (gateTarget - self.swayGate)
+        * math.min(SING_GATE_LERP * seconds, 1.0)
+    -- 弾み・首かしげ用の自走位相。ヤチヨ(WebYachiyo.lua)の singPhase と同じく
+    -- 歌唱中かに関わらず回り続け、swayGate側で出し入れする(位相を止めたり
+    -- リセットしたりすると、モードに入るたびに揺れの向きがバラついて見える)。
+    self.singPhase += seconds
 
     -- 発話中かどうか(ヒステリシスで小さなノイズによる開閉を防ぐ)
     if self.lipSpeaking then
@@ -1558,7 +1607,22 @@ local function applyMouthShapes(self: CharacterAnimation)
 end
 
 local function updateLipSync(self: CharacterAnimation, seconds: number)
+    -- swayGate/lipEnv/singPhase の更新は LIP_SYNC_ENABLED に関わらず常に行う
+    -- (弾み・首かしげがこれに乗っているため)。口の開閉だけを止める。
     updateFrameFromVolume(self, seconds)
+
+    if not LIP_SYNC_ENABLED then
+        if self.vmMouthDefault then self.vmMouthDefault.value = 1.0 end
+        for v = 1, 5 do
+            local prop = self.vmMouthShapes[v]
+            if prop then prop.value = 0.0 end
+        end
+        for f = 1, LIP_FRAMES do
+            local prop = self.vmMouthFrames[f]
+            if prop then prop.value = if f == 1 then 1.0 else 0.0 end
+        end
+        return
+    end
 
     updateAutoVowel(self, seconds)
 
@@ -1586,13 +1650,40 @@ end
 
 --==========================================================================
 -- ⑯ 表情(笑顔): 目だけ blink_008(閉じ切り)へまばたきと同じ速さで遷移させる
+--    手動のスマイルモード(vmSmile)に加えて、歌唱中(swayGate)は
+--    SING_SMILE_MIN〜MAX秒おきに自動でも笑う(ヤチヨと同じ)
 --==========================================================================
 -- 口には触れない(リップシンクは smile 中もそのまま動く)。
 -- smile の目標値(0=普段/1=笑顔)へ、まばたきの開閉と同じ速さ(BLINK_CLOSE/BLINK_OPEN)で
 -- smileEyeAmt をなめらかに近づけ、blinkFrameIndex() でコマ(1〜8)に変換して表示する。
 -- smileEyeAmt が 0 に戻りきっている間だけ、通常のランダムまばたき(updateBlink)を動かす。
+--
+-- 目標(smileOn)は「手動のスマイルモード(vmSmile)」と「歌唱中の自動スマイル
+-- (singSmiling)」のどちらか一方でも立っていれば1になる。歌唱中かは swayGate
+-- (歌唱モードのゲート。updateFrameFromVolume参照)で判定し、SING_SMILE_MIN〜MAX
+-- 秒おきにSING_SMILE_HOLD秒だけ笑う(ヤチヨ WebYachiyo.lua の singSmile* と同じ仕組み)。
 local function updateSmileEyes(self: CharacterAnimation, seconds: number)
-    local smileOn = self.vmSmile ~= nil and self.vmSmile.value > 0.5
+    local singing = self.swayGate > 0.5
+    if singing then
+        if self.singSmiling then
+            self.singSmileHold -= seconds
+            if self.singSmileHold <= 0 then
+                self.singSmiling = false
+                self.singSmileTimer = SING_SMILE_MIN
+                    + math.random() * (SING_SMILE_MAX - SING_SMILE_MIN)
+            end
+        else
+            self.singSmileTimer -= seconds
+            if self.singSmileTimer <= 0 then
+                self.singSmiling = true
+                self.singSmileHold = SING_SMILE_HOLD
+            end
+        end
+    else
+        self.singSmiling = false
+    end
+
+    local smileOn = (self.vmSmile ~= nil and self.vmSmile.value > 0.5) or self.singSmiling
     local target = if smileOn then 1.0 else 0.0
     if target > self.smileEyeAmt then
         self.smileEyeAmt = math.min(self.smileEyeAmt + seconds / BLINK_CLOSE, target)
@@ -1632,9 +1723,10 @@ local function updateSmoking(self: CharacterAnimation, seconds: number)
             if self.smokeT >= SMOKE_INHALE_TIME then
                 self.smokePhase = 2   -- 吸い終わり → 吐く
                 self.smokeT = 0
-                -- ⑰ 煙は体の動きに追従させない。吐き始めた瞬間の口の位置で固定する
+                -- ⑰ 煙は体の動きに追従させない。吐き始めた瞬間の口の位置と傾きで固定する
                 self.puffOriginX = self.headPosX + self.mouthPosX
                 self.puffOriginY = self.headPosY + self.mouthPosY
+                self.puffOriginRot = math.rad(self.tiltDeg)
             end
         else
             if self.smokeT >= PUFF_FRAME_COUNT * PUFF_FRAME_TIME then
@@ -1740,14 +1832,14 @@ local function drawSmoking(self: CharacterAnimation, renderer: Renderer)
     end
 
     if self.smokePhase == 2 then
-        -- 吐く: 煙を1周だけ再生。体の動き(頭の位置・傾き)には追従させず、
-        -- 吐き始めた瞬間の口の位置(puffOriginX/Y)に固定する。
+        -- 吐く: 煙を1周だけ再生。体の動きには追従させず、
+        -- 吐き始めた瞬間の口の位置(puffOriginX/Y)・傾き(puffOriginRot、タバコと同じ)に固定する。
         local idx = math.floor(self.smokeT / PUFF_FRAME_TIME) + 1
         if idx >= 1 and idx <= PUFF_FRAME_COUNT then
             local img = getStickerFrame(self, self.puffImages, idx, idx, ",40")
             if img then
                 drawSticker(renderer, sampler, img, PUFF_CX[idx], PUFF_CY[idx],
-                    PUFF_ANCHOR_X, PUFF_ANCHOR_Y, PUFF_SCALE, 0.0,
+                    PUFF_ANCHOR_X, PUFF_ANCHOR_Y, PUFF_SCALE, self.puffOriginRot,
                     self.puffOriginX + PUFF_OFFSET_X, self.puffOriginY + PUFF_OFFSET_Y, 1.0)
             end
         end
@@ -1839,6 +1931,7 @@ function init(self: CharacterAnimation, context: Context): boolean
         vm:getNumber("blinkF7"), vm:getNumber("blinkF8"),
     }
     self.vmSingAmp     = vm:getNumber("singAmplitude")
+    self.vmSingGrabPeriod = vm:getNumber("singGrabPeriod")
     self.vmMouthVowel  = vm:getNumber("mouthVowel")
     self.vmMouthShapes = {
         vm:getNumber("mouthShapeA"), vm:getNumber("mouthShapeI"),
@@ -1899,6 +1992,9 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.blinkT     = 0
     self.blinkTimer = nextBlinkInterval()
     self.smileEyeAmt = 0.0
+    self.singSmiling = false
+    self.singSmileHold = 0
+    self.singSmileTimer = SING_SMILE_MIN + math.random() * (SING_SMILE_MAX - SING_SMILE_MIN)
     if self.vmEyesDefault then self.vmEyesDefault.value = 1.0 end
     for i = 1, BLINK_FRAMES do
         local prop = self.vmBlinkFrames[i]
@@ -1909,6 +2005,8 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.lipEnv      = 0
     self.lipFrame    = 1
     self.lipSpeaking = false
+    self.swayGate    = 0
+    self.singPhase   = 0
     if self.vmMouthVowel and self.vmMouthVowel.value < 1 then
         self.vmMouthVowel.value = 1  -- 未設定(0)なら a にしておく
     end
@@ -1923,13 +2021,6 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vowelFadeFrom        = self.activeVowel
     self.vowelFadeTo          = self.activeVowel
 
-    -- テスト用: ダブルクリックでテスト音声を再生するための準備。
-    -- アセットが Rive にまだインポートされていない場合は nil のまま(再生時に無視される)。
-    self.testAudioSource  = context:audio(TEST_AUDIO_ASSET_NAME)
-    self.testAudioSound   = nil
-    self.testAudioPlaying = false
-    self.lastClickAt      = -100
-
     -- ⑰ タバコ吸うモード: コマ画像は185枚あるため、ここでは読み込まず
     -- 実際に表示する瞬間に getStickerFrame() が遅延取得する(起動を遅くしないため)。
     self.scriptContext = context
@@ -1942,12 +2033,9 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.mouthPosX, self.mouthPosY = BASE_MOUTH_X, BASE_MOUTH_Y
     self.puffOriginX = BASE_HEAD_X + BASE_MOUTH_X
     self.puffOriginY = BASE_HEAD_Y + BASE_MOUTH_Y
+    self.puffOriginRot = 0
     self.cigImages  = {}
     self.puffImages = {}
-
-    if not self.testAudioSource then
-        print("[かぐや:テスト] 音声アセットが見つかりません: " .. TEST_AUDIO_ASSET_NAME)
-    end
 
     -- 当たり判定の矩形(ほぼ透明。アートボード全体を覆う)。
     -- 形は毎フレーム変わらないのでここで一度だけ組み立てる
@@ -2005,30 +2093,11 @@ function pointerMove(self: CharacterAnimation, event: PointerEvent)
     event:hit()
 end
 
--- テスト用: テスト音声を再生する。同じ音声を連打した場合は一度止めてから再生し直す。
-local function playTestAudio(self: CharacterAnimation)
-    if not self.testAudioSource then
-        print("[かぐや:テスト] 音声アセットが無いため再生できません: " .. TEST_AUDIO_ASSET_NAME)
-        return
-    end
-    if self.testAudioSound then self.testAudioSound:stop() end
-    self.testAudioSound = Audio.play(self.testAudioSource)
-    self.testAudioPlaying = self.testAudioSound ~= nil
-end
-
 -- 追従中心のキャリブレーション用。キャラの瞳の真上をクリックしたときの値が
 -- EYE_CENTER_X/Y と一致していれば、視線は正しく中央を向く。
--- あわせて、ダブルクリックでテスト音声を再生する(breathTime を時計として使う)。
 function pointerDown(self: CharacterAnimation, event: PointerEvent)
     if DEBUG_POINTER then
         print("[かぐや] pointer", event.position.x, event.position.y)
-    end
-    local now = self.breathTime
-    if now - self.lastClickAt <= DOUBLE_CLICK_TIME then
-        playTestAudio(self)
-        self.lastClickAt = -100
-    else
-        self.lastClickAt = now
     end
     -- ⑪ 頭のあたりをつかんだらドラッグモード開始(動作確認用)
     local gx = event.position.x - GRAB_CENTER_X
@@ -2091,7 +2160,7 @@ return function(): Node<CharacterAnimation>
         vmHairRots = {},
         vmEyesDefault = nil,
         vmBlinkFrames = {},
-        vmSingAmp = nil, vmMouthVowel = nil,
+        vmSingAmp = nil, vmSingGrabPeriod = nil, vmMouthVowel = nil,
         vmMouthShapes = {}, vmMouthFrames = {},
         vmMouthDefault = nil,
         mouseX = EYE_CENTER_X, mouseY = EYE_CENTER_Y,
@@ -2110,7 +2179,8 @@ return function(): Node<CharacterAnimation>
         grabTurnX = 0, grabTurnY = 0, grabTilt = 0,
         blinking = false, blinkT = 0, blinkTimer = 0,
         smileEyeAmt = 0.0,
-        lipEnv = 0, lipFrame = 1, lipSpeaking = false,
+        singSmiling = false, singSmileHold = 0, singSmileTimer = 0,
+        lipEnv = 0, lipFrame = 1, lipSpeaking = false, swayGate = 0, singPhase = 0,
         autoVowel = 1, vowelTimer = 0,
         activeVowel = 1, vowelTransitioning = false,
         vowelTransT = 0, vowelTransStartFrame = 1,
@@ -2118,8 +2188,6 @@ return function(): Node<CharacterAnimation>
         vowelFadeFrom = 1, vowelFadeTo = 1,
         hitPath = Path.new(),
         hitPaint = Paint.new(),
-        testAudioSource = nil, testAudioSound = nil,
-        testAudioPlaying = false, lastClickAt = -100,
         -- ⑰ タバコ吸うモード
         scriptContext = nil,
         vmSmoking = nil,
@@ -2129,5 +2197,6 @@ return function(): Node<CharacterAnimation>
         headPosX = BASE_HEAD_X, headPosY = BASE_HEAD_Y,
         mouthPosX = BASE_MOUTH_X, mouthPosY = BASE_MOUTH_Y,
         puffOriginX = BASE_HEAD_X + BASE_MOUTH_X, puffOriginY = BASE_HEAD_Y + BASE_MOUTH_Y,
+        puffOriginRot = 0,
     }
 end

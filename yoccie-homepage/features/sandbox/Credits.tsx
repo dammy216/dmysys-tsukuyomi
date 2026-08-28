@@ -4,18 +4,15 @@ const CREDITS = [
     url: "https://sketchfab.com/3d-models/miyajima-torii-584bdf5ca606482289f1fc84f0c708cf",
     author: "RMSHR",
     authorUrl: "https://sketchfab.com/remy.sohier",
+    // 発光シェーダーを追加し、高さで色を橙→赤へ補間するよう改変している(MiyajimaTorii.tsx)。
+    // CC-BY-4.0は改変した場合その旨を示すことを求めているため明記する。
+    modified: true,
   },
   {
     title: "Old Japanese Lamp : Andon",
     url: "https://sketchfab.com/3d-models/old-japanese-lamp-andon-0f5cff9fb78b4657b26ddefff4e10fcf",
     author: "K",
     authorUrl: "https://sketchfab.com/tanaka.ko91",
-  },
-  {
-    title: "Fish Hologram",
-    url: "https://sketchfab.com/3d-models/fish-hologram-adc420289ced44b79cf3142e071d680a",
-    author: "Pat Sipes",
-    authorUrl: "https://sketchfab.com/pasipes",
   },
 ];
 
@@ -45,7 +42,7 @@ export function Credits() {
           <a href={c.authorUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
             {c.author}
           </a>{" "}
-          (CC-BY-4.0)
+          (CC-BY-4.0{c.modified ? ", modified" : ""})
         </div>
       ))}
     </div>

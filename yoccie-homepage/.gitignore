@@ -38,6 +38,7 @@ yarn-error.log*
 
 # large media excluded from git (exceeds GitHub 100MB limit)
 /public/流れ星の正体ヤチヨ.mp4
+/public/videos/
 
 # typescript
 *.tsbuildinfo

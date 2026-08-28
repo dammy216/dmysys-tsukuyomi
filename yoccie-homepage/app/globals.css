@@ -4,6 +4,17 @@
   --font-sans: var(--font-geist-sans);
 }
 
+:root {
+  --header-height: 3.75rem;
+  --header-offset: 1.25rem;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --header-offset: 0.75rem;
+  }
+}
+
 *,
 *::before,
 *::after {

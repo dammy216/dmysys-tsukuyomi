@@ -1,0 +1,198 @@
+/* StarSongStage の characterPanel（ネオン枠）と同じデザイン言語 */
+.panel {
+  position: absolute;
+  top: calc(var(--header-height, 3.75rem) + 1.25rem);
+  z-index: 10;
+  padding: 3px;
+  border-radius: 22px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5);
+}
+
+.panelKaguya {
+  left: max(1.25rem, 8vw);
+  /* ControlBarのdock枠(水色→紫→水色)と同じ配色に揃える */
+  background: linear-gradient(135deg, #5de3e6, #7c7ce6 50%, #5de3e6);
+}
+
+.panelYachiyo {
+  right: max(1.25rem, 8vw);
+  background: linear-gradient(225deg, #5de3e6, #7c7ce6 50%, #5de3e6);
+}
+
+/* 背景もControlBarの.barと同じ濃紺+ぼかしに揃える */
+.panelInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: rgba(6, 12, 24, 0.92);
+  border-radius: 19px;
+  padding: 12px 10px;
+  backdrop-filter: blur(8px);
+}
+
+.dragHandle {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 2px;
+}
+
+.nameTag {
+  flex: 0 0 auto;
+  padding: 3px 14px;
+  border-radius: 999px;
+  /* 枠の水色(ControlBarの.pillと同じ配色)に揃える */
+  background: rgba(93, 227, 230, 0.12);
+  border: 1px solid rgba(93, 227, 230, 0.7);
+  color: #bdf3f5;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 12px rgba(93, 227, 230, 0.35);
+}
+
+.stage {
+  width: 200px;
+  height: 320px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(6, 12, 24, 0.85);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+/*
+ * パネルをブラウザのwindowのように、枠のどこを掴むかで伸縮方向が変わる形でリサイズするハンドル群。
+ * 上下左右の辺(edge*)と四隅(corner*)をそれぞれ独立した当たり判定にして、
+ * 掴んだ位置に応じた方向にだけ伸縮する。
+ */
+.edgeN,
+.edgeS {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  height: 10px;
+  z-index: 6;
+  cursor: ns-resize;
+}
+
+.edgeN {
+  top: -5px;
+}
+
+.edgeS {
+  bottom: -5px;
+}
+
+.edgeE,
+.edgeW {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  width: 10px;
+  z-index: 6;
+  cursor: ew-resize;
+}
+
+.edgeE {
+  right: -5px;
+}
+
+.edgeW {
+  left: -5px;
+}
+
+.cornerNW,
+.cornerNE,
+.cornerSW,
+.cornerSE {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  z-index: 7;
+}
+
+.cornerNW {
+  top: -6px;
+  left: -6px;
+  cursor: nwse-resize;
+}
+
+.cornerSE {
+  bottom: -6px;
+  right: -6px;
+  cursor: nwse-resize;
+}
+
+.cornerNE {
+  top: -6px;
+  right: -6px;
+  cursor: nesw-resize;
+}
+
+.cornerSW {
+  bottom: -6px;
+  left: -6px;
+  cursor: nesw-resize;
+}
+
+.panel.resizing {
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(93, 227, 230, 0.85);
+}
+
+.controlBar {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* ControlBarの.pillと同じ水色配色に揃える */
+.modeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(93, 227, 230, 0.06);
+  border: 1px solid rgba(93, 227, 230, 0.25);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.modeButton:hover {
+  background: rgba(93, 227, 230, 0.14);
+  border-color: rgba(93, 227, 230, 0.6);
+  color: #ffffff;
+}
+
+.modeButton.active {
+  background: rgba(93, 227, 230, 0.18);
+  border-color: #5de3e6;
+  color: #5de3e6;
+  box-shadow: 0 0 16px rgba(93, 227, 230, 0.5);
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  font-size: 0.8rem;
+  padding: 1rem;
+}
+
+@media (max-width: 640px) {
+  .stage {
+    width: 150px;
+    height: 240px;
+  }
+}

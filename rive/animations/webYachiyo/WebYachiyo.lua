@@ -102,7 +102,7 @@ type CharacterAnimation = {
     singVowel: number,    -- 現在歌っている母音(VOWEL_A..O)
     singPhase: number,    -- 体の弾み・横揺れ用の位相
     singEnv: number,      -- 振幅エンベロープ(生の振幅をなめらかにした値。口パク用)
-    singActive: boolean,  -- 歌唱中か(ヒステリシスでチャタリング防止)
+    singActive: boolean,  -- 歌唱中か(ヒステリシスでチャタリング防止。口パク用)
     swayGate: number,     -- 揺れの強さ(0=停止〜1=フルスウェイ。歌唱でなめらかに出入り)
     -- 歌唱中に時々ニコッと笑う状態
     singSmiling: boolean,    -- 笑顔の最中か
@@ -194,14 +194,22 @@ local MOUTH_LERP = 12.0      -- 口の切り替え速度(高いほどパキッ�
 -- 歌唱モード(React が singAmplitude に音楽の振幅を書き込む)パラメータ
 -- React 由来の振幅はフレームごとにガタつくため、そのまま揺れに使うとガクガク・
 -- 瞬きのちらつきが出る。そこで「エンベロープで滑らかにした値」と「ヒステリシス付きの
--- 歌唱フラグ」を作り、体の揺れは振幅ではなく一定ペース(swayGate)で動かす。
--- 口パクだけはエンベロープ値(singEnv)を見て母音・速さを変える。
-local SING_ON        = 0.12   -- これ以上で歌唱開始(エンベロープ基準)
-local SING_OFF       = 0.05   -- これ未満で歌唱停止(ヒステリシスでチャタリング防止)
+-- 歌唱フラグ」を作り、口パクはこのエンベロープ値(singEnv)で母音・速さを変える。
+--
+-- 揺れ(swayGate)は口パクとは別に、「歌唱モードそのものがONか」で駆動する。
+-- 実音源には歌い出し前の前奏や間奏など、本物の無音区間が何秒も続くことがある。
+-- 口パク用のヒステリシス(SING_ON/OFF)で揺れも止めると、その間ずっと揺れが
+-- 止まってしまい「歌っている間ずっと」揺れてほしい意図に反する。
+-- そこでReact側は歌唱モード中、実振幅が0でも SWAY_ACTIVE_EPS を上回る
+-- 最小値(SING_MODE_FLOOR。口パクのSING_GAPより十分小さい)まで底上げして送ってくる。
+-- rawAmpがこの床を上回っている間は「モードON」とみなし、無音でも揺れを止めない。
+local SING_ON        = 0.12   -- これ以上で歌唱開始(エンベロープ基準。口パクのトリガー)
+local SING_OFF       = 0.05   -- これ未満で口パクの歌唱状態を停止(ヒステリシスでチャタリング防止)
 local SING_GAP       = 0.06   -- これ未満は口を閉じる(息継ぎ・フレーズの合間)
 local AMP_ATTACK     = 14.0   -- 振幅エンベロープ: 上がるとき(俊敏に追従)
 local AMP_RELEASE    = 5.0    -- 振幅エンベロープ: 下がるとき(ゆっくり戻す)
 local SWAY_GATE_LERP = 2.5    -- 揺れの出入りのなめらかさ(高いほど早くフルスウェイ)
+local SWAY_ACTIVE_EPS = 0.01  -- これを上回れば「歌唱モードON」。React側のSING_MODE_FLOOR(0.02)より下
 local SING_DUR_MAX   = 0.34   -- 口の切り替え間隔(静かなとき=ゆっくり)
 local SING_DUR_MIN   = 0.18   -- 口の切り替え間隔(大きいとき=速い)
 -- 「左右に首をかしげる」楽しそうな揺れ。平行移動はせず各パーツの rotation だけで揺らす。
@@ -465,6 +473,12 @@ function advance(self: CharacterAnimation, seconds: number): boolean
         if singAmp > SING_ON then self.singActive = true end
     end
     local singing = self.singActive
+    -- 揺れ用の「歌唱モードがONか」は口パクのヒステリシスとは別に、
+    -- rawAmp(エンベロープ前の生値)を直接見る。React側は歌唱モード中、
+    -- 実音量が0でもSING_MODE_FLOORまで底上げして送ってくるため、
+    -- 本物の無音区間(前奏・間奏など)でも揺れは止まらず、モードが
+    -- OFFになった(rawAmpが正真正銘0になった)ときだけ止まる。
+    local swaying = rawAmp > SWAY_ACTIVE_EPS
     -- 歌っているあいだ、たまにニコッと笑う(SING_SMILE_MIN〜MAX 秒ごとに HOLD 秒だけ)
     if singing then
         if self.singSmiling then
@@ -583,7 +597,9 @@ function advance(self: CharacterAnimation, seconds: number): boolean
     -- React の振幅はガタつくので直接振り幅にするとガクガクするため、歌唱中は
     -- swayGate を 1 へなめらかに上げてフルスウェイし(=singAmplitude=1相当の安定ペース)、
     -- 歌い終わると 0 へ戻して止める。振り幅自体は音量で変えない(口だけが音量追従)。
-    local gateTarget = if singing then 1.0 else 0.0
+    -- ここは口パク用のsingingではなく、歌唱モードON自体を表すswayingを使う
+    -- (singingだと本物の無音区間で揺れが止まってしまうため。上のコメント参照)。
+    local gateTarget = if swaying then 1.0 else 0.0
     self.swayGate += (gateTarget - self.swayGate) * math.min(SWAY_GATE_LERP * seconds, 1.0)
     self.singPhase += seconds * SING_SWAY_SPEED
     local k = math.sin(self.singPhase * math.tau) * self.swayGate  -- 左右の揺れ(-1〜1)×強さ

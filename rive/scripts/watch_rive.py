@@ -20,7 +20,6 @@ POLL_SEC = 0.8   # 監視間隔(秒)
 # 例: manage_scripts 上では "webYachiyo/WebYachiyo" だが、
 #     text_editor へは "WebYachiyo" を渡す。
 SCRIPT_MAP = {
-    "webYachiyo/WebYachiyo.lua": "WebYachiyo",
     "AIYachiyo/AIYachiyo.lua":   "AIYachiyo",
     "webKaguya/webKaguya.lua":   "webKaguya",
 }
