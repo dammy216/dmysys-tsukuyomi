@@ -116,6 +116,19 @@ const AFTER_SURGE_DISTANCE = 1.1;
  */
 const DOLLY_OUT_OVERSHOOT = 0.4;
 
+/*
+  転調直後、PATH(旋回)の進みを一時的に遅くする。PATH の24秒周期は曲と
+  同期していないので、転調のたびに「たまたま速いセグメント(渦の裏へ回り込む
+  あたり)」へ突入して、引いた直後にカメラが急に速く動いて見えることがある。
+  転調〜引き切りの間だけ PATH をスローにして、そのあと通常速度へ戻す。
+*/
+/** 転調直後の PATH の進み倍率(1=通常, 小さいほどスロー) */
+const PATH_SURGE_SLOWDOWN = 1;
+/** 転調の何秒前から PATH を緩め始めるか(閃光でごまかせる範囲で) */
+const PATH_SLOWDOWN_ENTER_SECONDS = 1;
+/** 引き切ったあと、PATH を通常速度へ戻すまでの秒数 */
+const PATH_SLOWDOWN_RECOVER_SECONDS = 5;
+
 /**
  * 動画の終わりの何秒前から、AFTER_SURGE_DISTANCE ぶん引いていた位置を
  * PATH 本来の距離へ戻し始めるか。動画が終わる時点で戻りきるので、
@@ -203,6 +216,34 @@ function dollyLevel(videoTime: number) {
 }
 
 /**
+ * PATH(旋回)の進み倍率。転調直前〜引き切りの間だけスローにして、
+ * そのあと通常速度へ戻す。転調のたびに速いセグメントへ突入して
+ * 「引いた直後にカメラが急に速く動く」のを防ぐ。
+ */
+function pathSpeed(videoTime: number) {
+  const enterStart = DOLLY_IN_END_SECONDS - PATH_SLOWDOWN_ENTER_SECONDS;
+  const slowEnd = DOLLY_IN_END_SECONDS + DOLLY_PULL_SECONDS;
+
+  if (videoTime <= enterStart) return 1;
+
+  // 転調直前: 1 → SLOWDOWN
+  if (videoTime < DOLLY_IN_END_SECONDS) {
+    const k = smoothstep(
+      (videoTime - enterStart) / PATH_SLOWDOWN_ENTER_SECONDS,
+    );
+    return 1 + (PATH_SURGE_SLOWDOWN - 1) * k;
+  }
+
+  // 転調〜引き切り: スロー維持
+  if (videoTime < slowEnd) return PATH_SURGE_SLOWDOWN;
+
+  // 引き切ったあと: SLOWDOWN → 1
+  const r = (videoTime - slowEnd) / PATH_SLOWDOWN_RECOVER_SECONDS;
+  if (r >= 1) return 1;
+  return PATH_SURGE_SLOWDOWN + (1 - PATH_SURGE_SLOWDOWN) * smoothstep(r);
+}
+
+/**
  * PATH の隣り合うキーフレームを補間して、時刻 t のカメラ位置を得る。
  * 注視点は常に SCREEN_FOCUS(ホログラム画面)固定なので、ここでは扱わない。
  */
@@ -265,7 +306,11 @@ export function StarfallCamera({
   useFrame((_, delta) => {
     if (!active) return;
 
-    elapsed.current += delta;
+    const video = videoRef.current;
+    const videoTime = video?.currentTime ?? 0;
+
+    // PATH の進みは転調前後だけスローにする(下の pathSpeed 参照)
+    elapsed.current += delta * pathSpeed(videoTime);
     const t = (elapsed.current % CYCLE_SECONDS) / CYCLE_SECONDS;
     samplePath(t, pos.current);
 
@@ -275,13 +320,15 @@ export function StarfallCamera({
       向いているので、距離だけ動かせば構図を崩さず寄り引きになる。
       dolly が負のときは lerp が逆向きに働き、本来より遠ざかる。
     */
-    const video = videoRef.current;
-    const videoTime = video?.currentTime ?? 0;
     // duration は読み込み前は NaN。dollyAmount 側で duration > 0 を見て弾く
     const dolly = dollyAmount(videoTime, video?.duration ?? 0);
-    // 寄り具合(0〜1)。本来より引いている間(dollyが負)は0として扱う。揺れの抑制に使う
-    const closeness = Math.min(Math.max(dolly, 0), 1);
-    // 高さの水平化の強さ。寄り〜引き切りまで効かせて、引き切ったら解く
+    /*
+      高さの水平化の強さ(0〜1)。寄り〜引き切りまで1、引き切ったら数秒で0へ。
+      手持ちの揺れの抑制もこれで効かせる。以前は「寄り具合(dollyが正の間だけ)」
+      で抑えていたので、引き始めて dolly が負になった瞬間に揺れがフル復活して
+      「急に速く動き出す」ように見えていた。level なら引き切りまで抑えたまま、
+      そのあと数秒かけて揺れが戻る。
+    */
     const level = dollyLevel(videoTime);
 
     /*
@@ -301,7 +348,8 @@ export function StarfallCamera({
 
     // 手持ちカメラ風の細かい揺れ。躍動感を出しつつ酔わない程度に留める。
     // 寄り切っているときは同じ揺れ幅でも画面上の振れが大きくなるので抑える
-    const shake = activation * 0.35 * (1 - closeness * 0.85);
+    // (level で抑えるので、引き切ったあと数秒かけて揺れが戻る)
+    const shake = activation * 0.35 * (1 - level * 0.85);
     const st = elapsed.current;
     pos.current.x += Math.sin(st * 2.7) * shake;
     pos.current.y += Math.sin(st * 3.4 + 1.1) * shake * 0.6;
