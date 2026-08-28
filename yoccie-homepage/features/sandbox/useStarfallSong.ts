@@ -16,8 +16,21 @@ const OTHER_SRC = encodeURI("/sounds/星降る海-other-Eb major-101bpm-440hz.m4
  * 2つは同じ音源を分離したものなので、ずれるとフランジングして明確に濁る。
  */
 const AUDIO_SYNC_TOLERANCE = 0.05;
-/** 映像がこれ以上ずれたら合わせ直す(秒)。シークは重いので音より緩く見る */
-const VIDEO_SYNC_TOLERANCE = 0.2;
+/**
+ * 映像のズレの許容範囲(秒)。この中なら何もしない。
+ * 口パクはボーカル解析から取るので、ホログラム映像のズレは多少あっても
+ * 見た目にほぼ影響しない。狭いと下の再生速度の微調整が常に効いてしまう。
+ */
+const VIDEO_SYNC_TOLERANCE = 0.35;
+/**
+ * これ以上ずれたらハードシーク(currentTime代入)で一気に合わせる。
+ * ループ直後・タブ復帰・長時間の重い処理などで大きく飛んだときだけ。
+ * Vercel配信だとシークのたびにCDNへ範囲リクエストが飛んでカクつくため、
+ * 通常のズレは下の再生速度の微調整だけで詰める。
+ */
+const VIDEO_HARD_RESYNC = 1.2;
+/** 速度微調整の最大量(±)。0.12なら最大 0.88〜1.12倍速で追従する */
+const VIDEO_RATE_TRIM_MAX = 0.12;
 
 /** ずれを直す間隔(ミリ秒) */
 const SYNC_INTERVAL = 1000;
@@ -175,6 +188,8 @@ export function useStarfallSong(active: boolean) {
 
     const restart = () => {
       video.currentTime = 0;
+      // 前の周で速度微調整が残っていることがあるので必ず戻す
+      video.playbackRate = 1;
       vocals.currentTime = 0;
       other.currentTime = 0;
       video.play().catch(() => {});
@@ -221,8 +236,28 @@ export function useStarfallSong(active: boolean) {
       if (Math.abs(other.currentTime - t) > AUDIO_SYNC_TOLERANCE) {
         other.currentTime = t;
       }
-      if (Math.abs(video.currentTime - t) > VIDEO_SYNC_TOLERANCE) {
+
+      /*
+        映像のズレ直し。ハードシーク(currentTime代入)はCDN配信だと範囲
+        リクエスト＋キーフレームまで遡ってのデコードでカクつくため、
+        大きく飛んだときだけに限定する。通常のズレは再生速度を少しだけ
+        変えて数秒かけて滑らかに詰める(ミュート映像なので速度変化は
+        見た目に分からない)。
+      */
+      const videoDrift = video.currentTime - t;
+      const absDrift = Math.abs(videoDrift);
+      if (absDrift > VIDEO_HARD_RESYNC) {
         video.currentTime = t;
+        video.playbackRate = 1;
+      } else if (absDrift > VIDEO_SYNC_TOLERANCE) {
+        // 進みすぎ(drift>0)なら遅く、遅れているなら速く。ズレに比例させる
+        const trim = Math.max(
+          -VIDEO_RATE_TRIM_MAX,
+          Math.min(VIDEO_RATE_TRIM_MAX, -videoDrift),
+        );
+        video.playbackRate = 1 + trim;
+      } else if (video.playbackRate !== 1) {
+        video.playbackRate = 1;
       }
     }, SYNC_INTERVAL);
 
