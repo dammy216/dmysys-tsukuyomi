@@ -38,7 +38,8 @@ yarn-error.log*
 
 # large media excluded from git (exceeds GitHub 100MB limit)
 /public/流れ星の正体ヤチヨ.mp4
-/public/videos/
+# 配信用に圧縮した 星降る海.mp4 のみコミット。編集元の原本(*_original)は管理外
+/public/videos/*_original.*
 
 # typescript
 *.tsbuildinfo
