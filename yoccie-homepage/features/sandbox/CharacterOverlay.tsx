@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
 import { YachiyoCharacter } from "@/features/character";
 import { KaguyaCharacter } from "@/features/kaguya";
@@ -202,18 +202,26 @@ export function CharacterOverlay({
   const [yachiyoSinging, setYachiyoSinging] = useState(false);
 
   /*
-    かぐやの歌唱モードは音を鳴らさない(ヤチヨと同じ)。ボタン単独でも
-    星降る海中(songActive)でも、SING_MODE_FLOOR 固定を渡すだけ。
-    SING_MODE_FLOOR は Rive 側の口パク閾値より小さいので、口は閉じたまま、
-    webKaguya.lua の自走オシレーター(swayGate)による弾み・首かしげ・
-    歌唱中の自動スマイルだけが入る。
+    星降る海の開始/終了に合わせて、かぐやの歌唱モードを自動でON/OFFする。
+    ただし songActive を歌唱状態に直接ORせず kaguyaSinging へ一度写すことで、
+    星降る海の再生中でもボタンで途中からやめられるようにする
+    (songActive が変わったときだけ上書きするので、手動トグルは潰さない)。
+  */
+  useEffect(() => {
+    setKaguyaSinging(songActive);
+  }, [songActive]);
+
+  /*
+    かぐやの歌唱モードは音を鳴らさない(ヤチヨと同じ)。SING_MODE_FLOOR 固定を
+    渡すだけ。SING_MODE_FLOOR は Rive 側の口パク閾値より小さいので、口は
+    閉じたまま、webKaguya.lua の自走オシレーター(swayGate)による弾み・
+    首かしげ・歌唱中の自動スマイルだけが入る。
   */
   const kaguyaAmplitude = useCallback(() => {
-    if (kaguyaSinging || songActive) return SING_MODE_FLOOR;
+    if (kaguyaSinging) return SING_MODE_FLOOR;
     return 0;
-  }, [kaguyaSinging, songActive]);
-  // 星降る海の間は歌っている状態なので、ボタンも押された見た目にする
-  const kaguyaSingingActive = songActive || kaguyaSinging;
+  }, [kaguyaSinging]);
+  const kaguyaSingingActive = kaguyaSinging;
   const yachiyoAmplitude = useCallback(() => {
     /*
       音が鳴るのは星降る海の再生中(songActive)だけ。そのときは実際の
