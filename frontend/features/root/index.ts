@@ -1,0 +1,1 @@
+export { RootScene } from "./RootScene";

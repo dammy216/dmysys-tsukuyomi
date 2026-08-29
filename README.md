@@ -18,7 +18,10 @@ bun run lint
 ## 構成
 
 ```
-frontend/         # サイト本体（App Router。features/ = sandbox / kaguya / yachiyo）
+frontend/         # サイト本体（App Router）
+                  #   shared/   = 画面共通（layout: Header）
+                  #   features/ = root / scenery / starfall-sea / scene-controls /
+                  #               character-overlay / scene-recording / kaguya / yachiyo
 rive/             # Web版キャラの Luau スクリプト（webYachiyo / webKaguya）+ watch_rive.py
 .agents/skills/   # 技術リファレンス
 ```

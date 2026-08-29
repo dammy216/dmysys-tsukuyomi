@@ -24,14 +24,41 @@ Luau スクリプトはファイルで編集し、Rive エディタに貼り付�
 
 ```
 frontend/        # Next.js サイト本体（App Router）
-                 #   features/ に sandbox（Sandbox3D / CharacterOverlay）/ kaguya / yachiyo
 rive/            # Web版キャラの Luau スクリプト + watch_rive.py
 .agents/skills/  # 各技術のリファレンス（後述）
 .mcp.json        # Rive MCP サーバー設定
 ```
 
-`features/<機能>/{components,hooks,services,types}` の **feature-based** 構成。
-新規コードは既存の feature 分割に合わせて配置する。
+### frontend/shared/（画面共通）
+
+どの画面でも使う横断的なもの。現状は `shared/layout/`（`Header` のみ。全ページで `app/layout.tsx`
+から表示）。汎用UIパーツが増えたら `shared/ui/` を作る。特定 feature でしか使わないものは
+feature 側に置く。
+
+### frontend/features/（feature-based 構成）
+
+ルート("/")の3Dシーンは複数の feature に分割してある。新規コードは既存の feature に合わせて配置する。
+
+| feature | 中身 |
+|---|---|
+| `root/` | ページ本体。`RootScene`（副作用フックの配線＋合成）／ `RootCanvas`（R3F `<Canvas>`）／ `SceneContents`（`useFrame` 演出ロジック）／ `Water` ／ `SceneStats`（FPS/MS/MB パネル。クリックで展開）／ `timings.ts`（演出のチューニング定数）／ `store.ts`（`useSceneStore`：シーンのUI状態）／ `Credits` |
+| `scenery/` | 静的な景観: `MiyajimaTorii` `WaterGlow` `SeaGlow` `Lanterns` `SkyBackground`（`SkyVariant` 型もここ） |
+| `starfall-sea/` | 「星降る海」演出モード: `StarfallSwarm` `StarfallCamera` `ShootingStars` `ToriiHologram` `Bubbles` `UnderwaterEffect` `useStarfallSong` |
+| `scene-controls/` | 下部HUDコントロールバー `ControlBar`（DOM） |
+| `character-overlay/` | かぐや・ヤチヨの Rive を3Dに重ねるドラッグ可能パネル `CharacterOverlay`（DOM） |
+| `scene-recording/` | WebGLキャンバス + 音声の webm 録画 `useSceneRecorder` |
+| `kaguya/` `yachiyo/` | 各キャラの Rive コンポーネント |
+
+feature 間は `index.ts` バレル経由で `@/features/<name>` から import する。
+
+シーンの状態管理は2層:
+
+- **UIステート**（`showKaguya` / `skyVariant` / `starfallSea` など、ボタン操作で変わる値）は
+  `@/features/root/store` の `useSceneStore`（zustand）。`ControlBar` `CharacterOverlay`
+  `SceneContents` が必要なキーだけを selector で購読する。`<Canvas>` 境界を越えて購読できる。
+  協調更新（星降る海ON時にヤチヨ自動表示など）は store のアクションにまとめる。
+- **毎フレーム変わる演出値**（activation の進行度など）は従来どおり `SceneContents` 内の `ref`。
+  state 化すると数千匹の `StarfallSwarm` を含むツリーが毎フレーム再レンダーされるため。
 
 ## コマンド
 

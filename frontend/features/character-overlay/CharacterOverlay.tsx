@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, type PointerEvent, type RefObject } from
 import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
 import { YachiyoCharacter } from "@/features/yachiyo";
 import { KaguyaCharacter } from "@/features/kaguya";
+import { useSceneStore } from "@/features/root/store";
 import styles from "./CharacterOverlay.module.css";
 
 type Offset = { x: number; y: number };
@@ -178,24 +179,19 @@ function ResizeHandles({
 const SING_MODE_FLOOR = 0.02;
 
 type CharacterOverlayProps = {
-  showKaguya: boolean;
-  showYachiyo: boolean;
-  /**
-   * 星降る海の再生中はここが true になり、ヤチヨは疑似波形ではなく
-   * 実際のボーカルの音量に合わせて口を動かす。
-   */
-  songActive?: boolean;
   /** 星降る海のボーカルの音量(0〜1)を返す */
   getSongAmplitude?: () => number;
 };
 
-/** サンドボックス上に重ねる、かぐや／ヤチヨの表示パネル。表示・非表示は下部のコントロールバーで切り替える */
-export function CharacterOverlay({
-  showKaguya,
-  showYachiyo,
-  songActive = false,
-  getSongAmplitude,
-}: CharacterOverlayProps) {
+/** 3Dシーン上に重ねる、かぐや／ヤチヨの表示パネル。表示・非表示は下部のコントロールバーで切り替える */
+export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
+  const showKaguya = useSceneStore((s) => s.showKaguya);
+  const showYachiyo = useSceneStore((s) => s.showYachiyo);
+  /*
+    星降る海の再生中は songActive が true になり、ヤチヨは疑似波形ではなく
+    実際のボーカルの音量に合わせて口を動かす。
+  */
+  const songActive = useSceneStore((s) => s.starfallSea);
   const [kaguyaSinging, setKaguyaSinging] = useState(false);
   const [kaguyaSmoking, setKaguyaSmoking] = useState(false);
   const [kaguyaSmile, setKaguyaSmile] = useState(false);

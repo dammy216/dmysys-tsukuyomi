@@ -12,20 +12,10 @@ import {
   PiVideoCameraBold,
 } from "react-icons/pi";
 import { useEffect, useState } from "react";
-import type { SkyVariant } from "./SkyBackground";
+import { useSceneStore } from "@/features/root/store";
 import styles from "./ControlBar.module.css";
 
 type ControlBarProps = {
-  showKaguya: boolean;
-  showYachiyo: boolean;
-  onToggleKaguya: () => void;
-  onToggleYachiyo: () => void;
-  skyVariant: SkyVariant;
-  onChangeSky: (variant: SkyVariant) => void;
-  starfallSea: boolean;
-  onToggleStarfallSea: () => void;
-  starfallFreeCam: boolean;
-  onToggleStarfallFreeCam: () => void;
   /** この環境で録画(MediaRecorder + captureStream)が使えるか */
   recorderSupported: boolean;
   /** 録画中か */
@@ -55,20 +45,21 @@ function RecordingTime() {
 
 /** サイト下部の近未来HUD風コントロールバー。キャラクター表示切替と空(黄昏時/夜)の切替をまとめる */
 export function ControlBar({
-  showKaguya,
-  showYachiyo,
-  onToggleKaguya,
-  onToggleYachiyo,
-  skyVariant,
-  onChangeSky,
-  starfallSea,
-  onToggleStarfallSea,
-  starfallFreeCam,
-  onToggleStarfallFreeCam,
   recorderSupported,
   isRecording,
   onToggleRecord,
 }: ControlBarProps) {
+  const showKaguya = useSceneStore((s) => s.showKaguya);
+  const showYachiyo = useSceneStore((s) => s.showYachiyo);
+  const skyVariant = useSceneStore((s) => s.skyVariant);
+  const starfallSea = useSceneStore((s) => s.starfallSea);
+  const starfallFreeCam = useSceneStore((s) => s.starfallFreeCam);
+  const onToggleKaguya = useSceneStore((s) => s.toggleKaguya);
+  const onToggleYachiyo = useSceneStore((s) => s.toggleYachiyo);
+  const onChangeSky = useSceneStore((s) => s.setSkyVariant);
+  const onToggleStarfallSea = useSceneStore((s) => s.toggleStarfallSea);
+  const onToggleStarfallFreeCam = useSceneStore((s) => s.toggleStarfallFreeCam);
+
   return (
     <div className={styles.dock}>
       <div className={styles.bar}>

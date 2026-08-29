@@ -19,27 +19,14 @@ const CREDITS = [
 /** Sketchfab CC-BY-4.0モデルのクレジット表記（利用規約で表示が必須） */
 export function Credits() {
   return (
-    <div
-      style={{
-        position: "absolute",
-        right: 8,
-        bottom: 8,
-        maxWidth: 320,
-        padding: "6px 10px",
-        borderRadius: 6,
-        background: "rgba(0,0,0,0.45)",
-        color: "rgba(255,255,255,0.75)",
-        fontSize: 11,
-        lineHeight: 1.5,
-      }}
-    >
+    <div className="absolute right-2 bottom-2 max-w-80 rounded-md bg-black/45 px-2.5 py-1.5 text-[11px] leading-normal text-white/75">
       {CREDITS.map((c) => (
         <div key={c.url}>
-          <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
+          <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-inherit">
             {c.title}
           </a>{" "}
           by{" "}
-          <a href={c.authorUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>
+          <a href={c.authorUrl} target="_blank" rel="noopener noreferrer" className="text-inherit">
             {c.author}
           </a>{" "}
           (CC-BY-4.0{c.modified ? ", modified" : ""})
