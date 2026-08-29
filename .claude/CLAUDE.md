@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## プロジェクト概要
 
-キャラクター「ヤチヨ」の公開サイト。**yachiyoGPT モノレポから yoccie-homepage 部分を分離した単独リポジトリ**
-（mobile アプリと server は元モノレポに残っている）。
+**dmysys-tsukuyomi** — キャラクター「ヤチヨ」の公開サイト（旧 yoccie-homepage）。
+**yachiyoGPT モノレポから分離した単独リポジトリ**（mobile アプリと server は元モノレポに残っている）。
+サイト本体は `yoccie-homepage/` サブディレクトリのまま。
 
 - **yoccie-homepage/** — Next.js 16 (App Router) 製の公開サイト。ルート("/")は3Dサンドボックス
   （Three.js / React Three Fiber の実験場）。画面のトグルUIから「かぐや」「ヤチヨ」の

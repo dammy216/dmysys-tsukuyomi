@@ -1,8 +1,9 @@
-# yoccie-homepage
+# dmysys-tsukuyomi
 
-キャラクター「ヤチヨ」の公開サイト。Next.js 16 (App Router) + Three.js / React Three Fiber + Rive。
+キャラクター「ヤチヨ」の公開サイト（旧 yoccie-homepage）。Next.js 16 (App Router) + Three.js / React Three Fiber + Rive。
 
 yachiyoGPT モノレポから分離した単独リポジトリ（mobile / server は元モノレポに残存）。
+サイト本体は `yoccie-homepage/` サブディレクトリに置いたまま。
 
 ## 開発
 
