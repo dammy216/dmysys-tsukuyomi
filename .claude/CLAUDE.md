@@ -24,7 +24,7 @@ Luau スクリプトはファイルで編集し、Rive エディタに貼り付�
 
 ```
 frontend/        # Next.js サイト本体（App Router）
-                 #   features/ に sandbox（Sandbox3D / CharacterOverlay）/ kaguya / character
+                 #   features/ に sandbox（Sandbox3D / CharacterOverlay）/ kaguya / yachiyo
 rive/            # Web版キャラの Luau スクリプト + watch_rive.py
 .agents/skills/  # 各技術のリファレンス（後述）
 .mcp.json        # Rive MCP サーバー設定

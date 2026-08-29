@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
-import { YachiyoCharacter } from "@/features/character";
+import { YachiyoCharacter } from "@/features/yachiyo";
 import { KaguyaCharacter } from "@/features/kaguya";
 import styles from "./CharacterOverlay.module.css";
 

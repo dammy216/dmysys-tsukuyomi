@@ -18,7 +18,7 @@ bun run lint
 ## 構成
 
 ```
-frontend/         # サイト本体（App Router。features/ = sandbox / kaguya / character）
+frontend/         # サイト本体（App Router。features/ = sandbox / kaguya / yachiyo）
 rive/             # Web版キャラの Luau スクリプト（webYachiyo / webKaguya）+ watch_rive.py
 .agents/skills/   # 技術リファレンス
 ```
