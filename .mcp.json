@@ -9,6 +9,11 @@
           "env": {
               "SKETCHFAB_API_KEY": ""
           }
-      }
+      },
+      "graphify": {
+      "command": "graphify",
+      "args": [".", "--mcp"],
+      "cwd": "${workspaceFolder}"
+    }
   }
 }

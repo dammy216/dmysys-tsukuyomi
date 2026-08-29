@@ -4,6 +4,27 @@
   --font-sans: var(--font-geist-sans);
 }
 
+/* 近未来HUDの共通トークン（Header / ControlBar / CharacterOverlay で共有） */
+@theme {
+  --color-hud: #5de3e6; /* 水色アクセント */
+  --color-hud-glass: #060c18eb; /* パネル/バーの濃紺ガラス地 = rgb(6 12 24 / 0.92) */
+  --color-hud-pink: #fa0577; /* 「星降る海」アクセント */
+  --color-hud-rec: #ff5b6e; /* 録画中 */
+
+  /* 録画ボタンの点滅。motion-reduce:animate-none で無効化する */
+  --animate-record: record 1.4s ease-in-out infinite;
+
+  @keyframes record {
+    0%,
+    100% {
+      box-shadow: 0 0 10px rgb(255 91 110 / 0.35);
+    }
+    50% {
+      box-shadow: 0 0 20px rgb(255 91 110 / 0.75);
+    }
+  }
+}
+
 :root {
   --header-height: 3.75rem;
   --header-offset: 1.25rem;
@@ -19,6 +40,17 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+/*
+ * stats.js(SceneStats)のパネル位置を上書き。stats.js は position:fixed; top:0; left:0 を
+ * インラインstyleで強制してくる。React 外の DOM ノードへ classList で付けるため、
+ * Tailwind ではなくここにグローバルクラスとして置く。
+ */
+.scene-stats {
+  top: max(var(--header-offset, 1.25rem), env(safe-area-inset-top)) !important;
+  left: auto !important;
+  right: max(0.75rem, env(safe-area-inset-right)) !important;
 }
 
 body {

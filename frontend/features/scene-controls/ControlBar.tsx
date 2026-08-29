@@ -13,7 +13,6 @@ import {
 } from "react-icons/pi";
 import { useEffect, useState } from "react";
 import { useSceneStore } from "@/features/root/store";
-import styles from "./ControlBar.module.css";
 
 type ControlBarProps = {
   /** この環境で録画(MediaRecorder + captureStream)が使えるか */
@@ -23,6 +22,56 @@ type ControlBarProps = {
   /** 録画の開始/停止 */
   onToggleRecord: () => void;
 };
+
+/*
+  ピル型トグルボタンの共通クラス。押下状態は各ボタンの aria-pressed を
+  そのまま aria-pressed: バリアントで拾う（JS 側で active クラスを足さない）。
+*/
+const PILL_LAYOUT =
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2 " +
+  "text-[0.8rem] font-bold cursor-pointer transition duration-200 " +
+  "disabled:opacity-35 disabled:cursor-not-allowed " +
+  "max-sm:text-[0.72rem] max-sm:min-h-10 max-sm:px-2.5 max-sm:py-1.5";
+
+const CYAN_IDLE =
+  "text-white/75 bg-hud/6 border-hud/25 " +
+  "hover:bg-hud/14 hover:border-hud/60 hover:text-white " +
+  "disabled:hover:bg-hud/6 disabled:hover:border-hud/25 disabled:hover:text-white/75";
+
+const CYAN_PRESSED =
+  "aria-pressed:bg-hud/18 aria-pressed:border-hud aria-pressed:text-hud " +
+  "aria-pressed:shadow-[0_0_16px_rgb(93_227_230/0.5)]";
+
+/** 通常のトグル（かぐや / ヤチヨ / 空 / カメラ切替） */
+const PILL_CYAN = `${PILL_LAYOUT} ${CYAN_IDLE} ${CYAN_PRESSED}`;
+
+/*
+  「星降る海」はシーン全体を演出モードへ切り替える主役ボタンなので、
+  ピンク寄りのアクセント色にして押せることが一目で分かるようにする。
+*/
+const PILL_PINK =
+  `${PILL_LAYOUT} ` +
+  "text-[#ffbedc]/85 bg-hud-pink/8 border-hud-pink/35 " +
+  "hover:bg-hud-pink/18 hover:border-hud-pink/70 hover:text-white " +
+  "aria-pressed:bg-hud-pink/22 aria-pressed:border-hud-pink aria-pressed:text-[#ff8fc4] " +
+  "aria-pressed:shadow-[0_0_20px_rgb(250_5_119/0.6)]";
+
+/*
+  録画ボタン。待機中はシアンのピル、録画中(aria-pressed)は赤で点滅させて
+  「録れている」ことを一目で分かるようにする。
+*/
+const PILL_REC =
+  `${PILL_LAYOUT} ${CYAN_IDLE} motion-reduce:animate-none ` +
+  "aria-pressed:text-hud-rec aria-pressed:bg-hud-rec/16 aria-pressed:border-hud-rec " +
+  "aria-pressed:shadow-[0_0_16px_rgb(255_91_110/0.5)] aria-pressed:animate-record " +
+  "aria-pressed:hover:bg-hud-rec/26 aria-pressed:hover:border-hud-rec aria-pressed:hover:text-white";
+
+const GROUP = "flex items-center gap-1.5";
+const GROUP_LABEL =
+  "text-hud/70 text-[10px] font-extrabold tracking-[0.12em] pr-1 whitespace-nowrap max-sm:hidden";
+/* 折り返すと縦線が宙に浮くので、スマホでは仕切りを消して余白で区切る */
+const DIVIDER =
+  "w-px self-stretch m-0.5 bg-[linear-gradient(180deg,transparent,rgb(93_227_230/0.45),transparent)] max-sm:hidden";
 
 /**
  * 録画ボタンの中で経過時間を数える小さな部品。
@@ -61,13 +110,19 @@ export function ControlBar({
   const onToggleStarfallFreeCam = useSceneStore((s) => s.toggleStarfallFreeCam);
 
   return (
-    <div className={styles.dock}>
-      <div className={styles.bar}>
-        <div className={styles.group}>
-          <span className={styles.groupLabel}>CHARACTER</span>
+    <div
+      className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-1/2 z-20 -translate-x-1/2
+        rounded-full p-0.5
+        bg-[linear-gradient(90deg,var(--color-hud),#7c7ce6_50%,var(--color-hud))]
+        shadow-[0_0_30px_rgb(93_227_230/0.35),0_14px_34px_rgb(0_0_0/0.5)]
+        max-sm:left-[max(0.75rem,env(safe-area-inset-left))] max-sm:right-[max(0.75rem,env(safe-area-inset-right))] max-sm:translate-x-0"
+    >
+      <div className="flex items-center gap-2.5 rounded-full bg-hud-glass px-3.5 py-2 backdrop-blur-sm max-sm:flex-wrap max-sm:justify-center max-sm:gap-1.5 max-sm:rounded-[20px]">
+        <div className={GROUP}>
+          <span className={GROUP_LABEL}>CHARACTER</span>
           <button
             type="button"
-            className={`${styles.pill} ${showKaguya ? styles.active : ""}`}
+            className={PILL_CYAN}
             onClick={onToggleKaguya}
             aria-pressed={showKaguya}
           >
@@ -76,7 +131,7 @@ export function ControlBar({
           </button>
           <button
             type="button"
-            className={`${styles.pill} ${showYachiyo ? styles.active : ""}`}
+            className={PILL_CYAN}
             onClick={onToggleYachiyo}
             aria-pressed={showYachiyo}
           >
@@ -85,13 +140,13 @@ export function ControlBar({
           </button>
         </div>
 
-        <div className={styles.divider} />
+        <div className={DIVIDER} />
 
-        <div className={styles.group}>
-          <span className={styles.groupLabel}>SKY</span>
+        <div className={GROUP}>
+          <span className={GROUP_LABEL}>SKY</span>
           <button
             type="button"
-            className={`${styles.pill} ${skyVariant === "dusk" ? styles.active : ""}`}
+            className={PILL_CYAN}
             onClick={() => onChangeSky("dusk")}
             aria-pressed={skyVariant === "dusk"}
           >
@@ -100,7 +155,7 @@ export function ControlBar({
           </button>
           <button
             type="button"
-            className={`${styles.pill} ${skyVariant === "night" ? styles.active : ""}`}
+            className={PILL_CYAN}
             onClick={() => onChangeSky("night")}
             aria-pressed={skyVariant === "night"}
           >
@@ -108,13 +163,13 @@ export function ControlBar({
           </button>
         </div>
 
-        <div className={styles.divider} />
+        <div className={DIVIDER} />
 
-        <div className={styles.group}>
-          <span className={styles.groupLabel}>SCENE</span>
+        <div className={GROUP}>
+          <span className={GROUP_LABEL}>SCENE</span>
           <button
             type="button"
-            className={`${styles.pill} ${styles.starfall} ${starfallSea ? styles.active : ""}`}
+            className={PILL_PINK}
             onClick={onToggleStarfallSea}
             aria-pressed={starfallSea}
           >
@@ -124,7 +179,7 @@ export function ControlBar({
           {/* 星降る海モード中だけ意味を持つカメラ切替。それ以外は押せなくする */}
           <button
             type="button"
-            className={`${styles.pill} ${starfallFreeCam ? styles.active : ""}`}
+            className={PILL_CYAN}
             onClick={onToggleStarfallFreeCam}
             disabled={!starfallSea}
             aria-pressed={starfallFreeCam}
@@ -138,14 +193,14 @@ export function ControlBar({
           </button>
         </div>
 
-        <div className={styles.divider} />
+        <div className={DIVIDER} />
 
-        <div className={styles.group}>
-          <span className={styles.groupLabel}>CAPTURE</span>
+        <div className={GROUP}>
+          <span className={GROUP_LABEL}>CAPTURE</span>
           {/* 3D画面(WebGLキャンバス)＋星降る海の音声を webm で録画する */}
           <button
             type="button"
-            className={`${styles.pill} ${isRecording ? styles.recording : ""}`}
+            className={PILL_REC}
             onClick={onToggleRecord}
             disabled={!recorderSupported}
             aria-pressed={isRecording}
@@ -155,11 +210,7 @@ export function ControlBar({
                 : "この環境では録画できません"
             }
           >
-            {isRecording ? (
-              <PiStopFill size={16} />
-            ) : (
-              <PiRecordFill size={16} />
-            )}
+            {isRecording ? <PiStopFill size={16} /> : <PiRecordFill size={16} />}
             {isRecording ? <RecordingTime /> : "録画"}
           </button>
         </div>

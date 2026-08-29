@@ -1,12 +1,15 @@
-import styles from "./Header.module.css";
-
 /** サイト共通ヘッダー。DMYSYSのロゴ+ワードマークを表示する（下部ControlBarと同じ近未来HUDデザイン） */
 export function Header() {
   return (
-    <header className={styles.dock}>
-      <div className={styles.bar}>
+    <header
+      className="fixed top-[max(var(--header-offset),env(safe-area-inset-top))] left-[max(var(--header-offset),env(safe-area-inset-left))] z-30
+        rounded-full p-0.5
+        bg-[linear-gradient(90deg,var(--color-hud),#7c7ce6_50%,var(--color-hud))]
+        shadow-[0_0_24px_rgb(93_227_230/0.35),0_10px_28px_rgb(0_0_0/0.35)]"
+    >
+      <div className="flex items-center gap-2.5 rounded-full bg-hud-glass py-2 pr-[18px] pl-2.5 backdrop-blur-sm max-sm:py-1.5 max-sm:pr-3.5 max-sm:pl-2">
         <svg
-          className={styles.logoMark}
+          className="shrink-0 drop-shadow-[0_0_6px_rgb(93_227_230/0.7)]"
           width="26"
           height="26"
           viewBox="0 0 26 26"
@@ -32,7 +35,9 @@ export function Header() {
             </linearGradient>
           </defs>
         </svg>
-        <span className={styles.wordmark}>DMYSYS</span>
+        <span className="whitespace-nowrap text-[0.95rem] font-extrabold tracking-[0.18em] text-hud text-shadow-[0_0_12px_rgb(93_227_230/0.6)] max-sm:text-[0.8rem]">
+          DMYSYS
+        </span>
       </div>
     </header>
   );

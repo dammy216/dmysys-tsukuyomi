@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { addEffect, addAfterEffect } from "@react-three/fiber";
 import StatsImpl from "stats.js";
-import styles from "./SceneStats.module.css";
 
 /**
  * drei の <Stats>（stats.js）相当のパフォーマンスパネル。
@@ -15,7 +14,8 @@ export function SceneStats() {
   useEffect(() => {
     const stats = new StatsImpl();
     const dom = stats.dom;
-    dom.classList.add(...styles.stats.split(" ").filter(Boolean));
+    // 位置上書きは globals.css の .scene-stats（React 外の DOM なので Tailwind ではなくグローバルCSS）
+    dom.classList.add("scene-stats");
 
     // 子要素は fpsPanel / msPanel /（Chrome系なら）memPanel の <canvas>
     const panels = Array.from(dom.children) as HTMLElement[];

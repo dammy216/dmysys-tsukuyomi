@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { Header } from "@/shared/layout";
 import "./globals.css";
@@ -11,6 +11,14 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: "月詠交流会",
   description: "月詠交流会のサイト。",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // ノッチ端末で env(safe-area-inset-*) を効かせる（Header / ControlBar が参照）
+  viewportFit: "cover",
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({

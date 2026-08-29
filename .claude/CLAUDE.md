@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **dmysys-tsukuyomi** — キャラクター「ヤチヨ」の公開サイト（旧 yoccie-homepage）。
 **yachiyoGPT モノレポから分離した単独リポジトリ**（mobile アプリと server は元モノレポに残っている）。
-サイト本体は `frontend/` サブディレクトリ（旧 `yoccie-homepage/`）。
+サイト本体は `frontend/`）。
 
 - **frontend/** — Next.js 16 (App Router) 製の公開サイト。ルート("/")は3Dサンドボックス
   （Three.js / React Three Fiber の実験場）。画面のトグルUIから「かぐや」「ヤチヨ」の
@@ -34,6 +34,20 @@ rive/            # Web版キャラの Luau スクリプト + watch_rive.py
 どの画面でも使う横断的なもの。現状は `shared/layout/`（`Header` のみ。全ページで `app/layout.tsx`
 から表示）。汎用UIパーツが増えたら `shared/ui/` を作る。特定 feature でしか使わないものは
 feature 側に置く。
+
+### スタイル（Tailwind v4）
+
+スタイルは **Tailwind のみ**。CSS Modules は使わない。
+
+- HUDの共通トークンは `app/globals.css` の `@theme`: `--color-hud`（水色）/ `--color-hud-glass`
+  （濃紺ガラス地）/ `--color-hud-pink`（星降る海）/ `--color-hud-rec`（録画）。`bg-hud/14` のように使う。
+- 押下トグルは `aria-pressed` を要素に付け、`aria-pressed:` バリアントで見た目を変える
+  （JSで active クラスを足さない）。`hover:` は v4 が自動でタッチ端末を除外する。
+- 繰り返す長いクラス列はコンポーネント冒頭で `const PILL = "..."` のように定数化する。
+- グラデ枠・多重shadow は arbitrary value（`bg-[linear-gradient(...)]` 等）。録画の点滅は
+  `@theme` の `--animate-record` → `animate-record`（`motion-reduce:animate-none` 併用）。
+- 例外は `.scene-stats`（globals.css）のみ。stats.js が挿す React 外の DOM に `classList` で
+  当てるため Tailwind が使えない。
 
 ### frontend/features/（feature-based 構成）
 

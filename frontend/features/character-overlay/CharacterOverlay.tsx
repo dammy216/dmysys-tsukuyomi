@@ -1,11 +1,52 @@
 "use client";
 
-import { useCallback, useRef, useState, type PointerEvent, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type RefObject,
+} from "react";
 import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
 import { YachiyoCharacter } from "@/features/yachiyo";
 import { KaguyaCharacter } from "@/features/kaguya";
 import { useSceneStore } from "@/features/root/store";
-import styles from "./CharacterOverlay.module.css";
+
+/* ネオン枠 + 濃紺ガラスのパネル。押下トグルは aria-pressed: バリアントで拾う */
+const PANEL =
+  "absolute z-10 rounded-[22px] p-[3px] " +
+  "top-[calc(var(--header-height,3.75rem)+1.25rem)] " +
+  "max-sm:top-[calc(var(--header-height,3.75rem)+0.75rem+env(safe-area-inset-top))]";
+const PANEL_SHADOW = "shadow-[0_14px_30px_rgb(0_0_0/0.5)]";
+const PANEL_SHADOW_RESIZING =
+  "shadow-[0_14px_30px_rgb(0_0_0/0.5),0_0_0_2px_rgb(93_227_230/0.85)]";
+const PANEL_KAGUYA =
+  "left-[max(1.25rem,8vw)] max-sm:left-[max(0.5rem,env(safe-area-inset-left))] " +
+  "bg-[linear-gradient(135deg,var(--color-hud),#7c7ce6_50%,var(--color-hud))]";
+const PANEL_YACHIYO =
+  "right-[max(1.25rem,8vw)] max-sm:right-[max(0.5rem,env(safe-area-inset-right))] " +
+  "bg-[linear-gradient(225deg,var(--color-hud),#7c7ce6_50%,var(--color-hud))]";
+const PANEL_INNER =
+  "flex flex-col items-center gap-2.5 rounded-[19px] bg-hud-glass px-2.5 py-3 backdrop-blur-sm " +
+  "max-sm:gap-2 max-sm:px-1.5 max-sm:py-2";
+const DRAG_HANDLE = "flex w-full touch-none select-none justify-center pt-1 pb-0.5";
+const NAME_TAG =
+  "shrink-0 rounded-full border border-hud/70 bg-hud/12 px-3.5 py-[3px] text-xs font-extrabold " +
+  "tracking-[0.08em] text-[#bdf3f5] shadow-[0_0_12px_rgb(93_227_230/0.35)] " +
+  "max-sm:px-2.5 max-sm:py-0.5 max-sm:text-[11px]";
+const STAGE =
+  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-[14px] bg-[rgb(6_12_24/0.85)] " +
+  "shadow-[0_8px_32px_rgb(0_0_0/0.35)] max-sm:h-[190px] max-sm:w-[120px]";
+const CTRL_BAR = "flex shrink-0 gap-1.5 max-sm:gap-2";
+const MODE_BUTTON =
+  "flex size-8 cursor-pointer items-center justify-center rounded-full border border-hud/25 bg-hud/6 p-0 " +
+  "text-[1.1rem] leading-none text-white/75 transition duration-200 " +
+  "hover:bg-hud/14 hover:border-hud/60 hover:text-white " +
+  "aria-pressed:bg-hud/18 aria-pressed:border-hud aria-pressed:text-hud " +
+  "aria-pressed:shadow-[0_0_16px_rgb(93_227_230/0.5)] max-sm:size-10 max-sm:text-base";
+const PLACEHOLDER =
+  "flex size-full items-center justify-center p-4 text-center text-[0.8rem] text-white/70";
 
 type Offset = { x: number; y: number };
 type StageSize = { width: number; height: number };
@@ -15,6 +56,9 @@ const MIN_WIDTH = 150;
 const MAX_WIDTH = 480;
 const MIN_HEIGHT = 220;
 const MAX_HEIGHT = 720;
+
+/** ドラッグ時、パネルを画面外へ出しても最低このpxぶんは画面内に残す（スマホで見失わないため） */
+const KEEP_VISIBLE = 56;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -32,6 +76,7 @@ function clamp(value: number, min: number, max: number) {
  */
 function usePanelTransform(
   stageRef: RefObject<HTMLDivElement | null>,
+  panelRef: RefObject<HTMLDivElement | null>,
   anchorSide: "left" | "right",
 ) {
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
@@ -39,7 +84,12 @@ function usePanelTransform(
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
 
-  const dragStart = useRef<{ pointerX: number; pointerY: number; origin: Offset } | null>(null);
+  const dragStart = useRef<{
+    pointerX: number;
+    pointerY: number;
+    origin: Offset;
+    startRect: DOMRect | null;
+  } | null>(null);
   const resizeStart = useRef<{
     pointerX: number;
     pointerY: number;
@@ -51,17 +101,35 @@ function usePanelTransform(
   const onDragPointerDown = useCallback(
     (e: PointerEvent) => {
       e.preventDefault();
-      dragStart.current = { pointerX: e.clientX, pointerY: e.clientY, origin: offset };
+      dragStart.current = {
+        pointerX: e.clientX,
+        pointerY: e.clientY,
+        origin: offset,
+        startRect: panelRef.current?.getBoundingClientRect() ?? null,
+      };
       setDragging(true);
 
       const onPointerMove = (ev: globalThis.PointerEvent) => {
         if (!dragStart.current) return;
-        const dx = ev.clientX - dragStart.current.pointerX;
-        const dy = ev.clientY - dragStart.current.pointerY;
-        setOffset({
-          x: dragStart.current.origin.x + dx,
-          y: dragStart.current.origin.y + dy,
-        });
+        const { pointerX, pointerY, origin, startRect } = dragStart.current;
+        let x = origin.x + (ev.clientX - pointerX);
+        let y = origin.y + (ev.clientY - pointerY);
+        // パネルが画面外へ消えないよう、掴んだ時点の矩形を基準に offset を制限する
+        if (startRect) {
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          x = clamp(
+            x,
+            origin.x + KEEP_VISIBLE - startRect.right,
+            origin.x + vw - KEEP_VISIBLE - startRect.left,
+          );
+          y = clamp(
+            y,
+            origin.y + KEEP_VISIBLE - startRect.bottom,
+            origin.y + vh - KEEP_VISIBLE - startRect.top,
+          );
+        }
+        setOffset({ x, y });
       };
       const onPointerUp = () => {
         dragStart.current = null;
@@ -72,7 +140,7 @@ function usePanelTransform(
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", onPointerUp);
     },
-    [offset],
+    [offset, panelRef],
   );
 
   const onResizePointerDown = useCallback(
@@ -136,18 +204,55 @@ function usePanelTransform(
     [offset, size, stageRef, anchorSide],
   );
 
+  // 画面回転・リサイズでパネルが画面外に取り残されたら引き戻す
+  useEffect(() => {
+    const reclamp = () => {
+      const el = panelRef.current;
+      if (!el) return;
+      setOffset((prev) => {
+        const rect = el.getBoundingClientRect();
+        const baseLeft = rect.left - prev.x;
+        const baseTop = rect.top - prev.y;
+        const baseRight = rect.right - prev.x;
+        const baseBottom = rect.bottom - prev.y;
+        const x = clamp(
+          prev.x,
+          KEEP_VISIBLE - baseRight,
+          window.innerWidth - KEEP_VISIBLE - baseLeft,
+        );
+        const y = clamp(
+          prev.y,
+          KEEP_VISIBLE - baseBottom,
+          window.innerHeight - KEEP_VISIBLE - baseTop,
+        );
+        return x === prev.x && y === prev.y ? prev : { x, y };
+      });
+    };
+    window.addEventListener("resize", reclamp);
+    window.addEventListener("orientationchange", reclamp);
+    return () => {
+      window.removeEventListener("resize", reclamp);
+      window.removeEventListener("orientationchange", reclamp);
+    };
+  }, [panelRef]);
+
   return { offset, size, dragging, resizing, onDragPointerDown, onResizePointerDown };
 }
 
+/*
+ * パネルをブラウザのwindowのように、枠のどこを掴むかで伸縮方向が変わる形でリサイズするハンドル群。
+ * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。10〜18px と小さくタッチでは掴めないので
+ * スマホ(max-sm)では隠す。
+ */
 const RESIZE_HANDLES: { dir: ResizeDir; className: string }[] = [
-  { dir: "n", className: styles.edgeN },
-  { dir: "s", className: styles.edgeS },
-  { dir: "e", className: styles.edgeE },
-  { dir: "w", className: styles.edgeW },
-  { dir: "nw", className: styles.cornerNW },
-  { dir: "ne", className: styles.cornerNE },
-  { dir: "sw", className: styles.cornerSW },
-  { dir: "se", className: styles.cornerSE },
+  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
+  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
+  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
+  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
+  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize max-sm:hidden" },
+  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize max-sm:hidden" },
+  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize max-sm:hidden" },
+  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize max-sm:hidden" },
 ];
 
 /** windowのように、パネルの枠(上下左右+四隅)を掴んでリサイズするためのハンドル群 */
@@ -161,9 +266,8 @@ function ResizeHandles({
       {RESIZE_HANDLES.map(({ dir, className }) => (
         <div
           key={dir}
-          className={className}
+          className={`${className} touch-none`}
           onPointerDown={onPointerDown(dir)}
-          style={{ touchAction: "none" }}
         />
       ))}
     </>
@@ -246,34 +350,33 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
 
   const kaguyaStageRef = useRef<HTMLDivElement | null>(null);
   const yachiyoStageRef = useRef<HTMLDivElement | null>(null);
-  const kaguyaTransform = usePanelTransform(kaguyaStageRef, "left");
-  const yachiyoTransform = usePanelTransform(yachiyoStageRef, "right");
+  const kaguyaPanelRef = useRef<HTMLDivElement | null>(null);
+  const yachiyoPanelRef = useRef<HTMLDivElement | null>(null);
+  const kaguyaTransform = usePanelTransform(kaguyaStageRef, kaguyaPanelRef, "left");
+  const yachiyoTransform = usePanelTransform(yachiyoStageRef, yachiyoPanelRef, "right");
 
   return (
     <>
       {showKaguya && (
         <div
-          className={`${styles.panel} ${styles.panelKaguya} ${kaguyaTransform.resizing ? styles.resizing : ""}`}
+          ref={kaguyaPanelRef}
+          className={`${PANEL} ${PANEL_KAGUYA} ${kaguyaTransform.resizing ? PANEL_SHADOW_RESIZING : PANEL_SHADOW}`}
           style={{
             transform: `translate(${kaguyaTransform.offset.x}px, ${kaguyaTransform.offset.y}px)`,
           }}
         >
           <ResizeHandles onPointerDown={kaguyaTransform.onResizePointerDown} />
-          <div className={styles.panelInner}>
+          <div className={PANEL_INNER}>
             <div
-              className={styles.dragHandle}
+              className={DRAG_HANDLE}
               onPointerDown={kaguyaTransform.onDragPointerDown}
-              style={{
-                cursor: kaguyaTransform.dragging ? "grabbing" : "grab",
-                touchAction: "none",
-                userSelect: "none",
-              }}
+              style={{ cursor: kaguyaTransform.dragging ? "grabbing" : "grab" }}
             >
-              <div className={styles.nameTag}>かぐや</div>
+              <div className={NAME_TAG}>かぐや</div>
             </div>
             <div
               ref={kaguyaStageRef}
-              className={styles.stage}
+              className={STAGE}
               style={
                 kaguyaTransform.size
                   ? { width: kaguyaTransform.size.width, height: kaguyaTransform.size.height }
@@ -285,16 +388,14 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
                 smoking={kaguyaSmoking}
                 smile={kaguyaSmile}
                 placeholder={
-                  <div className={styles.placeholder}>
-                    かぐや、ただいま準備中です。
-                  </div>
+                  <div className={PLACEHOLDER}>かぐや、ただいま準備中です。</div>
                 }
               />
             </div>
-            <div className={styles.controlBar}>
+            <div className={CTRL_BAR}>
               <button
                 type="button"
-                className={`${styles.modeButton} ${kaguyaSingingActive ? styles.active : ""}`}
+                className={MODE_BUTTON}
                 onClick={() => setKaguyaSinging((v) => !v)}
                 aria-pressed={kaguyaSingingActive}
                 aria-label="歌唱モード"
@@ -304,7 +405,7 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
               </button>
               <button
                 type="button"
-                className={`${styles.modeButton} ${kaguyaSmoking ? styles.active : ""}`}
+                className={MODE_BUTTON}
                 onClick={() => setKaguyaSmoking((v) => !v)}
                 aria-pressed={kaguyaSmoking}
                 aria-label="たばこモード"
@@ -314,7 +415,7 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
               </button>
               <button
                 type="button"
-                className={`${styles.modeButton} ${kaguyaSmile ? styles.active : ""}`}
+                className={MODE_BUTTON}
                 onClick={() => setKaguyaSmile((v) => !v)}
                 aria-pressed={kaguyaSmile}
                 aria-label="スマイルモード"
@@ -329,27 +430,24 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
 
       {showYachiyo && (
         <div
-          className={`${styles.panel} ${styles.panelYachiyo} ${yachiyoTransform.resizing ? styles.resizing : ""}`}
+          ref={yachiyoPanelRef}
+          className={`${PANEL} ${PANEL_YACHIYO} ${yachiyoTransform.resizing ? PANEL_SHADOW_RESIZING : PANEL_SHADOW}`}
           style={{
             transform: `translate(${yachiyoTransform.offset.x}px, ${yachiyoTransform.offset.y}px)`,
           }}
         >
           <ResizeHandles onPointerDown={yachiyoTransform.onResizePointerDown} />
-          <div className={styles.panelInner}>
+          <div className={PANEL_INNER}>
             <div
-              className={styles.dragHandle}
+              className={DRAG_HANDLE}
               onPointerDown={yachiyoTransform.onDragPointerDown}
-              style={{
-                cursor: yachiyoTransform.dragging ? "grabbing" : "grab",
-                touchAction: "none",
-                userSelect: "none",
-              }}
+              style={{ cursor: yachiyoTransform.dragging ? "grabbing" : "grab" }}
             >
-              <div className={styles.nameTag}>ヤチヨ</div>
+              <div className={NAME_TAG}>ヤチヨ</div>
             </div>
             <div
               ref={yachiyoStageRef}
-              className={styles.stage}
+              className={STAGE}
               style={
                 yachiyoTransform.size
                   ? { width: yachiyoTransform.size.width, height: yachiyoTransform.size.height }
@@ -358,13 +456,13 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
             >
               <YachiyoCharacter
                 getAmplitude={yachiyoAmplitude}
-                placeholder={<div className={styles.placeholder} />}
+                placeholder={<div className={PLACEHOLDER} />}
               />
             </div>
-            <div className={styles.controlBar}>
+            <div className={CTRL_BAR}>
               <button
                 type="button"
-                className={`${styles.modeButton} ${yachiyoSingingActive ? styles.active : ""}`}
+                className={MODE_BUTTON}
                 onClick={() => setYachiyoSinging((v) => !v)}
                 aria-pressed={yachiyoSingingActive}
                 aria-label="歌唱モード"
