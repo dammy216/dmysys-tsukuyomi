@@ -6,7 +6,7 @@
       "name": "web",
       "request": "launch",
       "type": "node-terminal",
-      "cwd": "${workspaceFolder}/yoccie-homepage"
+      "cwd": "${workspaceFolder}/frontend"
     },
     {
       "command": "python watch_rive.py",

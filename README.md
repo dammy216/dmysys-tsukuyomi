@@ -3,12 +3,12 @@
 キャラクター「ヤチヨ」の公開サイト（旧 yoccie-homepage）。Next.js 16 (App Router) + Three.js / React Three Fiber + Rive。
 
 yachiyoGPT モノレポから分離した単独リポジトリ（mobile / server は元モノレポに残存）。
-サイト本体は `yoccie-homepage/` サブディレクトリに置いたまま。
+サイト本体は `frontend/` サブディレクトリ（旧 `yoccie-homepage/`）。
 
 ## 開発
 
 ```
-cd yoccie-homepage
+cd frontend
 bun install
 bun run dev      # http://localhost:3000
 bun run build
@@ -18,7 +18,7 @@ bun run lint
 ## 構成
 
 ```
-yoccie-homepage/  # サイト本体（App Router。features/ = sandbox / kaguya / character）
+frontend/         # サイト本体（App Router。features/ = sandbox / kaguya / character）
 rive/             # Web版キャラの Luau スクリプト（webYachiyo / webKaguya）+ watch_rive.py
 .agents/skills/   # 技術リファレンス
 ```
@@ -27,4 +27,4 @@ rive/             # Web版キャラの Luau スクリプト（webYachiyo / webKa
 
 ## デプロイ
 
-Vercel。Root Directory = `yoccie-homepage`、install は `bun install`（`bun.lock` で自動判定）。
+Vercel。Root Directory = `frontend`、install は `bun install`（`bun.lock` で自動判定）。

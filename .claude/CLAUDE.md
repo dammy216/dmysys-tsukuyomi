@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **dmysys-tsukuyomi** — キャラクター「ヤチヨ」の公開サイト（旧 yoccie-homepage）。
 **yachiyoGPT モノレポから分離した単独リポジトリ**（mobile アプリと server は元モノレポに残っている）。
-サイト本体は `yoccie-homepage/` サブディレクトリのまま。
+サイト本体は `frontend/` サブディレクトリ（旧 `yoccie-homepage/`）。
 
-- **yoccie-homepage/** — Next.js 16 (App Router) 製の公開サイト。ルート("/")は3Dサンドボックス
+- **frontend/** — Next.js 16 (App Router) 製の公開サイト。ルート("/")は3Dサンドボックス
   （Three.js / React Three Fiber の実験場）。画面のトグルUIから「かぐや」「ヤチヨ」の
   Rive キャラクター表示を重ねて切り替えられる。
 - **rive/** — Rive エディタ上で動く **Luau スクリプト**（Node Script）。Web版キャラの制御のみ。
@@ -17,13 +17,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `rive/scripts/watch_rive.py` — `.lua` の保存を監視し MCP 経由で Rive のスクリプトへ反映（要 Rive 起動）
 
 `.riv` ファイル本体は Rive エディタが管理しており、このリポジトリには含まれない。
-書き出した `.riv` を `yoccie-homepage/public/` 側に置いて読み込む。
+書き出した `.riv` を `frontend/public/` 側に置いて読み込む。
 Luau スクリプトはファイルで編集し、Rive エディタに貼り付けて適用する運用。
 
 ## トップレベル構成
 
 ```
-yoccie-homepage/ # Next.js サイト本体（App Router）
+frontend/        # Next.js サイト本体（App Router）
                  #   features/ に sandbox（Sandbox3D / CharacterOverlay）/ kaguya / character
 rive/            # Web版キャラの Luau スクリプト + watch_rive.py
 .agents/skills/  # 各技術のリファレンス（後述）
@@ -38,7 +38,7 @@ rive/            # Web版キャラの Luau スクリプト + watch_rive.py
 パッケージマネージャは **bun**。
 
 ```
-cd yoccie-homepage
+cd frontend
 bun install          # 依存インストール（bun.lock を生成/更新）
 bun run dev          # 開発サーバー
 bun run build        # 本番ビルド
@@ -50,7 +50,7 @@ bun x tsc --noEmit   # 型チェック
 
 ## デプロイ（Vercel）
 
-Vercel はこのリポジトリに接続し、**Root Directory = `yoccie-homepage`** でビルドする。
+Vercel はこのリポジトリに接続し、**Root Directory = `frontend`** でビルドする。
 `bun.lock` があるので install は自動で `bun install` になる。Install Command を
 ダッシュボードで npm に上書きしないこと。
 
@@ -148,7 +148,7 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
   - ファイル: `[webKaguya.lua](rive/animations/webKaguya/webKaguya.lua)`
   - 特定行: `[webKaguya.lua:1087](rive/animations/webKaguya/webKaguya.lua#L1087)`
   - 行範囲: `[webKaguya.lua:1080-1095](rive/animations/webKaguya/webKaguya.lua#L1080-L1095)`
-  - フォルダ: `[yoccie-homepage/features/](yoccie-homepage/features/)`
+  - フォルダ: `[frontend/features/](frontend/features/)`
   - パスはワークスペースルートからの相対パスで書く
 - 定数やパラメータの値を変更した場合は、その定数が定義されている行へのリンクを添えること
   （例: `HAIR_SPREAD_DRIVE` を変更したなら定義行へのリンク）
