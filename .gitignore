@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# OS / editor
+.DS_Store
+
+# Claude Code (local overrides)
+.claude/settings.local.json

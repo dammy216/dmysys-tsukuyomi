@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useCallback, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
 import { YachiyoCharacter } from "@/features/character";
 import { KaguyaCharacter } from "@/features/kaguya";
@@ -206,10 +206,13 @@ export function CharacterOverlay({
     ただし songActive を歌唱状態に直接ORせず kaguyaSinging へ一度写すことで、
     星降る海の再生中でもボタンで途中からやめられるようにする
     (songActive が変わったときだけ上書きするので、手動トグルは潰さない)。
+    prop 変化への追従はレンダー中に行う (React 推奨。effect 内 setState を避ける)。
   */
-  useEffect(() => {
+  const [prevSongActive, setPrevSongActive] = useState(songActive);
+  if (songActive !== prevSongActive) {
+    setPrevSongActive(songActive);
     setKaguyaSinging(songActive);
-  }, [songActive]);
+  }
 
   /*
     かぐやの歌唱モードは音を鳴らさない(ヤチヨと同じ)。SING_MODE_FLOOR 固定を
