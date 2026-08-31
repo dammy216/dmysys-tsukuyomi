@@ -171,9 +171,18 @@ eyes グループのアートボード座標: `(505, 284)`（目追従の中心�
 - `threejs-animation/` — Three.js アニメーション（keyframe / skeletal / morph target / AnimationMixer）のリファレンス
 - `threejs-shaders/` — Three.js シェーダー（GLSL, ShaderMaterial, uniforms）のリファレンス
 - `react-three-fiber/` — React Three Fiber（R3F）のリファレンス（Canvas, useFrame, useThree, drei連携, パフォーマンス最適化等）
+- `vertical-slice-architecture/` — feature-based 構成の原則リファレンス
 
-（`fastapi-python/` `fish-audio-sdk/` `gemini-live-api-dev/` `vercel-react-native-skills/` `vertical-slice-architecture/`
-は元モノレポの mobile / server 用。このリポジトリでは基本使わない。）
+（元モノレポの mobile / server 用スキル（`fastapi-python` `fish-audio-sdk` `gemini-live-api-dev`
+`vercel-react-native-skills` `runpodctl`）はこのリポジトリでは使わないため削除済み。）
+
+### スキルの管理方式（2系統）
+
+- **外部ソース + ロック管理**: `rive` / `rive-scripting` / `rive-animations` /
+  `vertical-slice-architecture`。取得元とハッシュを `skills-lock.json` で管理する。
+  スキルを追加・削除したら `.agents/skills/` と `skills-lock.json` を同期させること。
+- **ローカル管理（ロック対象外）**: `react-three-fiber` / `threejs-animation` /
+  `threejs-shaders`。外部ソースが無くこのリポジトリ内で直接編集する。`skills-lock.json` には載せない。
 
 ## MCP サーバー
 
