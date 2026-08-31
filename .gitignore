@@ -10,3 +10,6 @@ node_modules/
 
 # Claude Code (local overrides)
 .claude/settings.local.json
+
+# graphify (実験中。knowledge graph 出力)
+graphify-out/
