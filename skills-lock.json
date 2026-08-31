@@ -1,23 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "fastapi-python": {
-      "source": "mindrally/skills",
-      "sourceType": "github",
-      "skillPath": "fastapi-python/SKILL.md",
-      "computedHash": "4521c6090735152b7b8df670cefe5c1c6d1dcaa115de67bb96e74ebf802d4f24"
-    },
-    "fish-audio-sdk": {
-      "source": "docs.fish.audio",
-      "sourceType": "well-known",
-      "computedHash": "c2668b17a1ed151d3b3dca43a396aaaccc4837ac3bc51229e225b461b23cc35d"
-    },
-    "gemini-live-api-dev": {
-      "source": "google-gemini/gemini-skills",
-      "sourceType": "github",
-      "skillPath": "skills/gemini-live-api-dev/SKILL.md",
-      "computedHash": "eec39a301d1116a8b1bf3fea8e9998e0d1932dd413cfbc5a4705bbb288e25243"
-    },
     "rive": {
       "source": "bowtiedswan/rive-skills",
       "sourceType": "github",
@@ -35,18 +18,6 @@
       "sourceType": "github",
       "skillPath": "skills/rive-scripting/SKILL.md",
       "computedHash": "d541a9584c6222e98060eb05bc0d42fff9d99cd8258840e348cff58bd5630c3a"
-    },
-    "runpodctl": {
-      "source": "runpod/skills",
-      "sourceType": "github",
-      "skillPath": "runpodctl/SKILL.md",
-      "computedHash": "934a2374c60a2473aa7eeea53ad933659e3476296731c51c5340b48f9da1a2f2"
-    },
-    "vercel-react-native-skills": {
-      "source": "vercel-labs/agent-skills",
-      "sourceType": "github",
-      "skillPath": "skills/react-native-skills/SKILL.md",
-      "computedHash": "41d24eafa7c3d82e270439808f7cfbc4d51aeb2d14f2809a2267c16275784d06"
     },
     "vertical-slice-architecture": {
       "source": "mryll/skills",
