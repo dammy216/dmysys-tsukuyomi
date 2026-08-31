@@ -36,7 +36,7 @@ const NAME_TAG =
   "tracking-[0.08em] text-[#bdf3f5] shadow-[0_0_12px_rgb(93_227_230/0.35)] " +
   "max-sm:px-2.5 max-sm:py-0.5 max-sm:text-[11px]";
 const STAGE =
-  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-[14px] bg-[rgb(6_12_24/0.85)] touch-none " +
+  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-[14px] bg-[rgb(6_12_24/0.85)] " +
   "shadow-[0_8px_32px_rgb(0_0_0/0.35)] max-sm:h-[190px] max-sm:w-[120px]";
 const CTRL_BAR = "flex shrink-0 gap-1.5 max-sm:gap-2";
 const MODE_BUTTON =
@@ -83,11 +83,6 @@ function usePanelTransform(
   const [size, setSize] = useState<StageSize | null>(null);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
-  const [pinching, setPinching] = useState(false);
-
-  // ピンチ中に触れている全ポインタの現在位置（pointerId → clientX/Y）
-  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinchStart = useRef<{ dist: number; startSize: StageSize } | null>(null);
 
   const dragStart = useRef<{
     pointerX: number;
@@ -209,67 +204,6 @@ function usePanelTransform(
     [offset, size, stageRef, anchorSide],
   );
 
-  /*
-   * スマホ: ステージ上を2本指ピンチしてキャラを拡大縮小する。
-   * リサイズハンドル(10〜18px)はタッチには小さすぎて max-sm で隠しているため、その代替。
-   * 指1本のときは何もせず Rive 側のタップ操作をそのまま通す。
-   * 掴んだ辺のない拡縮なので anchorSide による offset 補正は不要
-   * （left指定=かぐやは右へ、right指定=ヤチヨは左へ、どちらも自然に画面中央側へ伸びる）。
-   */
-  const onStagePointerDown = useCallback(
-    (e: PointerEvent) => {
-      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pointers.current.size !== 2) return;
-      e.preventDefault();
-      const [a, b] = [...pointers.current.values()];
-      const rect = stageRef.current?.getBoundingClientRect();
-      const startSize =
-        size ?? (rect ? { width: rect.width, height: rect.height } : { width: 200, height: 320 });
-      pinchStart.current = { dist: Math.hypot(a.x - b.x, a.y - b.y), startSize };
-      setPinching(true);
-
-      const onPointerMove = (ev: globalThis.PointerEvent) => {
-        if (!pointers.current.has(ev.pointerId)) return;
-        pointers.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-        if (!pinchStart.current || pointers.current.size < 2) return;
-        const [p, q] = [...pointers.current.values()];
-        const { dist, startSize } = pinchStart.current;
-        const raw = Math.hypot(p.x - q.x, p.y - q.y) / dist;
-        // アスペクト比を保ったまま4辺の上下限にクランプ
-        const scale = clamp(
-          raw,
-          Math.max(MIN_WIDTH / startSize.width, MIN_HEIGHT / startSize.height),
-          Math.min(MAX_WIDTH / startSize.width, MAX_HEIGHT / startSize.height),
-        );
-        setSize({ width: startSize.width * scale, height: startSize.height * scale });
-      };
-      const onPointerUp = (ev: globalThis.PointerEvent) => {
-        pointers.current.delete(ev.pointerId);
-        if (pointers.current.size >= 2) return;
-        pinchStart.current = null;
-        setPinching(false);
-        window.removeEventListener("pointermove", onPointerMove);
-        window.removeEventListener("pointerup", onPointerUp);
-        window.removeEventListener("pointercancel", onPointerUp);
-      };
-      window.addEventListener("pointermove", onPointerMove);
-      window.addEventListener("pointerup", onPointerUp);
-      window.addEventListener("pointercancel", onPointerUp);
-    },
-    [size, stageRef],
-  );
-
-  // ピンチに至らなかった単指タップのポインタが Map に残り続けないよう掃除する
-  useEffect(() => {
-    const drop = (ev: globalThis.PointerEvent) => pointers.current.delete(ev.pointerId);
-    window.addEventListener("pointerup", drop);
-    window.addEventListener("pointercancel", drop);
-    return () => {
-      window.removeEventListener("pointerup", drop);
-      window.removeEventListener("pointercancel", drop);
-    };
-  }, []);
-
   // 画面回転・リサイズでパネルが画面外に取り残されたら引き戻す
   useEffect(() => {
     const reclamp = () => {
@@ -302,31 +236,24 @@ function usePanelTransform(
     };
   }, [panelRef]);
 
-  return {
-    offset,
-    size,
-    dragging,
-    resizing: resizing || pinching,
-    onDragPointerDown,
-    onResizePointerDown,
-    onStagePointerDown,
-  };
+  return { offset, size, dragging, resizing, onDragPointerDown, onResizePointerDown };
 }
 
 /*
  * パネルをブラウザのwindowのように、枠のどこを掴むかで伸縮方向が変わる形でリサイズするハンドル群。
- * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。10〜18px と小さくタッチでは掴めないので
- * スマホ(max-sm)では隠す。
+ * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。PC は 10〜18px。
+ * スマホ(max-sm)は指で掴めるよう当たり判定を 24〜36px に広げ、枠の外側に大きくはみ出させて
+ * 中身(名前タグ・ボタン・ステージ)への被りを最小限にする。四隅には薄いグリップを出す(PCでは非表示)。
  */
 const RESIZE_HANDLES: { dir: ResizeDir; className: string }[] = [
-  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
-  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
-  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
-  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
-  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize max-sm:hidden" },
-  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize max-sm:hidden" },
-  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize max-sm:hidden" },
-  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize max-sm:hidden" },
+  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize max-sm:left-8 max-sm:right-8 max-sm:top-[-16px] max-sm:h-6" },
+  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize max-sm:left-8 max-sm:right-8 max-sm:bottom-[-16px] max-sm:h-6" },
+  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize max-sm:top-8 max-sm:bottom-8 max-sm:right-[-16px] max-sm:w-6" },
+  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize max-sm:top-8 max-sm:bottom-8 max-sm:left-[-16px] max-sm:w-6" },
+  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize max-sm:size-9 max-sm:top-[-22px] max-sm:left-[-22px]" },
+  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize max-sm:size-9 max-sm:top-[-22px] max-sm:right-[-22px]" },
+  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize max-sm:size-9 max-sm:bottom-[-22px] max-sm:left-[-22px]" },
+  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize max-sm:size-9 max-sm:bottom-[-22px] max-sm:right-[-22px]" },
 ];
 
 /** windowのように、パネルの枠(上下左右+四隅)を掴んでリサイズするためのハンドル群 */
@@ -342,7 +269,12 @@ function ResizeHandles({
           key={dir}
           className={`${className} touch-none`}
           onPointerDown={onPointerDown(dir)}
-        />
+        >
+          {dir.length === 2 && (
+            /* スマホ: 掴める場所が分かるよう四隅に薄いグリップを出す（PCでは非表示） */
+            <span className="pointer-events-none absolute inset-0 m-auto hidden size-2.5 rounded-[3px] bg-hud/45 ring-1 ring-hud/70 max-sm:block" />
+          )}
+        </div>
       ))}
     </>
   );
@@ -451,7 +383,6 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
             <div
               ref={kaguyaStageRef}
               className={STAGE}
-              onPointerDown={kaguyaTransform.onStagePointerDown}
               style={
                 kaguyaTransform.size
                   ? { width: kaguyaTransform.size.width, height: kaguyaTransform.size.height }
@@ -523,7 +454,6 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
             <div
               ref={yachiyoStageRef}
               className={STAGE}
-              onPointerDown={yachiyoTransform.onStagePointerDown}
               style={
                 yachiyoTransform.size
                   ? { width: yachiyoTransform.size.width, height: yachiyoTransform.size.height }
