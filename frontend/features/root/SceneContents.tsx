@@ -79,7 +79,7 @@ export function SceneContents({
   hologramVideoRef: RefObject<HTMLVideoElement | null>;
 }) {
   const skyVariant = useSceneStore((s) => s.skyVariant);
-  const starfallSea = useSceneStore((s) => s.starfallSea);
+  const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
   const starfallFreeCam = useSceneStore((s) => s.starfallFreeCam);
 
   /*
@@ -98,13 +98,13 @@ export function SceneContents({
     赤い鳥居(MiyajimaTorii)・水面の光(WaterGlow・SeaGlow)専用の進行度(0〜1)。
     activationRef と違い、アウトロ(2:18〜)でも0へ落とさない。曲が終わって
     魚や水中フィルターが引いたあとも、鳥居と水面の光だけは灯したまま
-    残しておきたいという指定のため、starfallSeaのON/OFFだけで決まる
+    残しておきたいという指定のため、starfallPlayingのON/OFFだけで決まる
     (inOutroを見ない)別のランプとして持つ。これも ref。
   */
   const persistActivationRef = useRef(0);
   /*
     魚の大群(StarfallSwarm)・水中フィルター(Underwater)専用の進行度(0〜1)。
-    starfallSea が true になった時刻(starfallStartRef)から
+    starfallPlaying が true になった時刻(starfallStartRef)から
     HEAVY_EFFECTS_DELAY_SECONDS 経つまでターゲットは0のまま。これも ref。
   */
   const heavyActivationRef = useRef(0);
@@ -147,7 +147,7 @@ export function SceneContents({
   */
   const glowDimRef = useRef(1);
   const toriiDimRef = useRef(1);
-  // starfallSea が true になった瞬間の clock.elapsedTime。未開始は null
+  // starfallPlaying が true になった瞬間の clock.elapsedTime。未開始は null
   const starfallStartRef = useRef<number | null>(null);
   /*
     転調の閃光の残り時間(秒)。転調に入った瞬間だけ SURGE_FLASH_SECONDS を
@@ -171,8 +171,8 @@ export function SceneContents({
     */
     const videoTime = hologramVideoRef.current?.currentTime ?? 0;
     // 曲の終わり。ここに入ったら演出をまとめて畳んで元の景色へ戻す
-    const inOutro = starfallSea && videoTime >= OUTRO_START_SECONDS;
-    const inSurge = starfallSea && videoTime >= SURGE_START_SECONDS && !inOutro;
+    const inOutro = starfallPlaying && videoTime >= OUTRO_START_SECONDS;
+    const inSurge = starfallPlaying && videoTime >= SURGE_START_SECONDS && !inOutro;
 
     /*
       転調直前の暗転(windup)。SURGE_START_SECONDSのPRE_SURGE_WINDUP_SECONDS秒前から
@@ -187,7 +187,7 @@ export function SceneContents({
     */
     const windupStart = SURGE_START_SECONDS - PRE_SURGE_WINDUP_SECONDS;
     let preDimNow = 0;
-    if (starfallSea && !inOutro) {
+    if (starfallPlaying && !inOutro) {
       if (inSurge) {
         preDimNow = 1 - surgeActivationRef.current;
       } else if (videoTime >= windupStart) {
@@ -207,7 +207,7 @@ export function SceneContents({
     }
 
     // アウトロ中はどの演出もターゲット0へ、立ち上がりよりゆっくり引かせる
-    const target = starfallSea && !inOutro ? 1 : 0;
+    const target = starfallPlaying && !inOutro ? 1 : 0;
     const step = delta / (inOutro ? OUTRO_FADE_SECONDS : STARFALL_FADE_SECONDS);
 
     if (inSurge) {
@@ -226,7 +226,7 @@ export function SceneContents({
       (surgeFlashRef.current / SURGE_FLASH_SECONDS) * SURGE_FLASH_EXPOSURE;
 
     // 赤い鳥居・水面の光はアウトロでも落とさないので、inOutroを見ないターゲットで動かす
-    const persistTarget = starfallSea ? 1 : 0;
+    const persistTarget = starfallPlaying ? 1 : 0;
     const persistStep = delta / STARFALL_FADE_SECONDS;
     if (persistActivationRef.current !== persistTarget) {
       persistActivationRef.current =
@@ -302,7 +302,7 @@ export function SceneContents({
     */
     if (inOutro) {
       starfallStartRef.current = clock.elapsedTime;
-    } else if (starfallSea) {
+    } else if (starfallPlaying) {
       if (starfallStartRef.current === null) {
         starfallStartRef.current = clock.elapsedTime;
       }
@@ -312,7 +312,7 @@ export function SceneContents({
     const heavyReady =
       starfallStartRef.current !== null &&
       clock.elapsedTime - starfallStartRef.current >= HEAVY_EFFECTS_DELAY_SECONDS;
-    const heavyTarget = starfallSea && heavyReady && !inOutro ? 1 : 0;
+    const heavyTarget = starfallPlaying && heavyReady && !inOutro ? 1 : 0;
 
     const prevHeavy = heavyActivationRef.current;
     if (heavyActivationRef.current !== heavyTarget) {
@@ -363,7 +363,7 @@ export function SceneContents({
 
       <Suspense fallback={null}>
         {/* 星降る海の間は、夕暮れを選んでいても映像と同じ夜空に切り替える */}
-        <SkyBackground variant={starfallSea ? "night" : skyVariant} />
+        <SkyBackground variant={starfallPlaying ? "night" : skyVariant} />
         {/*
           映像の鳥居は根本が橙色、上に行くほど赤みが強い発光をしている。
           ポイントライトの反射だけではそこまで光らないため、鳥居のマテリアル
@@ -445,7 +445,7 @@ export function SceneContents({
         使うため(StarfallCamera.tsx の DOLLY_IN_START_SECONDS 参照)。
       */}
       <StarfallCamera
-        active={starfallSea && !starfallFreeCam}
+        active={starfallPlaying && !starfallFreeCam}
         activationRef={activationRef}
         videoRef={hologramVideoRef}
       />
@@ -457,9 +457,9 @@ export function SceneContents({
       <OrbitControls
         makeDefault
         enableDamping
-        enabled={!starfallSea || starfallFreeCam}
+        enabled={!starfallPlaying || starfallFreeCam}
         // 星降る海モード中はホログラム画面を中心に回す。通常時は鳥居の中ほど
-        target={starfallSea ? SCREEN_FOCUS : NORMAL_ORBIT_TARGET}
+        target={starfallPlaying ? SCREEN_FOCUS : NORMAL_ORBIT_TARGET}
       />
       <SceneStats />
 

@@ -71,8 +71,9 @@ const LOOP_GAP_SECONDS = 0.6;
  * 映像とステムは同じ音源から作られていて長さもほぼ同じ(約141.8秒)なので、
  * 3つとも同じ時刻に合わせれば口の動きと映像と音が揃う。
  *
- * ボタンを押してから3つが「揃って鳴らせる」状態になるまでは loading=true。
- * その間は呼び出し側でボタンをスピナー表示にして押せなくする。
+ * ボタンを押してから3つが「揃って鳴らせる」状態になるまで playing=false。
+ * その間は呼び出し側で読み込み中オーバーレイを出し、3Dシーンの演出も
+ * 止めておく(演出だけ先に進んで音とズレるのを防ぐ)。
  */
 export function useStarfallSong(active: boolean) {
   /*
@@ -97,10 +98,12 @@ export function useStarfallSong(active: boolean) {
   const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   /*
-    ボタンを押してから、映像＋ステム2本が「揃って鳴らせる」状態になるまで true。
-    呼び出し側(ControlBar)でボタンをスピナー表示にして押せなくするのに使う。
+    実際に3つ(映像＋ステム2本)が鳴り始めたら true。ボタンを押してから
+    バッファが揃うまでは false のまま。呼び出し側はこれが false の間
+    「読み込み中」オーバーレイを出し、3Dシーンの演出も止めておく
+    (押した瞬間に演出だけ進んで音とタイミングがずれるのを防ぐ)。
   */
-  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
 
   // メディア要素は一度だけ作る(作り直すと読み込みからやり直しになる)
   useEffect(() => {
@@ -228,6 +231,7 @@ export function useStarfallSong(active: boolean) {
       video.play().catch(() => {});
       vocals.play().catch(() => {});
       other.play().catch(() => {});
+      setPlaying(true);
     };
 
     /*
@@ -250,8 +254,8 @@ export function useStarfallSong(active: boolean) {
       十分でない状態で play() すると、特にモバイルでステム2つの再生開始が
       ばらついて vocal と other がずれる(「もう一度押すと直る」のは、
       2回目にはバッファが埋まっているから)。
-      そこで3つが揃って鳴らせる状態になるまで待ってから一斉にスタートする。
-      待っている間は loading=true(呼び出し側がボタンをスピナーにする)。
+      そこで3つが揃って鳴らせる状態になるまで待ってから一斉にスタートする
+      (restart() で playing=true になり、呼び出し側の読み込み中表示が消える)。
       READY_WAIT_TIMEOUT で待ちは打ち切り、あとは再生中のズレ直しに任せる。
     */
     const waitStartedAt = performance.now();
@@ -266,11 +270,9 @@ export function useStarfallSong(active: boolean) {
         video.readyState >= VIDEO_READY_STATE;
       const timedOut = performance.now() - waitStartedAt > READY_WAIT_TIMEOUT;
       if (!ready && !timedOut) {
-        setLoading(true);
         readyTimer = window.setTimeout(startWhenReady, READY_POLL_INTERVAL);
         return;
       }
-      setLoading(false);
       restart();
       vocals.addEventListener("ended", handleEnded);
     };
@@ -282,7 +284,7 @@ export function useStarfallSong(active: boolean) {
       if (loopTimer !== undefined) window.clearTimeout(loopTimer);
       if (readyTimer !== undefined) window.clearTimeout(readyTimer);
       vocals.removeEventListener("ended", handleEnded);
-      setLoading(false);
+      setPlaying(false);
     };
   }, [active, wireAnalyser]);
 
@@ -365,8 +367,8 @@ export function useStarfallSong(active: boolean) {
 
   return {
     videoRef,
-    /** 押してから3つが揃って鳴り始めるまで true。ボタンのスピナー表示に使う */
-    loading,
+    /** 3つ(映像＋ステム2本)が実際に鳴り始めたら true。揃うまでは false */
+    playing,
     getAmplitude,
     prepareCaptureAudio,
     getCaptureStream,

@@ -5,3 +5,4 @@ export { ToriiHologram } from "./ToriiHologram";
 export { Bubbles } from "./Bubbles";
 export { Underwater, UnderwaterEffectImpl } from "./UnderwaterEffect";
 export { useStarfallSong } from "./useStarfallSong";
+export { StarfallLoadingOverlay } from "./StarfallLoadingOverlay";

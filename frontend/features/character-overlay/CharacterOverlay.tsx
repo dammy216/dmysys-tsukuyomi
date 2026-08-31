@@ -340,9 +340,10 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
   const showYachiyo = useSceneStore((s) => s.showYachiyo);
   /*
     星降る海の再生中は songActive が true になり、ヤチヨは疑似波形ではなく
-    実際のボーカルの音量に合わせて口を動かす。
+    実際のボーカルの音量に合わせて口を動かす。読み込み中(starfallSea だが
+    まだ音が鳴っていない)は false のままにして、歌い出しを音と揃える。
   */
-  const songActive = useSceneStore((s) => s.starfallSea);
+  const songActive = useSceneStore((s) => s.starfallPlaying);
   const [kaguyaSinging, setKaguyaSinging] = useState(false);
   const [kaguyaSmoking, setKaguyaSmoking] = useState(false);
   const [kaguyaSmile, setKaguyaSmile] = useState(false);

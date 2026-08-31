@@ -15,7 +15,15 @@ type SceneState = {
   showKaguya: boolean;
   showYachiyo: boolean;
   skyVariant: SkyVariant;
+  /** 星降る海ボタンが押されているか(ユーザーの意思)。押した瞬間に true */
   starfallSea: boolean;
+  /**
+   * 映像＋音が揃って実際に再生が始まっているか。starfallSea が true でも
+   * 読み込み中は false。3Dシーンの演出・カメラ・ヤチヨの歌唱はこちらで駆動し、
+   * 押した瞬間に演出だけ進んで音とタイミングがずれるのを防ぐ。
+   * 値は useStarfallSong が RootScene 経由でセットする。
+   */
+  starfallPlaying: boolean;
   /** 星降る海モード中だけ意味を持つ。true でカメラの自動演出を止めて自由視点にする */
   starfallFreeCam: boolean;
 
@@ -23,6 +31,7 @@ type SceneState = {
   toggleYachiyo: () => void;
   setSkyVariant: (variant: SkyVariant) => void;
   toggleStarfallSea: () => void;
+  setStarfallPlaying: (playing: boolean) => void;
   toggleStarfallFreeCam: () => void;
 };
 
@@ -31,6 +40,7 @@ export const useSceneStore = create<SceneState>((set) => ({
   showYachiyo: false,
   skyVariant: "dusk",
   starfallSea: false,
+  starfallPlaying: false,
   starfallFreeCam: false,
 
   toggleKaguya: () => set((s) => ({ showKaguya: !s.showKaguya })),
@@ -47,10 +57,14 @@ export const useSceneStore = create<SceneState>((set) => ({
       const next = !s.starfallSea;
       return {
         starfallSea: next,
+        // 再生開始は useStarfallSong が読み込み完了時にセットする。OFF は即座に
+        starfallPlaying: next ? s.starfallPlaying : false,
         showYachiyo: next ? true : s.showYachiyo,
         starfallFreeCam: false,
       };
     }),
+
+  setStarfallPlaying: (starfallPlaying) => set({ starfallPlaying }),
 
   toggleStarfallFreeCam: () =>
     set((s) => ({ starfallFreeCam: !s.starfallFreeCam })),
