@@ -44,7 +44,7 @@ const MODE_BUTTON =
   "text-[1.1rem] leading-none text-white/75 transition duration-200 " +
   "hover:bg-hud/14 hover:border-hud/60 hover:text-white " +
   "aria-pressed:bg-hud/18 aria-pressed:border-hud aria-pressed:text-hud " +
-  "aria-pressed:shadow-[0_0_16px_rgb(93_227_230/0.5)] max-sm:size-10 max-sm:text-base";
+  "aria-pressed:shadow-[0_0_16px_rgb(93_227_230/0.5)]";
 const PLACEHOLDER =
   "flex size-full items-center justify-center p-4 text-center text-[0.8rem] text-white/70";
 
@@ -288,18 +288,18 @@ function usePanelTransform(
 
 /*
  * パネルをブラウザのwindowのように、枠のどこを掴むかで伸縮方向が変わる形でリサイズするハンドル群。
- * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。10〜18px と小さくタッチでは掴めないので
- * スマホ(max-sm)では隠す。
+ * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。サイズ(10〜18px)・見た目(不可視)は
+ * PC・スマホ共通。
  */
 const RESIZE_HANDLES: { dir: ResizeDir; className: string }[] = [
-  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
-  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
-  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
-  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
-  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize max-sm:hidden" },
-  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize max-sm:hidden" },
-  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize max-sm:hidden" },
-  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize max-sm:hidden" },
+  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize" },
+  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize" },
+  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize" },
+  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize" },
+  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize" },
+  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize" },
+  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize" },
+  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize" },
 ];
 
 /** windowのように、パネルの枠(上下左右+四隅)を掴んでリサイズするためのハンドル群 */
