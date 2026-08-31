@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** ホログラムに映す映像。音声は使わないので必ずミュートで再生する */
 const VIDEO_SRC = encodeURI("/videos/星降る海.mp4");
@@ -16,6 +16,25 @@ const OTHER_SRC = encodeURI("/sounds/星降る海-other-Eb major-101bpm-440hz.m4
  * 2つは同じ音源を分離したものなので、ずれるとフランジングして明確に濁る。
  */
 const AUDIO_SYNC_TOLERANCE = 0.05;
+
+/**
+ * 一斉スタート前に、音声ステム2本がこの readyState 以上になるのを待つ。
+ * 4 = HAVE_ENOUGH_DATA(最後まで途切れず再生できそう)。中途半端なバッファで
+ * play() すると、特にモバイルで2本の再生開始がばらついて音がずれる。
+ */
+const AUDIO_READY_STATE = 4;
+/**
+ * 映像がこの readyState 以上になるのも待つ。3 = HAVE_FUTURE_DATA。
+ * 映像のズレは許容が広い(VIDEO_SYNC_TOLERANCE)ので音ほど厳しくしない。
+ */
+const VIDEO_READY_STATE = 3;
+/**
+ * 準備を待つ上限(ミリ秒)。回線が細くて canplaythrough 相当まで到達しなくても、
+ * ここで打ち切って鳴らし始める(あとは再生中のズレ直しに任せる)。
+ */
+const READY_WAIT_TIMEOUT = 8000;
+/** 準備できたか見にいく間隔(ミリ秒) */
+const READY_POLL_INTERVAL = 100;
 /**
  * 映像のズレの許容範囲(秒)。この中なら何もしない。
  * 口パクはボーカル解析から取るので、ホログラム映像のズレは多少あっても
@@ -51,6 +70,9 @@ const LOOP_GAP_SECONDS = 0.6;
  *
  * 映像とステムは同じ音源から作られていて長さもほぼ同じ(約141.8秒)なので、
  * 3つとも同じ時刻に合わせれば口の動きと映像と音が揃う。
+ *
+ * ボタンを押してから3つが「揃って鳴らせる」状態になるまでは loading=true。
+ * その間は呼び出し側でボタンをスピナー表示にして押せなくする。
  */
 export function useStarfallSong(active: boolean) {
   /*
@@ -73,6 +95,12 @@ export function useStarfallSong(active: boolean) {
     MediaRecorder に渡せる音声トラックにする(3D画面キャプチャと合成する)。
   */
   const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+
+  /*
+    ボタンを押してから、映像＋ステム2本が「揃って鳴らせる」状態になるまで true。
+    呼び出し側(ControlBar)でボタンをスピナー表示にして押せなくするのに使う。
+  */
+  const [loading, setLoading] = useState(false);
 
   // メディア要素は一度だけ作る(作り直すと読み込みからやり直しになる)
   useEffect(() => {
@@ -176,6 +204,7 @@ export function useStarfallSong(active: boolean) {
       video.pause();
       vocals.pause();
       other.pause();
+      // loading の解除は「active だった run のクリーンアップ」に任せる
       return;
     }
 
@@ -185,6 +214,10 @@ export function useStarfallSong(active: boolean) {
     */
     wireAnalyser();
     audioCtxRef.current?.resume().catch(() => {});
+
+    let cancelled = false;
+    let loopTimer: number | undefined;
+    let readyTimer: number | undefined;
 
     const restart = () => {
       video.currentTime = 0;
@@ -196,7 +229,6 @@ export function useStarfallSong(active: boolean) {
       vocals.play().catch(() => {});
       other.play().catch(() => {});
     };
-    restart();
 
     /*
       ループ。ボーカルを基準時計にしているので、ボーカルのendedだけを見て
@@ -209,15 +241,48 @@ export function useStarfallSong(active: boolean) {
       終端で止まったまま(currentTime が終端 = Sandbox3D 側は inOutro のまま)
       なので、演出は消えた状態で一拍おいてから再開する。
     */
-    let loopTimer: number | undefined;
     const handleEnded = () => {
       loopTimer = window.setTimeout(restart, LOOP_GAP_SECONDS * 1000);
     };
-    vocals.addEventListener("ended", handleEnded);
+
+    /*
+      星降る海は映像1本＋音声ステム2本を読み込む重めの演出。バッファが
+      十分でない状態で play() すると、特にモバイルでステム2つの再生開始が
+      ばらついて vocal と other がずれる(「もう一度押すと直る」のは、
+      2回目にはバッファが埋まっているから)。
+      そこで3つが揃って鳴らせる状態になるまで待ってから一斉にスタートする。
+      待っている間は loading=true(呼び出し側がボタンをスピナーにする)。
+      READY_WAIT_TIMEOUT で待ちは打ち切り、あとは再生中のズレ直しに任せる。
+    */
+    const waitStartedAt = performance.now();
+    const startWhenReady = () => {
+      if (cancelled) return;
+      for (const m of [video, vocals, other]) {
+        if (m.readyState === 0) m.load();
+      }
+      const ready =
+        vocals.readyState >= AUDIO_READY_STATE &&
+        other.readyState >= AUDIO_READY_STATE &&
+        video.readyState >= VIDEO_READY_STATE;
+      const timedOut = performance.now() - waitStartedAt > READY_WAIT_TIMEOUT;
+      if (!ready && !timedOut) {
+        setLoading(true);
+        readyTimer = window.setTimeout(startWhenReady, READY_POLL_INTERVAL);
+        return;
+      }
+      setLoading(false);
+      restart();
+      vocals.addEventListener("ended", handleEnded);
+    };
+    // 1tick 遅らせて、setState をエフェクト本体から出す(cascading render 回避)
+    readyTimer = window.setTimeout(startWhenReady, 0);
 
     return () => {
-      vocals.removeEventListener("ended", handleEnded);
+      cancelled = true;
       if (loopTimer !== undefined) window.clearTimeout(loopTimer);
+      if (readyTimer !== undefined) window.clearTimeout(readyTimer);
+      vocals.removeEventListener("ended", handleEnded);
+      setLoading(false);
     };
   }, [active, wireAnalyser]);
 
@@ -300,6 +365,8 @@ export function useStarfallSong(active: boolean) {
 
   return {
     videoRef,
+    /** 押してから3つが揃って鳴り始めるまで true。ボタンのスピナー表示に使う */
+    loading,
     getAmplitude,
     prepareCaptureAudio,
     getCaptureStream,

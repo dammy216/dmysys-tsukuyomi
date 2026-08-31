@@ -23,6 +23,7 @@ export function RootScene() {
   */
   const {
     videoRef: hologramVideoRef,
+    loading: starfallLoading,
     getAmplitude: getSongAmplitude,
     prepareCaptureAudio,
     getCaptureStream: getSongCaptureStream,
@@ -53,6 +54,7 @@ export function RootScene() {
       />
       <CharacterOverlay getSongAmplitude={getSongAmplitude} />
       <ControlBar
+        starfallLoading={starfallLoading}
         recorderSupported={recorder.supported}
         isRecording={recorder.isRecording}
         onToggleRecord={recorder.toggle}

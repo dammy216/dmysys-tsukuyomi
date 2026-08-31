@@ -2,6 +2,7 @@
 
 import {
   PiArrowsOutCardinalBold,
+  PiCircleNotchBold,
   PiEyeBold,
   PiEyeSlashBold,
   PiMoonStarsBold,
@@ -15,6 +16,8 @@ import { useEffect, useState } from "react";
 import { useSceneStore } from "@/features/root/store";
 
 type ControlBarProps = {
+  /** 星降る海を押したあと、映像＋音が揃って鳴り始めるまでの読み込み中フラグ */
+  starfallLoading: boolean;
   /** この環境で録画(MediaRecorder + captureStream)が使えるか */
   recorderSupported: boolean;
   /** 録画中か */
@@ -54,7 +57,9 @@ const PILL_PINK =
   "text-[#ffbedc]/85 bg-hud-pink/8 border-hud-pink/35 " +
   "hover:bg-hud-pink/18 hover:border-hud-pink/70 hover:text-white " +
   "aria-pressed:bg-hud-pink/22 aria-pressed:border-hud-pink aria-pressed:text-[#ff8fc4] " +
-  "aria-pressed:shadow-[0_0_20px_rgb(250_5_119/0.6)]";
+  "aria-pressed:shadow-[0_0_20px_rgb(250_5_119/0.6)] " +
+  // 読み込み中は disabled。ホバーで色が動かないよう明示的に戻す
+  "disabled:hover:bg-hud-pink/8 disabled:hover:border-hud-pink/35 disabled:hover:text-[#ffbedc]/85";
 
 /*
   録画ボタン。待機中はシアンのピル、録画中(aria-pressed)は赤で点滅させて
@@ -94,6 +99,7 @@ function RecordingTime() {
 
 /** サイト下部の近未来HUD風コントロールバー。キャラクター表示切替と空(黄昏時/夜)の切替をまとめる */
 export function ControlBar({
+  starfallLoading,
   recorderSupported,
   isRecording,
   onToggleRecord,
@@ -171,9 +177,18 @@ export function ControlBar({
             type="button"
             className={PILL_PINK}
             onClick={onToggleStarfallSea}
+            disabled={starfallLoading}
             aria-pressed={starfallSea}
+            aria-busy={starfallLoading}
           >
-            <PiShootingStarBold size={16} />
+            {starfallLoading ? (
+              <PiCircleNotchBold
+                size={16}
+                className="animate-spin motion-reduce:animate-none"
+              />
+            ) : (
+              <PiShootingStarBold size={16} />
+            )}
             星降る海
           </button>
           {/* 星降る海モード中だけ意味を持つカメラ切替。それ以外は押せなくする */}
