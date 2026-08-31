@@ -36,7 +36,7 @@ const NAME_TAG =
   "tracking-[0.08em] text-[#bdf3f5] shadow-[0_0_12px_rgb(93_227_230/0.35)] " +
   "max-sm:px-2.5 max-sm:py-0.5 max-sm:text-[11px]";
 const STAGE =
-  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-[14px] bg-[rgb(6_12_24/0.85)] " +
+  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-[14px] bg-[rgb(6_12_24/0.85)] touch-none " +
   "shadow-[0_8px_32px_rgb(0_0_0/0.35)] max-sm:h-[190px] max-sm:w-[120px]";
 const CTRL_BAR = "flex shrink-0 gap-1.5 max-sm:gap-2";
 const MODE_BUTTON =
@@ -83,6 +83,11 @@ function usePanelTransform(
   const [size, setSize] = useState<StageSize | null>(null);
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [pinching, setPinching] = useState(false);
+
+  // ピンチ中に触れている全ポインタの現在位置（pointerId → clientX/Y）
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStart = useRef<{ dist: number; startSize: StageSize } | null>(null);
 
   const dragStart = useRef<{
     pointerX: number;
@@ -204,6 +209,67 @@ function usePanelTransform(
     [offset, size, stageRef, anchorSide],
   );
 
+  /*
+   * スマホ: ステージ上を2本指ピンチしてキャラを拡大縮小する。
+   * リサイズハンドル(10〜18px)はタッチには小さすぎて max-sm で隠しているため、その代替。
+   * 指1本のときは何もせず Rive 側のタップ操作をそのまま通す。
+   * 掴んだ辺のない拡縮なので anchorSide による offset 補正は不要
+   * （left指定=かぐやは右へ、right指定=ヤチヨは左へ、どちらも自然に画面中央側へ伸びる）。
+   */
+  const onStagePointerDown = useCallback(
+    (e: PointerEvent) => {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.current.size !== 2) return;
+      e.preventDefault();
+      const [a, b] = [...pointers.current.values()];
+      const rect = stageRef.current?.getBoundingClientRect();
+      const startSize =
+        size ?? (rect ? { width: rect.width, height: rect.height } : { width: 200, height: 320 });
+      pinchStart.current = { dist: Math.hypot(a.x - b.x, a.y - b.y), startSize };
+      setPinching(true);
+
+      const onPointerMove = (ev: globalThis.PointerEvent) => {
+        if (!pointers.current.has(ev.pointerId)) return;
+        pointers.current.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+        if (!pinchStart.current || pointers.current.size < 2) return;
+        const [p, q] = [...pointers.current.values()];
+        const { dist, startSize } = pinchStart.current;
+        const raw = Math.hypot(p.x - q.x, p.y - q.y) / dist;
+        // アスペクト比を保ったまま4辺の上下限にクランプ
+        const scale = clamp(
+          raw,
+          Math.max(MIN_WIDTH / startSize.width, MIN_HEIGHT / startSize.height),
+          Math.min(MAX_WIDTH / startSize.width, MAX_HEIGHT / startSize.height),
+        );
+        setSize({ width: startSize.width * scale, height: startSize.height * scale });
+      };
+      const onPointerUp = (ev: globalThis.PointerEvent) => {
+        pointers.current.delete(ev.pointerId);
+        if (pointers.current.size >= 2) return;
+        pinchStart.current = null;
+        setPinching(false);
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+      };
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
+    },
+    [size, stageRef],
+  );
+
+  // ピンチに至らなかった単指タップのポインタが Map に残り続けないよう掃除する
+  useEffect(() => {
+    const drop = (ev: globalThis.PointerEvent) => pointers.current.delete(ev.pointerId);
+    window.addEventListener("pointerup", drop);
+    window.addEventListener("pointercancel", drop);
+    return () => {
+      window.removeEventListener("pointerup", drop);
+      window.removeEventListener("pointercancel", drop);
+    };
+  }, []);
+
   // 画面回転・リサイズでパネルが画面外に取り残されたら引き戻す
   useEffect(() => {
     const reclamp = () => {
@@ -236,7 +302,15 @@ function usePanelTransform(
     };
   }, [panelRef]);
 
-  return { offset, size, dragging, resizing, onDragPointerDown, onResizePointerDown };
+  return {
+    offset,
+    size,
+    dragging,
+    resizing: resizing || pinching,
+    onDragPointerDown,
+    onResizePointerDown,
+    onStagePointerDown,
+  };
 }
 
 /*
@@ -377,6 +451,7 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
             <div
               ref={kaguyaStageRef}
               className={STAGE}
+              onPointerDown={kaguyaTransform.onStagePointerDown}
               style={
                 kaguyaTransform.size
                   ? { width: kaguyaTransform.size.width, height: kaguyaTransform.size.height }
@@ -448,6 +523,7 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
             <div
               ref={yachiyoStageRef}
               className={STAGE}
+              onPointerDown={yachiyoTransform.onStagePointerDown}
               style={
                 yachiyoTransform.size
                   ? { width: yachiyoTransform.size.width, height: yachiyoTransform.size.height }
