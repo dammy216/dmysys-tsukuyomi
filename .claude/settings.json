@@ -1,1 +1,26 @@
-{}
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd frontend && bun run lint)",
+      "Bash(cd frontend && bun run build)",
+      "Bash(cd frontend && bun x tsc --noEmit)",
+      "Bash(cd frontend && bun install)",
+      "Bash(cd frontend && bun add:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd frontend && bun run lint && bun x tsc --noEmit",
+            "shell": "bash",
+            "timeout": 120,
+            "statusMessage": "lint + 型チェック"
+          }
+        ]
+      }
+    ]
+  }
+}

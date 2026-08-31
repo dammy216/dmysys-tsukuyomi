@@ -134,6 +134,8 @@ export function ToriiHologram({
     const material = materialRef.current;
     const video = videoRef.current;
     if (material && video && !textureRef.current) {
+      // 生成は !textureRef.current ガードで一度きり（毎フレームではない）
+      // eslint-disable-next-line @react-three/no-new-in-loop
       const texture = new VideoTexture(video);
       texture.minFilter = LinearFilter;
       texture.magFilter = LinearFilter;
