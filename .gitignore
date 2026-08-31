@@ -16,3 +16,6 @@ graphify-out/
 
 # Rive MCP のツール一覧ダンプ（デバッグ用の生成物）
 _mcp_tools.json
+
+# Claude Code フックの一時マーカー
+.claude/.frontend-dirty

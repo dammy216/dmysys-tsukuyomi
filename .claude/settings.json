@@ -9,12 +9,24 @@
     ]
   },
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/mark-frontend-dirty.sh\"",
+            "shell": "bash"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "cd frontend && bun run lint && bun x tsc --noEmit",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/frontend-check.sh\"",
             "shell": "bash",
             "timeout": 120,
             "statusMessage": "lint + 型チェック"
