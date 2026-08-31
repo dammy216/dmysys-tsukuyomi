@@ -84,6 +84,45 @@ function usePanelTransform(
   const [dragging, setDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
 
+  /*
+   * ドラッグ/リサイズ中は state を一切更新せず、最新値を live ref に持って
+   * DOM (panel.style.transform / stage.style.width,height) へ直接書き込む。
+   * → その間 CharacterOverlay は再レンダーしない。毎フレームの再レンダーが
+   *   誘発していた Rive の再描画ラグや React の
+   *   "Maximum update depth exceeded" を根本から回避する。
+   * ポインタを離した時に live を state へ確定する（React が同じ値を当てるので
+   *   ちらつかない）。
+   */
+  const live = useRef<{ offset: Offset; size: StageSize | null }>({ offset, size });
+  // 操作していない間だけ、外からの state 変化（初期化・reclamp）に live を追従させる
+  useEffect(() => {
+    if (!dragging && !resizing) live.current = { offset, size };
+  }, [offset, size, dragging, resizing]);
+
+  const rafId = useRef<number | null>(null);
+  const paint = useCallback(() => {
+    rafId.current = null;
+    const panel = panelRef.current;
+    const stage = stageRef.current;
+    if (panel) {
+      panel.style.transform = `translate(${live.current.offset.x}px, ${live.current.offset.y}px)`;
+    }
+    if (stage && live.current.size) {
+      stage.style.width = `${live.current.size.width}px`;
+      stage.style.height = `${live.current.size.height}px`;
+    }
+  }, [panelRef, stageRef]);
+  const schedulePaint = useCallback(() => {
+    if (rafId.current == null) rafId.current = requestAnimationFrame(paint);
+  }, [paint]);
+  const cancelPaint = useCallback(() => {
+    if (rafId.current != null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+    }
+  }, []);
+  useEffect(() => cancelPaint, [cancelPaint]);
+
   const dragStart = useRef<{
     pointerX: number;
     pointerY: number;
@@ -104,7 +143,7 @@ function usePanelTransform(
       dragStart.current = {
         pointerX: e.clientX,
         pointerY: e.clientY,
-        origin: offset,
+        origin: live.current.offset,
         startRect: panelRef.current?.getBoundingClientRect() ?? null,
       };
       setDragging(true);
@@ -129,10 +168,13 @@ function usePanelTransform(
             origin.y + vh - KEEP_VISIBLE - startRect.top,
           );
         }
-        setOffset({ x, y });
+        live.current = { ...live.current, offset: { x, y } };
+        schedulePaint();
       };
       const onPointerUp = () => {
         dragStart.current = null;
+        cancelPaint();
+        setOffset(live.current.offset);
         setDragging(false);
         window.removeEventListener("pointermove", onPointerMove);
         window.removeEventListener("pointerup", onPointerUp);
@@ -140,7 +182,7 @@ function usePanelTransform(
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", onPointerUp);
     },
-    [offset, panelRef],
+    [panelRef, schedulePaint, cancelPaint],
   );
 
   const onResizePointerDown = useCallback(
@@ -148,12 +190,14 @@ function usePanelTransform(
       e.preventDefault();
       e.stopPropagation();
       const rect = stageRef.current?.getBoundingClientRect();
-      const startSize = size ?? (rect ? { width: rect.width, height: rect.height } : { width: 200, height: 320 });
+      const startSize =
+        live.current.size ??
+        (rect ? { width: rect.width, height: rect.height } : { width: 200, height: 320 });
       resizeStart.current = {
         pointerX: e.clientX,
         pointerY: e.clientY,
         startSize,
-        startOffset: offset,
+        startOffset: live.current.offset,
         dir,
       };
       setResizing(true);
@@ -189,11 +233,14 @@ function usePanelTransform(
           y = startOffset.y + (startSize.height - height);
         }
 
-        setSize({ width, height });
-        setOffset({ x, y });
+        live.current = { offset: { x, y }, size: { width, height } };
+        schedulePaint();
       };
       const onPointerUp = () => {
         resizeStart.current = null;
+        cancelPaint();
+        setSize(live.current.size);
+        setOffset(live.current.offset);
         setResizing(false);
         window.removeEventListener("pointermove", onPointerMove);
         window.removeEventListener("pointerup", onPointerUp);
@@ -201,7 +248,7 @@ function usePanelTransform(
       window.addEventListener("pointermove", onPointerMove);
       window.addEventListener("pointerup", onPointerUp);
     },
-    [offset, size, stageRef, anchorSide],
+    [stageRef, anchorSide, schedulePaint, cancelPaint],
   );
 
   // 画面回転・リサイズでパネルが画面外に取り残されたら引き戻す
@@ -241,19 +288,18 @@ function usePanelTransform(
 
 /*
  * パネルをブラウザのwindowのように、枠のどこを掴むかで伸縮方向が変わる形でリサイズするハンドル群。
- * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。PC は 10〜18px。
- * スマホ(max-sm)は指で掴めるよう当たり判定を 24〜36px に広げ、枠の外側に大きくはみ出させて
- * 中身(名前タグ・ボタン・ステージ)への被りを最小限にする。四隅には薄いグリップを出す(PCでは非表示)。
+ * 上下左右の辺と四隅をそれぞれ独立した当たり判定にする。10〜18px と小さくタッチでは掴めないので
+ * スマホ(max-sm)では隠す。
  */
 const RESIZE_HANDLES: { dir: ResizeDir; className: string }[] = [
-  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize max-sm:left-8 max-sm:right-8 max-sm:top-[-16px] max-sm:h-6" },
-  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize max-sm:left-8 max-sm:right-8 max-sm:bottom-[-16px] max-sm:h-6" },
-  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize max-sm:top-8 max-sm:bottom-8 max-sm:right-[-16px] max-sm:w-6" },
-  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize max-sm:top-8 max-sm:bottom-8 max-sm:left-[-16px] max-sm:w-6" },
-  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize max-sm:size-9 max-sm:top-[-22px] max-sm:left-[-22px]" },
-  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize max-sm:size-9 max-sm:top-[-22px] max-sm:right-[-22px]" },
-  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize max-sm:size-9 max-sm:bottom-[-22px] max-sm:left-[-22px]" },
-  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize max-sm:size-9 max-sm:bottom-[-22px] max-sm:right-[-22px]" },
+  { dir: "n", className: "absolute z-[6] left-3.5 right-3.5 top-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
+  { dir: "s", className: "absolute z-[6] left-3.5 right-3.5 bottom-[-5px] h-2.5 cursor-ns-resize max-sm:hidden" },
+  { dir: "e", className: "absolute z-[6] top-3.5 bottom-3.5 right-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
+  { dir: "w", className: "absolute z-[6] top-3.5 bottom-3.5 left-[-5px] w-2.5 cursor-ew-resize max-sm:hidden" },
+  { dir: "nw", className: "absolute z-[7] size-[18px] top-[-6px] left-[-6px] cursor-nwse-resize max-sm:hidden" },
+  { dir: "ne", className: "absolute z-[7] size-[18px] top-[-6px] right-[-6px] cursor-nesw-resize max-sm:hidden" },
+  { dir: "sw", className: "absolute z-[7] size-[18px] bottom-[-6px] left-[-6px] cursor-nesw-resize max-sm:hidden" },
+  { dir: "se", className: "absolute z-[7] size-[18px] bottom-[-6px] right-[-6px] cursor-nwse-resize max-sm:hidden" },
 ];
 
 /** windowのように、パネルの枠(上下左右+四隅)を掴んでリサイズするためのハンドル群 */
@@ -269,12 +315,7 @@ function ResizeHandles({
           key={dir}
           className={`${className} touch-none`}
           onPointerDown={onPointerDown(dir)}
-        >
-          {dir.length === 2 && (
-            /* スマホ: 掴める場所が分かるよう四隅に薄いグリップを出す（PCでは非表示） */
-            <span className="pointer-events-none absolute inset-0 m-auto hidden size-2.5 rounded-[3px] bg-hud/45 ring-1 ring-hud/70 max-sm:block" />
-          )}
-        </div>
+        />
       ))}
     </>
   );
