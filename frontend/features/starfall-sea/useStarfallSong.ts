@@ -12,18 +12,10 @@ const VOCALS_SRC = encodeURI(
 const OTHER_SRC = encodeURI("/sounds/星降る海-other-Eb major-101bpm-440hz.m4a");
 
 /**
- * ステム2つを鳴らし始める時刻を「今から何秒後」に置くか(秒)。
- * 両方の AudioBufferSourceNode.start(when) に同じ when を渡して、
- * サンプル単位で同時刻に始める。ぴったり ctx.currentTime を渡すと
- * 頭が欠けることがあるので、ほんの少し先へ置く。
- *
- * ステムは同じ AudioContext の時計で進むので、一度 start を揃えれば
- * 以後ずれない(HTMLAudioElement を2つ鳴らしていた頃は、要素ごとに
- * 別の時計で動くうえモバイルでは再生開始がばらつき、currentTime 代入で
- * 追いかけても収束しなかった)。
+ * ステム同士がこれ以上ずれたら合わせ直す(秒)。
+ * 2つは同じ音源を分離したものなので、ずれるとフランジングして明確に濁る。
  */
-const START_LEAD = 0.06;
-
+const AUDIO_SYNC_TOLERANCE = 0.05;
 /**
  * 映像のズレの許容範囲(秒)。この中なら何もしない。
  * 口パクはボーカル解析から取るので、ホログラム映像のズレは多少あっても
@@ -54,289 +46,196 @@ const LOOP_GAP_SECONDS = 0.6;
  * 「星降る海」の再生をまとめて受け持つ。
  *
  * - 映像はミュートで流し、音はボーカル／伴奏の2ステムを同時に鳴らす
- * - 2ステムは Web Audio にデコードして、同じ AudioContext の時計で鳴らす
- *   ので互いにずれない。基準時計は ctx.currentTime
- * - その基準時計に映像のずれを定期的に合わせる
- * - ボーカルだけ analyser につないで、口パク用の振幅を取り出す
+ * - ボーカルを基準時計にして、伴奏と映像のずれを定期的に直す
+ * - ボーカルだけ解析につないで、口パク用の振幅を取り出す
  *
  * 映像とステムは同じ音源から作られていて長さもほぼ同じ(約141.8秒)なので、
  * 3つとも同じ時刻に合わせれば口の動きと映像と音が揃う。
  */
 export function useStarfallSong(active: boolean) {
   /*
-    映像要素は ref だけで持つ。
+    メディア要素は ref だけで持つ。
     useMemo や state に入れると「フックへ渡した値」とみなされ、
     再生位置の書き換え(currentTime など)が lint で弾かれてしまう。
     受け取る側(ToriiHologram)は、中身が入り次第テクスチャを貼る作りにしてある。
   */
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const vocalsRef = useRef<HTMLAudioElement | null>(null);
+  const otherRef = useRef<HTMLAudioElement | null>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const otherSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const wiredRef = useRef(false);
   /*
     録画用の音声出力。ボーカル＋伴奏をここへも流し、getCaptureStream() で
     MediaRecorder に渡せる音声トラックにする(3D画面キャプチャと合成する)。
   */
   const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
-  /** デコード済みのステム。両方揃って初めて再生できる */
-  const vocalsBufferRef = useRef<AudioBuffer | null>(null);
-  const otherBufferRef = useRef<AudioBuffer | null>(null);
-  /** 生の音声データ。mount 時に取得だけ済ませ、AudioContext ができ次第デコードする */
-  const encodedRef = useRef<Promise<[ArrayBuffer, ArrayBuffer]> | null>(null);
-  /** デコード中の Promise(二重デコード防止)。失敗したら null に戻して次で作り直す */
-  const decodePromiseRef = useRef<Promise<void> | null>(null);
-
-  /** いま鳴っているステムのノード。ループのたびに作り直す(一度きりの使い捨て) */
-  const vocalsSrcRef = useRef<AudioBufferSourceNode | null>(null);
-  const otherSrcRef = useRef<AudioBufferSourceNode | null>(null);
-  /** ctx.currentTime 基準での曲の開始時刻。曲内位置 = ctx.currentTime - この値 */
-  const startTimeRef = useRef(0);
-  /** 再生中か。曲末尾で来る ended と、stop() で来る ended を区別する */
-  const playingRef = useRef(false);
-  const stoppingRef = useRef(false);
-  /** ループ待ちのタイマー */
-  const loopTimerRef = useRef<number | undefined>(undefined);
-  /** ループの頭出しから自分を呼び直すための最新参照(useCallback の自己参照回避) */
-  const startPlaybackRef = useRef<() => void>(() => {});
-
-  // 映像要素は一度だけ作る。音声データも mount 時に取得だけ先に済ませる
+  // メディア要素は一度だけ作る(作り直すと読み込みからやり直しになる)
   useEffect(() => {
     const el = document.createElement("video");
     el.src = VIDEO_SRC;
     // 「動画の音は使わない」。音は必ずステム側から鳴らす
     el.muted = true;
     // ループは映像・ステム2つをまとめて頭出しするため、
-    // ネイティブloopではなく手動制御する(下のactiveエフェクト参照)
+    // ネイティブloopではなくendedイベントで手動制御する(下のactiveエフェクト参照)
     el.loop = false;
     el.playsInline = true;
     el.preload = "auto";
     videoRef.current = el;
 
-    /*
-      ステムの取得だけ先に走らせる(デコードは AudioContext ができてから)。
-      AudioContext はユーザー操作を起点にしか作れないが、fetch は今できる。
-    */
-    encodedRef.current = Promise.all([
-      fetch(VOCALS_SRC).then((r) => r.arrayBuffer()),
-      fetch(OTHER_SRC).then((r) => r.arrayBuffer()),
-    ]);
+    const vocals = new Audio(VOCALS_SRC);
+    const other = new Audio(OTHER_SRC);
+    for (const a of [vocals, other]) {
+      a.loop = false;
+      a.preload = "auto";
+    }
+    vocalsRef.current = vocals;
+    otherRef.current = other;
 
     return () => {
       el.pause();
+      vocals.pause();
+      other.pause();
       audioCtxRef.current?.close().catch(() => {});
     };
   }, []);
 
   /**
-   * AudioContext と、口パク解析用の analyser・録画用の出力を用意する。
-   * ステムのデコードは伴わない(同期的に済むところまで)。
+   * ボーカル・伴奏を Web Audio グラフへつなぐ。
+   * createMediaElementSource は1つの要素につき一度しか呼べないので、
+   * wiredRef で二重配線を防ぐ。
    *
    * グラフ:
-   *   vocalsSrc → analyser ─┬→ ctx.destination (スピーカー)
-   *                          └→ captureDest     (録画)
-   *   otherSrc ─────────────┬→ ctx.destination
-   *                          └→ captureDest
-   * analyser は使い回すので常時つなぎっぱなし。ステムのノード
-   * (vocalsSrc / otherSrc)は一度しか start できないので再生のたびに作る。
+   *   vocals → analyser ─┬→ ctx.destination (スピーカー)
+   *                       └→ captureDest     (録画)
+   *   other ─────────────┬→ ctx.destination
+   *                       └→ captureDest
+   * ボーカルだけ analyser を通すのは口パクの振幅を取るため。
    */
-  const ensureGraph = useCallback((): AudioContext | null => {
-    const existing = audioCtxRef.current;
-    if (existing && existing.state !== "closed") return existing;
+  const wireAnalyser = useCallback(() => {
+    /*
+      HMR 等で「グラフはあるが録画用の出力(captureDest)だけ無い」状態に
+      なることがある。その場合は既存グラフへ captureDest を足すだけにする
+      (createMediaElementSource は1要素につき一度しか呼べないため作り直せない)。
+    */
+    if (wiredRef.current) {
+      const ctx = audioCtxRef.current;
+      if (ctx && !captureDestRef.current) {
+        const captureDest = ctx.createMediaStreamDestination();
+        analyserRef.current?.connect(captureDest);
+        otherSourceRef.current?.connect(captureDest);
+        captureDestRef.current = captureDest;
+      }
+      return;
+    }
+
+    const vocals = vocalsRef.current;
+    const other = otherRef.current;
+    if (!vocals || !other) return;
 
     const AudioCtx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
-    if (!AudioCtx) return null;
+    if (!AudioCtx) return;
 
     const ctx = new AudioCtx();
+    const vocalsSource = ctx.createMediaElementSource(vocals);
+    const otherSource = ctx.createMediaElementSource(other);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     const captureDest = ctx.createMediaStreamDestination();
 
-    // ボーカル(analyser経由)は常にスピーカーと録画の両方へ。
-    // 伴奏は再生のたびに作る otherSrc から都度つなぐ。
-    analyser.connect(ctx.destination);
-    analyser.connect(captureDest);
+    vocalsSource.connect(analyser);
+    // スピーカーと録画の両方へ、ボーカル(analyser経由)と伴奏を流す
+    for (const node of [analyser, otherSource]) {
+      node.connect(ctx.destination);
+      node.connect(captureDest);
+    }
 
     audioCtxRef.current = ctx;
     analyserRef.current = analyser;
+    otherSourceRef.current = otherSource;
     captureDestRef.current = captureDest;
     dataRef.current = new Uint8Array(new ArrayBuffer(analyser.fftSize));
-
-    // HMR 等で ctx を作り直したときは、バッファも取り直す
-    vocalsBufferRef.current = null;
-    otherBufferRef.current = null;
-    decodePromiseRef.current = null;
-    return ctx;
+    wiredRef.current = true;
   }, []);
 
-  /** ステム2つをデコードして AudioBuffer にする(一度だけ) */
-  const ensureBuffers = useCallback(async (): Promise<void> => {
-    if (vocalsBufferRef.current && otherBufferRef.current) return;
-    if (decodePromiseRef.current) return decodePromiseRef.current;
-
-    const ctx = ensureGraph();
-    const encoded = encodedRef.current;
-    if (!ctx || !encoded) return;
-
-    const run = (async () => {
-      const [vocalsData, otherData] = await encoded;
-      // decodeAudioData は渡した ArrayBuffer を消費するので slice して渡す
-      // (失敗時に作り直せるよう元データは残す)
-      const [vocalsBuf, otherBuf] = await Promise.all([
-        ctx.decodeAudioData(vocalsData.slice(0)),
-        ctx.decodeAudioData(otherData.slice(0)),
-      ]);
-      vocalsBufferRef.current = vocalsBuf;
-      otherBufferRef.current = otherBuf;
-    })().catch(() => {
-      // 取得・デコードに失敗したら次の機会に作り直せるようにする
-      decodePromiseRef.current = null;
-    });
-
-    decodePromiseRef.current = run;
-    return run;
-  }, [ensureGraph]);
-
-  /** 鳴っているステムのノードを止めて片付ける */
-  const teardownSources = useCallback(() => {
-    for (const src of [vocalsSrcRef.current, otherSrcRef.current]) {
-      if (!src) continue;
-      src.onended = null;
-      try {
-        src.stop();
-      } catch {
-        // すでに停止済みなら何もしない
-      }
-      src.disconnect();
-    }
-    vocalsSrcRef.current = null;
-    otherSrcRef.current = null;
-  }, []);
-
-  /** 頭出しして3つ(映像＋ステム2つ)を同時刻から鳴らす */
-  const startPlayback = useCallback(() => {
-    const ctx = audioCtxRef.current;
-    const analyser = analyserRef.current;
-    const captureDest = captureDestRef.current;
-    const vocalsBuf = vocalsBufferRef.current;
-    const otherBuf = otherBufferRef.current;
+  // 星降る海のON/OFFに合わせて、3つまとめて頭出し再生・停止する
+  useEffect(() => {
     const video = videoRef.current;
-    if (!ctx || !analyser || !captureDest || !vocalsBuf || !otherBuf || !video) {
+    const vocals = vocalsRef.current;
+    const other = otherRef.current;
+    if (!video || !vocals || !other) return;
+
+    if (!active) {
+      video.pause();
+      vocals.pause();
+      other.pause();
       return;
     }
 
-    // 前の周のノードが残っていれば片付ける(onended は無効化されるので来ない)
-    teardownSources();
-
-    const vocalsSrc = ctx.createBufferSource();
-    vocalsSrc.buffer = vocalsBuf;
-    vocalsSrc.connect(analyser);
-
-    const otherSrc = ctx.createBufferSource();
-    otherSrc.buffer = otherBuf;
-    otherSrc.connect(ctx.destination);
-    otherSrc.connect(captureDest);
-
-    // 2つとも同じ when で開始 = サンプル単位で同時刻スタート
-    const startAt = ctx.currentTime + START_LEAD;
-    vocalsSrc.start(startAt);
-    otherSrc.start(startAt);
-    startTimeRef.current = startAt;
-
-    stoppingRef.current = false;
-    playingRef.current = true;
-    vocalsSrcRef.current = vocalsSrc;
-    otherSrcRef.current = otherSrc;
-
-    /*
-      ループ。ボーカルが最後まで再生されたら(= 意図的な stop でなければ)、
-      LOOP_GAP_SECONDS だけ間をあけてから頭出しして鳴らし直す。
-      伴奏もほぼ同時に終わるが、基準はボーカル1本だけ見る。
-    */
-    vocalsSrc.onended = () => {
-      if (stoppingRef.current) return;
-      playingRef.current = false;
-      loopTimerRef.current = window.setTimeout(
-        () => startPlaybackRef.current(),
-        LOOP_GAP_SECONDS * 1000,
-      );
-    };
-
-    // 映像はミュートのまま頭出しして流し、曲内位置へ寄せる(下の同期エフェクト)
-    video.currentTime = 0;
-    video.playbackRate = 1;
-    video.play().catch(() => {});
-  }, [teardownSources]);
-
-  // ループの setTimeout から常に最新の startPlayback を呼べるようにしておく
-  useEffect(() => {
-    startPlaybackRef.current = startPlayback;
-  }, [startPlayback]);
-
-  /** 再生を止める(active OFF・アンマウント時) */
-  const stopPlayback = useCallback(() => {
-    stoppingRef.current = true;
-    playingRef.current = false;
-    if (loopTimerRef.current !== undefined) {
-      window.clearTimeout(loopTimerRef.current);
-      loopTimerRef.current = undefined;
-    }
-    teardownSources();
-    videoRef.current?.pause();
-  }, [teardownSources]);
-
-  /** 曲の現在位置(秒)。停止中は 0 */
-  const songPosition = useCallback((): number => {
-    const ctx = audioCtxRef.current;
-    if (!ctx || !playingRef.current) return 0;
-    return Math.max(0, ctx.currentTime - startTimeRef.current);
-  }, []);
-
-  // 星降る海のON/OFFに合わせて、まとめて頭出し再生・停止する
-  useEffect(() => {
-    if (!active) return;
-
-    let cancelled = false;
     /*
       再生開始はボタン操作(ユーザー操作)を起点にしたこの経路でしか行わない。
-      自動再生の制限があるため、操作なしに鳴らそうとしても弾かれる。
+      自動再生の制限があるため、操作なしに鳴らそうとしても play() は拒否される。
     */
-    ensureGraph();
+    wireAnalyser();
     audioCtxRef.current?.resume().catch(() => {});
 
-    void (async () => {
-      await ensureBuffers();
-      if (cancelled) return;
-      try {
-        await audioCtxRef.current?.resume();
-      } catch {
-        // resume 失敗時はそのまま start してみる
-      }
-      if (cancelled) return;
-      startPlayback();
-    })();
+    const restart = () => {
+      video.currentTime = 0;
+      // 前の周で速度微調整が残っていることがあるので必ず戻す
+      video.playbackRate = 1;
+      vocals.currentTime = 0;
+      other.currentTime = 0;
+      video.play().catch(() => {});
+      vocals.play().catch(() => {});
+      other.play().catch(() => {});
+    };
+    restart();
+
+    /*
+      ループ。ボーカルを基準時計にしているので、ボーカルのendedだけを見て
+      (3つは同じ長さの音源から作られているのでほぼ同時に終わる)、
+      3つまとめて頭出しして鳴らし直す。
+      ネイティブloopではなくここで手動制御しているのは、映像とステム2つを
+      同じ時刻に揃えたまま頭へ戻すため(長さが完全に同じではないので、
+      それぞれが勝手にループするとずれる)。
+      次の周へすぐ入らず LOOP_GAP_SECONDS だけ間をあける。この間は映像が
+      終端で止まったまま(currentTime が終端 = Sandbox3D 側は inOutro のまま)
+      なので、演出は消えた状態で一拍おいてから再開する。
+    */
+    let loopTimer: number | undefined;
+    const handleEnded = () => {
+      loopTimer = window.setTimeout(restart, LOOP_GAP_SECONDS * 1000);
+    };
+    vocals.addEventListener("ended", handleEnded);
 
     return () => {
-      cancelled = true;
-      stopPlayback();
+      vocals.removeEventListener("ended", handleEnded);
+      if (loopTimer !== undefined) window.clearTimeout(loopTimer);
     };
-  }, [active, ensureGraph, ensureBuffers, startPlayback, stopPlayback]);
+  }, [active, wireAnalyser]);
 
-  // 再生中、映像のずれを定期的に直す
+  // 再生中のずれを定期的に直す
   useEffect(() => {
     if (!active) return;
 
     const id = window.setInterval(() => {
       const video = videoRef.current;
-      if (!video || !playingRef.current) return;
+      const vocals = vocalsRef.current;
+      const other = otherRef.current;
+      if (!video || !vocals || !other || vocals.paused) return;
 
-      // 基準は AudioContext の時計。ステム2つはこれで完全に同期しているので、
-      // ここで直すのは映像だけ。
-      const t = songPosition();
+      // ボーカルを基準時計にする(口パクの元なので、これに全部を合わせる)
+      const t = vocals.currentTime;
+      if (Math.abs(other.currentTime - t) > AUDIO_SYNC_TOLERANCE) {
+        other.currentTime = t;
+      }
 
       /*
         映像のズレ直し。ハードシーク(currentTime代入)はCDN配信だと範囲
@@ -363,7 +262,7 @@ export function useStarfallSong(active: boolean) {
     }, SYNC_INTERVAL);
 
     return () => window.clearInterval(id);
-  }, [active, songPosition]);
+  }, [active]);
 
   /** ボーカルの音量(0〜1)。RMSで求める */
   const getAmplitude = useCallback((): number => {
@@ -385,14 +284,13 @@ export function useStarfallSong(active: boolean) {
 
   /*
     録画の直前に呼ぶ。Web Audio グラフを(まだなら)配線して AudioContext を
-    resume し、ステムのデコードも走らせておく。星降る海を再生していなくても
-    音声トラック自体は用意される(中身は無音)。
+    resume する。星降る海を再生していなくても音声トラック自体は用意される
+    (中身は無音)。
   */
   const prepareCaptureAudio = useCallback(() => {
-    ensureGraph();
+    wireAnalyser();
     audioCtxRef.current?.resume().catch(() => {});
-    void ensureBuffers();
-  }, [ensureGraph, ensureBuffers]);
+  }, [wireAnalyser]);
 
   /** 録画用の音声ストリーム。未配線なら null(無音の映像だけになる) */
   const getCaptureStream = useCallback(
