@@ -18,24 +18,6 @@ const OTHER_SRC = encodeURI("/sounds/星降る海-other-Eb major-101bpm-440hz.m4
 const AUDIO_SYNC_TOLERANCE = 0.05;
 
 /**
- * 一斉スタート前に、音声ステム2本がこの readyState 以上になるのを待つ。
- * 4 = HAVE_ENOUGH_DATA(最後まで途切れず再生できそう)。中途半端なバッファで
- * play() すると、特にモバイルで2本の再生開始がばらついて音がずれる。
- */
-const AUDIO_READY_STATE = 4;
-/**
- * 映像がこの readyState 以上になるのも待つ。3 = HAVE_FUTURE_DATA。
- * 映像のズレは許容が広い(VIDEO_SYNC_TOLERANCE)ので音ほど厳しくしない。
- */
-const VIDEO_READY_STATE = 3;
-/**
- * 準備を待つ上限(ミリ秒)。回線が細くて canplaythrough 相当まで到達しなくても、
- * ここで打ち切って鳴らし始める(あとは再生中のズレ直しに任せる)。
- */
-const READY_WAIT_TIMEOUT = 8000;
-/** 準備できたか見にいく間隔(ミリ秒) */
-const READY_POLL_INTERVAL = 100;
-/**
  * 映像のズレの許容範囲(秒)。この中なら何もしない。
  * 口パクはボーカル解析から取るので、ホログラム映像のズレは多少あっても
  * 見た目にほぼ影響しない。狭いと下の再生速度の微調整が常に効いてしまう。
@@ -71,9 +53,8 @@ const LOOP_GAP_SECONDS = 0.6;
  * 映像とステムは同じ音源から作られていて長さもほぼ同じ(約141.8秒)なので、
  * 3つとも同じ時刻に合わせれば口の動きと映像と音が揃う。
  *
- * ボタンを押してから3つが「揃って鳴らせる」状態になるまで playing=false。
- * その間は呼び出し側で読み込み中オーバーレイを出し、3Dシーンの演出も
- * 止めておく(演出だけ先に進んで音とズレるのを防ぐ)。
+ * ボタンを押すとほぼ即座に3つを再生開始し、playing=true になる。
+ * 3Dシーンの演出とヤチヨの歌唱はこの playing で駆動される。
  */
 export function useStarfallSong(active: boolean) {
   /*
@@ -98,10 +79,9 @@ export function useStarfallSong(active: boolean) {
   const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   /*
-    実際に3つ(映像＋ステム2本)が鳴り始めたら true。ボタンを押してから
-    バッファが揃うまでは false のまま。呼び出し側はこれが false の間
-    「読み込み中」オーバーレイを出し、3Dシーンの演出も止めておく
-    (押した瞬間に演出だけ進んで音とタイミングがずれるのを防ぐ)。
+    3つ(映像＋ステム2本)を再生開始したら true。ボタンを押した次の tick で
+    true になる。呼び出し側(RootScene)はこれをストアへ橋渡しし、3Dシーンの
+    演出とヤチヨの歌唱を駆動する。
   */
   const [playing, setPlaying] = useState(false);
 
@@ -207,7 +187,7 @@ export function useStarfallSong(active: boolean) {
       video.pause();
       vocals.pause();
       other.pause();
-      // loading の解除は「active だった run のクリーンアップ」に任せる
+      // playing=false への戻しは「active だった run のクリーンアップ」に任せる
       return;
     }
 
@@ -220,7 +200,6 @@ export function useStarfallSong(active: boolean) {
 
     let cancelled = false;
     let loopTimer: number | undefined;
-    let readyTimer: number | undefined;
 
     const restart = () => {
       video.currentTime = 0;
@@ -250,39 +229,26 @@ export function useStarfallSong(active: boolean) {
     };
 
     /*
-      星降る海は映像1本＋音声ステム2本を読み込む重めの演出。バッファが
-      十分でない状態で play() すると、特にモバイルでステム2つの再生開始が
-      ばらついて vocal と other がずれる(「もう一度押すと直る」のは、
-      2回目にはバッファが埋まっているから)。
-      そこで3つが揃って鳴らせる状態になるまで待ってから一斉にスタートする
-      (restart() で playing=true になり、呼び出し側の読み込み中表示が消える)。
-      READY_WAIT_TIMEOUT で待ちは打ち切り、あとは再生中のズレ直しに任せる。
+      押した瞬間に3つまとめてスタートする(読み込み待ちはしない)。
+      バッファが十分でないまま play() すると、特にモバイルでステム2つの
+      再生開始がばらついて vocal と other が少しずれることがあるが、
+      あとは再生中のズレ直し(下の SYNC_INTERVAL のループ)で詰める。
     */
-    const waitStartedAt = performance.now();
-    const startWhenReady = () => {
+    const start = () => {
       if (cancelled) return;
       for (const m of [video, vocals, other]) {
         if (m.readyState === 0) m.load();
-      }
-      const ready =
-        vocals.readyState >= AUDIO_READY_STATE &&
-        other.readyState >= AUDIO_READY_STATE &&
-        video.readyState >= VIDEO_READY_STATE;
-      const timedOut = performance.now() - waitStartedAt > READY_WAIT_TIMEOUT;
-      if (!ready && !timedOut) {
-        readyTimer = window.setTimeout(startWhenReady, READY_POLL_INTERVAL);
-        return;
       }
       restart();
       vocals.addEventListener("ended", handleEnded);
     };
     // 1tick 遅らせて、setState をエフェクト本体から出す(cascading render 回避)
-    readyTimer = window.setTimeout(startWhenReady, 0);
+    const startTimer = window.setTimeout(start, 0);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(startTimer);
       if (loopTimer !== undefined) window.clearTimeout(loopTimer);
-      if (readyTimer !== undefined) window.clearTimeout(readyTimer);
       vocals.removeEventListener("ended", handleEnded);
       setPlaying(false);
     };
@@ -367,7 +333,7 @@ export function useStarfallSong(active: boolean) {
 
   return {
     videoRef,
-    /** 3つ(映像＋ステム2本)が実際に鳴り始めたら true。揃うまでは false */
+    /** 3つ(映像＋ステム2本)を再生開始したら true。押した次の tick で true */
     playing,
     getAmplitude,
     prepareCaptureAudio,

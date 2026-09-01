@@ -2,7 +2,6 @@
 
 import {
   PiArrowsOutCardinalBold,
-  PiCircleNotchBold,
   PiEyeBold,
   PiEyeSlashBold,
   PiMoonStarsBold,
@@ -16,8 +15,6 @@ import { useEffect, useState } from "react";
 import { useSceneStore } from "@/features/root/store";
 
 type ControlBarProps = {
-  /** 星降る海を押したあと、映像＋音が揃って鳴り始めるまでの読み込み中フラグ */
-  starfallLoading: boolean;
   /** この環境で録画(MediaRecorder + captureStream)が使えるか */
   recorderSupported: boolean;
   /** 録画中か */
@@ -99,7 +96,6 @@ function RecordingTime() {
 
 /** サイト下部の近未来HUD風コントロールバー。キャラクター表示切替と空(黄昏時/夜)の切替をまとめる */
 export function ControlBar({
-  starfallLoading,
   recorderSupported,
   isRecording,
   onToggleRecord,
@@ -177,18 +173,9 @@ export function ControlBar({
             type="button"
             className={PILL_PINK}
             onClick={onToggleStarfallSea}
-            disabled={starfallLoading}
             aria-pressed={starfallSea}
-            aria-busy={starfallLoading}
           >
-            {starfallLoading ? (
-              <PiCircleNotchBold
-                size={16}
-                className="animate-spin motion-reduce:animate-none"
-              />
-            ) : (
-              <PiShootingStarBold size={16} />
-            )}
+            <PiShootingStarBold size={16} />
             星降る海
           </button>
           {/* 星降る海モード中だけ意味を持つカメラ切替。それ以外は押せなくする */}

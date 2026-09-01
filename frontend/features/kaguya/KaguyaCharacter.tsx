@@ -54,7 +54,7 @@ export function KaguyaCharacter({
 
   const { rive, RiveComponent } = useRive({
     src: RIV_SRC,
-    stateMachines: STATE_MACHINE,
+    stateMachine: STATE_MACHINE,
     autoplay: true,
     layout: KAGUYA_LAYOUT,
   });
