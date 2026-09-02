@@ -1,0 +1,8 @@
+Model Information:
+* title:	【3DScan】江戸城　寛永度天守閣   Edo Castle
+* source:	https://sketchfab.com/3d-models/3dscan-edo-castle-944e48f240cc449abb5ecc969051b155
+* author:	BENA-3DSolution (https://sketchfab.com/BENA-ArchitecturalModeling)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works

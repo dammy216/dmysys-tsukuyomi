@@ -2,6 +2,7 @@
 
 import {
   PiArrowsOutCardinalBold,
+  PiCastleTurretBold,
   PiEyeBold,
   PiEyeSlashBold,
   PiMoonStarsBold,
@@ -59,6 +60,17 @@ const PILL_PINK =
   "disabled:hover:bg-hud-pink/8 disabled:hover:border-hud-pink/35 disabled:hover:text-[#ffbedc]/85";
 
 /*
+  「Reply」も星降る海と並ぶ主役ボタン。演出の色(江戸城の赤いライトと
+  赤みがかったホログラム)に合わせて、星降る海のピンクとは別の橙赤にする。
+*/
+const PILL_REPLY =
+  `${PILL_LAYOUT} ` +
+  "text-[#ffc4ae]/85 bg-hud-reply/8 border-hud-reply/35 " +
+  "hover:bg-hud-reply/18 hover:border-hud-reply/70 hover:text-white " +
+  "aria-pressed:bg-hud-reply/22 aria-pressed:border-hud-reply aria-pressed:text-[#ff9a72] " +
+  "aria-pressed:shadow-[0_0_20px_rgb(255_90_30/0.6)]";
+
+/*
   録画ボタン。待機中はシアンのピル、録画中(aria-pressed)は赤で点滅させて
   「録れている」ことを一目で分かるようにする。
 */
@@ -104,12 +116,17 @@ export function ControlBar({
   const showYachiyo = useSceneStore((s) => s.showYachiyo);
   const skyVariant = useSceneStore((s) => s.skyVariant);
   const starfallSea = useSceneStore((s) => s.starfallSea);
-  const starfallFreeCam = useSceneStore((s) => s.starfallFreeCam);
+  const reply = useSceneStore((s) => s.reply);
+  const freeCam = useSceneStore((s) => s.freeCam);
   const onToggleKaguya = useSceneStore((s) => s.toggleKaguya);
   const onToggleYachiyo = useSceneStore((s) => s.toggleYachiyo);
   const onChangeSky = useSceneStore((s) => s.setSkyVariant);
   const onToggleStarfallSea = useSceneStore((s) => s.toggleStarfallSea);
-  const onToggleStarfallFreeCam = useSceneStore((s) => s.toggleStarfallFreeCam);
+  const onToggleReply = useSceneStore((s) => s.toggleReply);
+  const onToggleFreeCam = useSceneStore((s) => s.toggleFreeCam);
+
+  // カメラ切替は演出モード(星降る海 / Reply)中だけ意味を持つ
+  const inSceneMode = starfallSea || reply;
 
   return (
     <div
@@ -178,20 +195,30 @@ export function ControlBar({
             <PiShootingStarBold size={16} />
             星降る海
           </button>
-          {/* 星降る海モード中だけ意味を持つカメラ切替。それ以外は押せなくする */}
+          {/* 江戸城の上のステージでかぐやが歌う。星降る海とは排他(store側で担保) */}
+          <button
+            type="button"
+            className={PILL_REPLY}
+            onClick={onToggleReply}
+            aria-pressed={reply}
+          >
+            <PiCastleTurretBold size={16} />
+            Reply
+          </button>
+          {/* 演出モード中だけ意味を持つカメラ切替。それ以外は押せなくする */}
           <button
             type="button"
             className={PILL_CYAN}
-            onClick={onToggleStarfallFreeCam}
-            disabled={!starfallSea}
-            aria-pressed={starfallFreeCam}
+            onClick={onToggleFreeCam}
+            disabled={!inSceneMode}
+            aria-pressed={freeCam}
           >
-            {starfallFreeCam ? (
+            {freeCam ? (
               <PiArrowsOutCardinalBold size={16} />
             ) : (
               <PiVideoCameraBold size={16} />
             )}
-            {starfallFreeCam ? "自由視点" : "アニメーション"}
+            {freeCam ? "自由視点" : "アニメーション"}
           </button>
         </div>
 

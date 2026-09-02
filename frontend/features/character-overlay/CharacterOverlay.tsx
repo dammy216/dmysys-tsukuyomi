@@ -330,29 +330,38 @@ function ResizeHandles({
 const SING_MODE_FLOOR = 0.02;
 
 type CharacterOverlayProps = {
-  /** 星降る海のボーカルの音量(0〜1)を返す */
-  getSongAmplitude?: () => number;
+  /** 星降る海のボーカルの音量(0〜1)を返す。歌うのはヤチヨ */
+  getStarfallAmplitude?: () => number;
+  /** Reply のボーカルの音量(0〜1)を返す。歌うのはかぐや */
+  getReplyAmplitude?: () => number;
 };
 
 /** 3Dシーン上に重ねる、かぐや／ヤチヨの表示パネル。表示・非表示は下部のコントロールバーで切り替える */
-export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
+export function CharacterOverlay({
+  getStarfallAmplitude,
+  getReplyAmplitude,
+}: CharacterOverlayProps) {
   const showKaguya = useSceneStore((s) => s.showKaguya);
   const showYachiyo = useSceneStore((s) => s.showYachiyo);
   /*
-    星降る海の再生中は songActive が true になり、ヤチヨは疑似波形ではなく
-    実際のボーカルの音量に合わせて口を動かす。読み込み中(starfallSea だが
-    まだ音が鳴っていない)は false のままにして、歌い出しを音と揃える。
+    曲の再生中はそれぞれの歌い手が、疑似波形ではなく実際のボーカルの音量に
+    合わせて口を動かす。星降る海はヤチヨ、Reply はかぐや。
+    どちらも「押した瞬間」ではなく「音が鳴り始めた瞬間」に true になるので、
+    歌い出しが音と揃う(2つはストア側で排他)。
   */
-  const songActive = useSceneStore((s) => s.starfallPlaying);
+  const starfallActive = useSceneStore((s) => s.starfallPlaying);
+  const replyActive = useSceneStore((s) => s.replyPlaying);
+  const songActive = starfallActive || replyActive;
   const [kaguyaSinging, setKaguyaSinging] = useState(false);
   const [kaguyaSmoking, setKaguyaSmoking] = useState(false);
   const [kaguyaSmile, setKaguyaSmile] = useState(false);
   const [yachiyoSinging, setYachiyoSinging] = useState(false);
 
   /*
-    星降る海の開始/終了に合わせて、かぐやの歌唱モードを自動でON/OFFする。
-    ただし songActive を歌唱状態に直接ORせず kaguyaSinging へ一度写すことで、
-    星降る海の再生中でもボタンで途中からやめられるようにする
+    曲の開始/終了に合わせて、2人とも歌唱モードを自動でON/OFFする
+    (歌っていない側もステージで一緒にリズムを取っている見た目にする)。
+    ただし songActive を歌唱状態に直接ORせず各 state へ一度写すことで、
+    再生中でもボタンで途中からやめられるようにする
     (songActive が変わったときだけ上書きするので、手動トグルは潰さない)。
     prop 変化への追従はレンダー中に行う (React 推奨。effect 内 setState を避ける)。
   */
@@ -360,40 +369,38 @@ export function CharacterOverlay({ getSongAmplitude }: CharacterOverlayProps) {
   if (songActive !== prevSongActive) {
     setPrevSongActive(songActive);
     setKaguyaSinging(songActive);
+    setYachiyoSinging(songActive);
   }
 
   /*
-    かぐやの歌唱モードは音を鳴らさない(ヤチヨと同じ)。SING_MODE_FLOOR 固定を
-    渡すだけ。SING_MODE_FLOOR は Rive 側の口パク閾値より小さいので、口は
-    閉じたまま、webKaguya.lua の自走オシレーター(swayGate)による弾み・
-    首かしげ・歌唱中の自動スマイルだけが入る。
+    かぐやが実際に発声するのは Reply の再生中だけ。そのときは実音量で
+    口を動かす。無音区間で横揺れが止まらないよう、実音量が0でも
+    SING_MODE_FLOOR まで底上げする(Riveのsway判定用。SING_GAPより小さいので
+    口パクには影響しない。詳しくは webKaguya.lua のコメント参照)。
+
+    それ以外(星降る海の伴走・パネルのボタン単独)は音を鳴らさないので
+    SING_MODE_FLOOR 固定。口は閉じたまま、webKaguya.lua の自走オシレーター
+    (swayGate)による弾み・首かしげ・歌唱中の自動スマイルだけが入る。
   */
   const kaguyaAmplitude = useCallback(() => {
+    if (replyActive && getReplyAmplitude) {
+      return Math.max(SING_MODE_FLOOR, getReplyAmplitude());
+    }
     if (kaguyaSinging) return SING_MODE_FLOOR;
     return 0;
-  }, [kaguyaSinging]);
-  const kaguyaSingingActive = kaguyaSinging;
+  }, [replyActive, getReplyAmplitude, kaguyaSinging]);
+
+  /* ヤチヨはかぐやの裏返し。実際に発声するのは星降る海の再生中だけ */
   const yachiyoAmplitude = useCallback(() => {
-    /*
-      音が鳴るのは星降る海の再生中(songActive)だけ。そのときは実際の
-      ボーカル音量で口を動かす。無音区間で横揺れが止まらないよう、
-      実音量が0でも SING_MODE_FLOOR まで底上げする(Riveのsway判定用。
-      SING_GAPより小さいので口パクには影響しない。詳しくは
-      WebYachiyo/AIYachiyo.luaのコメント参照)。
-    */
-    if (songActive && getSongAmplitude) {
-      return Math.max(SING_MODE_FLOOR, getSongAmplitude());
+    if (starfallActive && getStarfallAmplitude) {
+      return Math.max(SING_MODE_FLOOR, getStarfallAmplitude());
     }
-    /*
-      パネルの歌唱モードボタン単独では音を鳴らさない(発音は星降る海側のみ)。
-      振幅は SING_MODE_FLOOR 固定で渡し、Rive側は横揺れ・首かしげ・自動スマイル
-      などのリズム動作だけ入れて口は閉じたままにする(かぐやの星降る海時と同じ)。
-    */
     if (yachiyoSinging) return SING_MODE_FLOOR;
     return 0;
-  }, [songActive, getSongAmplitude, yachiyoSinging]);
+  }, [starfallActive, getStarfallAmplitude, yachiyoSinging]);
 
-  // 星降る海の間は歌っている状態なので、ボタンも押された見た目にする
+  // 曲の間は歌っている状態なので、ボタンも押された見た目にする
+  const kaguyaSingingActive = songActive || kaguyaSinging;
   const yachiyoSingingActive = songActive || yachiyoSinging;
 
   const kaguyaStageRef = useRef<HTMLDivElement | null>(null);

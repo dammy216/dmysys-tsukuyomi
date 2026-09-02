@@ -17,6 +17,7 @@ import type {
   VignetteEffect,
 } from "postprocessing";
 import { Vector2 } from "three";
+import type { Group } from "three";
 import {
   MiyajimaTorii,
   WaterGlow,
@@ -33,6 +34,27 @@ import {
   Underwater,
   type UnderwaterEffectImpl,
 } from "@/features/starfall-sea";
+import {
+  CastleAssembly,
+  ConcertStage,
+  EdoCastle,
+  ReplyCamera,
+  ReplyHologram,
+  StageBeams,
+  REPLY_BASE_POSITION,
+  REPLY_BUILD_END_SECONDS,
+  REPLY_FADE_SECONDS,
+  REPLY_FLASH_EXPOSURE,
+  REPLY_FLASH_SECONDS,
+  REPLY_LIGHTS_FADE_SECONDS,
+  REPLY_PULLBACK_SECONDS,
+  REPLY_FOCUS,
+  REPLY_HOLOGRAM_Y,
+  REPLY_OUTRO_FADE_SECONDS,
+  REPLY_OUTRO_LEAD_SECONDS,
+  REPLY_TORII_SCALE,
+  STAGE_Y,
+} from "@/features/reply";
 import { Water } from "./Water";
 import {
   ABERRATION_OFFSET,
@@ -69,18 +91,23 @@ const SCREEN_FOCUS: [number, number, number] = [0, 14, -2];
 /** 通常モード(星降る海OFF)でのOrbitControlsの注視点。鳥居の中ほど */
 const NORMAL_ORBIT_TARGET: [number, number, number] = [0, 2, -2];
 
+
 /**
  * シーン本体。useFrame は Canvas の中でしか使えないため、
  * Canvas 直下のこのコンポーネントに演出のロジックをまとめている。
  */
 export function SceneContents({
   hologramVideoRef,
+  replyVideoRef,
 }: {
   hologramVideoRef: RefObject<HTMLVideoElement | null>;
+  /** Reply のホログラムに映す映像。useReplySong が用意する */
+  replyVideoRef: RefObject<HTMLVideoElement | null>;
 }) {
   const skyVariant = useSceneStore((s) => s.skyVariant);
   const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
-  const starfallFreeCam = useSceneStore((s) => s.starfallFreeCam);
+  const replyPlaying = useSceneStore((s) => s.replyPlaying);
+  const freeCam = useSceneStore((s) => s.freeCam);
 
   /*
     「星降る海」の進行度(0〜1)。ONで1へ、OFFで0へゆっくり動く。
@@ -163,6 +190,59 @@ export function SceneContents({
   const vignetteRef = useRef<VignetteEffect>(null);
   const underwaterRef = useRef<UnderwaterEffectImpl>(null);
   const aberrationOffset = useRef(new Vector2()).current;
+
+  /*
+    Reply の進行度(0〜1)。星降る海の activationRef と同じ役割で、
+    江戸城の自己発光・ステージの光・ホログラムの濃さをこれ1本で駆動する。
+    立ち上がり/収まりの間ずっと値が変わるため、state ではなく ref。
+  */
+  const replyActivationRef = useRef(0);
+  /*
+    天守の組み上げ進行度(0〜1)。押した瞬間から REPLY_BUILD_SECONDS かけて
+    0→1 まで上がり、江戸城が下から生成される(飛来ブロックは CastleAssembly、
+    切り落とし＋発光帯は EdoCastle のシェーダー)。これも毎フレーム変わるので ref。
+  */
+  const replyBuildRef = useRef(0);
+  /*
+    ステージ・鳥居・ホログラム用の進行度(0〜1)。天守が STAGE_IN_FROM まで
+    組み上がってから 0→1 へ上げる。組み上げと同時に出すと、まだ何も無い空中に
+    ステージだけが浮いた画になってしまう。
+  */
+  const replyStageRef = useRef(0);
+  /*
+    ステージ以上とビームの表示切り替えは、**state ではなく group.visible** で行う。
+
+    11秒ちょうどで state を切り替えるとその瞬間に SceneContents が再レンダーされ、
+    @react-three/postprocessing の EffectComposer が作り直されて描画が壊れる
+    (このリポジトリでは以前 星降る海 の終わりで「3D画面が固まる」形で踏んでいる。
+    下の EffectComposer のコメント参照)。11秒は演出の山なので、そこで
+    再レンダーを起こさないよう ref で visible を切る。
+  */
+  const replyStageGroupRef = useRef<Group>(null);
+  const replyBeamsGroupRef = useRef<Group>(null);
+  /*
+    11秒を過ぎてからの「カメラの引き」具合(0〜1)。ReplyCamera はこれで
+    周回から PATH(引きの全景)へ移る。REPLY_PULLBACK_SECONDS かけてゆっくり。
+  */
+  const replyPullbackRef = useRef(0);
+  /*
+    11秒でのステージ照明の点灯具合(0〜1)。投影光・ビーム・ステージ・鳥居・
+    ホログラムをこれで一斉に点ける。カメラの引きと違い REPLY_LIGHTS_FADE_SECONDS
+    で素早く上げる(組み上げ中の光る帯が消えるのと入れ違いにするため。
+    ここを遅くすると天守が数秒真っ黒に沈む)。
+  */
+  const replyLightsRef = useRef(0);
+  /*
+    11秒の点灯の瞬間だけ焚く閃光の残り時間(秒)。露出とブルームを一段持ち上げて
+    「会場の照明が一斉に入った」瞬間を立たせる(星降る海の転調の閃光と同じ手)。
+  */
+  const replyFlashRef = useRef(0);
+  const replyFlashFiredRef = useRef(false);
+  /*
+    江戸城・ステージ・鳥居・ホログラムを出すかどうか。
+    replyActivation が 0.01 を跨いだときだけ切り替えるので state でよい。
+  */
+  const [replyVisible, setReplyVisible] = useState(false);
 
   useFrame(({ clock, gl }, delta) => {
     /*
@@ -351,19 +431,166 @@ export function SceneContents({
           ? Math.min(surgeActivationRef.current + surgeStep, surgeTarget)
           : Math.max(surgeActivationRef.current - surgeStep, surgeTarget);
     }
+
+    /*
+      ここから Reply。星降る海とは排他(store の toggle で担保)なので、
+      上の一連の値はすべて0へ向かっている前提で独立に積んでよい。
+
+      アウトロは映像の長さから逆算する: 映像は130.03秒で、その
+      REPLY_OUTRO_LEAD_SECONDS 手前から演出を畳み始めて余韻を作る
+      (星降る海の OUTRO_START_SECONDS は絶対秒だが、こちらは動画の
+      duration から引くので曲を差し替えても追従する)。
+    */
+    const replyVideo = replyVideoRef.current;
+    /*
+      再生位置は必ず有限値に正規化してから使う。
+
+      ここが NaN になると build / pullback / lights が芋づるで NaN になり、
+      ReplyCamera が camera.position を NaN にしてビュー行列が壊れる。
+      そうなると frustumCulled=false のもの(ビーム・飛来ブロック)以外は
+      全部カリングされ、「真っ黒な画面にビームのリングだけ」という状態になる。
+      メディア要素の currentTime / duration は読み込み前や異常時に
+      NaN を返しうるので、入口で塞ぐ。
+    */
+    const replyTimeRaw = replyVideo?.currentTime ?? 0;
+    const replyTime = Number.isFinite(replyTimeRaw) ? replyTimeRaw : 0;
+    const replyDurationRaw = replyVideo?.duration ?? 0;
+    const replyDuration = Number.isFinite(replyDurationRaw) ? replyDurationRaw : 0;
+    const replyInOutro =
+      replyPlaying &&
+      replyDuration > 0 &&
+      replyTime >= replyDuration - REPLY_OUTRO_LEAD_SECONDS;
+
+    const replyTarget = replyPlaying && !replyInOutro ? 1 : 0;
+    const replyStep =
+      delta / (replyInOutro ? REPLY_OUTRO_FADE_SECONDS : REPLY_FADE_SECONDS);
+    if (replyActivationRef.current !== replyTarget) {
+      replyActivationRef.current =
+        replyActivationRef.current < replyTarget
+          ? Math.min(replyActivationRef.current + replyStep, replyTarget)
+          : Math.max(replyActivationRef.current - replyStep, replyTarget);
+    }
+    const replyNext = replyActivationRef.current;
+
+    /*
+      天守の組み上げ・カメラの引き・ステージ照明。どれも**曲の再生位置**で
+      決める(ボタンを押してからの経過ではない)。曲が REPLY_BUILD_END_SECONDS
+      (11秒)に達するまで組み上げ＋天守まわりの周回カメラ。11秒を過ぎたら
+        - カメラ: REPLY_PULLBACK_SECONDS かけてゆっくり引く
+        - 照明: REPLY_LIGHTS_FADE_SECONDS でパッと点ける(組み上げの光る帯が
+          消えるのと入れ違いにする。ここを遅らせると暗転バグになる)
+    */
+    if (replyPlaying) {
+      replyBuildRef.current = Math.min(
+        Math.max(replyTime / REPLY_BUILD_END_SECONDS, 0),
+        1,
+      );
+      const sinceEnd = replyTime - REPLY_BUILD_END_SECONDS;
+      replyPullbackRef.current = Math.min(
+        Math.max(sinceEnd / REPLY_PULLBACK_SECONDS, 0),
+        1,
+      );
+      replyLightsRef.current = Math.min(
+        Math.max(sinceEnd / REPLY_LIGHTS_FADE_SECONDS, 0),
+        1,
+      );
+    } else {
+      replyBuildRef.current = 0;
+      replyPullbackRef.current = 0;
+      replyLightsRef.current = 0;
+    }
+
+    /*
+      ステージから上(ステージ・鳥居・ホログラム)は、曲が11秒に達したら
+      照明と一緒に点ける。組み上げ中は天守だけが黒く積み上がっていき、
+      11秒の瞬間に投影光・ビームと同時にステージ以上が点いて一気に会場が
+      立ち上がる。smoothstep で入れて、載る瞬間にポップしないようにする。
+    */
+    const stageIn = replyLightsRef.current;
+    replyStageRef.current = replyNext * stageIn * stageIn * (3 - 2 * stageIn);
+
+    /*
+      表示の切り替えは group.visible で行い、再レンダーを起こさない
+      (上の replyStageGroupRef のコメント参照)。
+    */
+    if (replyStageGroupRef.current) {
+      replyStageGroupRef.current.visible = replyStageRef.current > 0.005;
+    }
+    if (replyBeamsGroupRef.current) {
+      replyBeamsGroupRef.current.visible = replyLightsRef.current > 0.005;
+    }
+
+    /*
+      11秒の点灯で一度だけ閃光を焚く。組み上げが終わった最初のフレームで発火し、
+      以降フレームごとに減らす。巻き戻し(ループ)で未発火に戻して再点火できる。
+    */
+    if (replyPlaying && replyBuildRef.current >= 1) {
+      if (!replyFlashFiredRef.current) {
+        replyFlashFiredRef.current = true;
+        replyFlashRef.current = REPLY_FLASH_SECONDS;
+      }
+    } else {
+      replyFlashFiredRef.current = false;
+    }
+    replyFlashRef.current = Math.max(replyFlashRef.current - delta, 0);
+    const replyFlash =
+      (replyFlashRef.current / REPLY_FLASH_SECONDS) * REPLY_FLASH_EXPOSURE;
+
+    /*
+      Reply のレンズ効果。星降る海と違い毎フレーム書く(組み上げ中は
+      build に連動して色収差とブルームが上がり続けるため、変化フレームだけの
+      書き込みでは足りない)。プロパティ代入が数個なのでコストは無視できる。
+
+      - 色収差: 組み上げが進むほど強め、寄りの速度感を出す。11秒で解ける
+      - ブルーム: 演出中は底上げ。組み上げ中はさらに乗せ、閃光でもう一段
+      - ビネット: 組み上げ中だけ強めて、天守へ視線を集めるトンネル感を作る
+      - 露出: 夜側へ落とし、11秒の閃光でだけ持ち上げる
+    */
+    if (replyNext > 0.001) {
+      const build = replyBuildRef.current;
+      // 組み上げ中は1、11秒以降は0へ抜ける
+      const rush = 1 - replyLightsRef.current;
+      if (aberrationRef.current) {
+        aberrationOffset
+          .copy(ABERRATION_OFFSET)
+          .multiplyScalar(replyNext * (0.5 + build * rush * 2.2));
+        aberrationRef.current.offset = aberrationOffset;
+      }
+      if (bloomRef.current) {
+        bloomRef.current.intensity =
+          0.8 + replyNext * 0.45 + build * rush * 0.5 + replyFlash * 0.9;
+      }
+      if (vignetteRef.current) {
+        vignetteRef.current.darkness = replyNext * (0.35 + rush * 0.35);
+      }
+      // 夜側に寄せる。星降る海(0.55)より浅くして城のディテールを残す
+      gl.toneMappingExposure = 1 - replyNext * 0.4 + replyFlash;
+    }
+
+    const replyVisibleNow = replyNext > 0.01;
+    if (replyVisibleNow !== replyVisible) setReplyVisible(replyVisibleNow);
   });
 
   return (
     <>
-      <color attach="background" args={["#1c2540"]} />
       <fog attach="fog" args={["#1c2540", 20, 300]} />
 
       <ambientLight intensity={0.7} color="#5a6fa8" />
       <directionalLight position={[9, 14, 5]} intensity={2} color="#bcd3ff" />
 
-      <Suspense fallback={null}>
-        {/* 星降る海の間は、夕暮れを選んでいても映像と同じ夜空に切り替える */}
-        <SkyBackground variant={starfallPlaying ? "night" : skyVariant} />
+      {/*
+        空の読み込み中だけ出す下地。**Suspense の fallback に置くのが要点**で、
+        ここを外に出して常設すると SkyBackground(`attach="background"` /
+        `attach="environment"`) と同じ scene.background を奪い合う。
+        二重アタッチは後勝ちなので、再レンダーの度に適用順で空が消えたり
+        戻ったりする(環境光も一緒に落ちるため、黒い天守が真っ黒に沈み、
+        自己発光のビームだけが残る「真っ黒画面」になっていた)。
+      */}
+      <Suspense fallback={<color attach="background" args={["#1c2540"]} />}>
+        {/* 演出モード(星降る海 / Reply)の間は、夕暮れを選んでいても夜空に切り替える */}
+        <SkyBackground
+          variant={starfallPlaying || replyPlaying ? "night" : skyVariant}
+        />
         {/*
           映像の鳥居は根本が橙色、上に行くほど赤みが強い発光をしている。
           ポイントライトの反射だけではそこまで光らないため、鳥居のマテリアル
@@ -372,13 +599,18 @@ export function SceneContents({
           アウトロでも落とさないので、曲が終わって魚や水中フィルターが
           引いたあとも鳥居は灯ったまま残る。転調直前の暗転はtoriiDimRefで
           ホログラム映像と同じ控えめな強さだけかける。MiyajimaTorii.tsx参照)。
+
+          Reply中はここには江戸城が建つので、地上の鳥居は隠して
+          ステージの上の鳥居(下の Reply ブロック)へ役目を渡す。
         */}
-        <MiyajimaTorii
-          position={TORII_POSITION}
-          scale={0.18}
-          glowRef={persistActivationRef}
-          dimRef={toriiDimRef}
-        />
+        {!replyVisible && (
+          <MiyajimaTorii
+            position={TORII_POSITION}
+            scale={0.18}
+            glowRef={persistActivationRef}
+            dimRef={toriiDimRef}
+          />
+        )}
         {/* 本殿の鳥居の真下だけを、なめらかな光の水たまりで照らす(アウトロでも落とさない。転調直前はglowDimRefで暗くなる) */}
         <WaterGlow
           position={TORII_POSITION}
@@ -434,32 +666,111 @@ export function SceneContents({
             preDimRef={preSurgeDimRef}
           />
         )}
-        {/* 灯ろうは星降る海の演出中は魚の渦と喧嘩するので隠す */}
-        {!starfallVisible && <Lanterns />}
+        {/*
+          Reply: 星降る海で鳥居が立っていた位置に江戸城が建ち、その天守の上へ
+          ステージ → 宮島の鳥居 → ホログラム、と縦に積み上がる。
+          高さはすべて features/reply/constants.ts で実測値から算出している。
+        */}
+        {replyVisible && (
+          <>
+            <EdoCastle
+              position={REPLY_BASE_POSITION}
+              activationRef={replyActivationRef}
+              buildRef={replyBuildRef}
+              lightsRef={replyLightsRef}
+            />
+            {/* 天守を組み上げる飛来ブロック。組み上がりきると全部消える */}
+            <CastleAssembly
+              position={REPLY_BASE_POSITION}
+              buildRef={replyBuildRef}
+            />
+            {/*
+              曲が11秒に達した瞬間、背後から放射状に伸びるサーチライトが点く。
+              11秒での再レンダーを避けるため、出し入れは group.visible で行う
+              (上の replyStageGroupRef のコメント参照)。visible は useFrame が書く。
+            */}
+            <group ref={replyBeamsGroupRef} visible={false}>
+              <StageBeams
+                position={REPLY_BASE_POSITION}
+                activationRef={replyLightsRef}
+              />
+            </group>
+            {/*
+              ステージから上。天守が組み上がって照明が入る11秒から載せる。
+              組み上げと同時に出すと、まだ何も無い空中にステージだけが浮いて見える。
+              こちらも group.visible で出し入れする。
+            */}
+            <group ref={replyStageGroupRef} visible={false}>
+              <ConcertStage
+                position={[REPLY_BASE_POSITION[0], STAGE_Y, REPLY_BASE_POSITION[2]]}
+                activationRef={replyStageRef}
+              />
+              {/*
+                ステージに載せる鳥居。地上の鳥居と同じ発光シェーダーを使うが、
+                転調の概念が無いので dimRef は渡さない(常に減光なし)。
+              */}
+              <MiyajimaTorii
+                position={[REPLY_BASE_POSITION[0], STAGE_Y, REPLY_BASE_POSITION[2]]}
+                scale={REPLY_TORII_SCALE}
+                glowRef={replyStageRef}
+              />
+              <ReplyHologram
+                position={[
+                  REPLY_BASE_POSITION[0],
+                  REPLY_HOLOGRAM_Y,
+                  REPLY_BASE_POSITION[2],
+                ]}
+                videoRef={replyVideoRef}
+                activationRef={replyStageRef}
+              />
+            </group>
+          </>
+        )}
+        {/* 灯ろうは演出モード中は魚の渦・城と喧嘩するので隠す */}
+        {!starfallVisible && !replyVisible && <Lanterns />}
         <Water />
       </Suspense>
 
       {/*
-        星降る海モード中でも自由視点(starfallFreeCam)なら演出カメラは止める。
+        星降る海モード中でも自由視点(freeCam)なら演出カメラは止める。
         動画の再生位置を渡しているのは、1:18〜1:22 のホログラムへの寄り引きに
         使うため(StarfallCamera.tsx の DOLLY_IN_START_SECONDS 参照)。
       */}
       <StarfallCamera
-        active={starfallPlaying && !starfallFreeCam}
+        active={starfallPlaying && !freeCam}
         activationRef={activationRef}
         videoRef={hologramVideoRef}
       />
+      {/*
+        Reply の演出カメラ。塔の高さを見せるため上下に大きく振りながら旋回する
+        (星降る海と同じく、押した位置から PATH へ滑らかに寄せるだけ)。
+      */}
+      <ReplyCamera
+        active={replyPlaying && !freeCam}
+        activationRef={replyActivationRef}
+        buildRef={replyBuildRef}
+        pullbackRef={replyPullbackRef}
+      />
 
       {/*
-        通常時、または星降る海モード中でも自由視点を選んでいるときは手動操作を許可する。
-        星降る海の演出カメラが動いている間だけ手動操作を止める。
+        通常時、または演出モード中でも自由視点を選んでいるときは手動操作を許可する。
+        演出カメラが動いている間だけ手動操作を止める。
       */}
       <OrbitControls
         makeDefault
         enableDamping
-        enabled={!starfallPlaying || starfallFreeCam}
-        // 星降る海モード中はホログラム画面を中心に回す。通常時は鳥居の中ほど
-        target={starfallPlaying ? SCREEN_FOCUS : NORMAL_ORBIT_TARGET}
+        enabled={(!starfallPlaying && !replyPlaying) || freeCam}
+        /*
+          演出モード中はそれぞれのホログラム画面を中心に回す。通常時は鳥居の中ほど。
+          Reply のホログラムは塔の上(y≒29)にあるので、星降る海とは注視点が大きく違う。
+        */
+        target={
+          replyPlaying
+            ? REPLY_FOCUS
+            : starfallPlaying
+              ? SCREEN_FOCUS
+              : NORMAL_ORBIT_TARGET
+        }
       />
       <SceneStats />
 

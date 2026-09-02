@@ -8,9 +8,12 @@ import { Credits } from "./Credits";
 /** ルート("/")の R3F <Canvas> ラッパ。シーンの状態は useSceneStore から SceneContents が直接読む */
 export function RootCanvas({
   hologramVideoRef,
+  replyVideoRef,
   onCanvasReady,
 }: {
   hologramVideoRef: RefObject<HTMLVideoElement | null>;
+  /** Reply のホログラムに映す映像。useReplySong が用意する */
+  replyVideoRef: RefObject<HTMLVideoElement | null>;
   /** WebGLキャンバスが用意できたら渡す。録画(captureStream)の対象にする */
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }) {
@@ -26,7 +29,10 @@ export function RootCanvas({
         gl={{ preserveDrawingBuffer: true }}
         onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}
       >
-        <SceneContents hologramVideoRef={hologramVideoRef} />
+        <SceneContents
+          hologramVideoRef={hologramVideoRef}
+          replyVideoRef={replyVideoRef}
+        />
       </Canvas>
 
       <Credits />

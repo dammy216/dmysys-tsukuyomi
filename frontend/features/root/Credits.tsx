@@ -4,19 +4,24 @@ const CREDITS = [
     url: "https://sketchfab.com/3d-models/miyajima-torii-584bdf5ca606482289f1fc84f0c708cf",
     author: "RMSHR",
     authorUrl: "https://sketchfab.com/remy.sohier",
+    license: "CC-BY-4.0",
     // 発光シェーダーを追加し、高さで色を橙→赤へ補間するよう改変している(MiyajimaTorii.tsx)。
     // CC-BY-4.0は改変した場合その旨を示すことを求めているため明記する。
     modified: true,
   },
   {
-    title: "Old Japanese Lamp : Andon",
-    url: "https://sketchfab.com/3d-models/old-japanese-lamp-andon-0f5cff9fb78b4657b26ddefff4e10fcf",
-    author: "K",
-    authorUrl: "https://sketchfab.com/tanaka.ko91",
+    // Reply モードの土台。ライセンスはCC-BYではなくSketchfab Standardなので分けて表記する
+    title: "【3DScan】江戸城 寛永度天守閣",
+    url: "https://sketchfab.com/3d-models/3dscan-edo-castle-944e48f240cc449abb5ecc969051b155",
+    author: "BENA-3DSolution",
+    authorUrl: "https://sketchfab.com/BENA-ArchitecturalModeling",
+    license: "Sketchfab Standard",
+    // baseColor を emissiveMap に流用した自己発光マテリアルへ差し替えている(EdoCastle.tsx)
+    modified: true,
   },
 ];
 
-/** Sketchfab CC-BY-4.0モデルのクレジット表記（利用規約で表示が必須） */
+/** Sketchfabモデルのクレジット表記（利用規約で表示が必須） */
 export function Credits() {
   return (
     <div
@@ -33,7 +38,8 @@ export function Credits() {
           <a href={c.authorUrl} target="_blank" rel="noopener noreferrer" className="text-inherit">
             {c.author}
           </a>{" "}
-          (CC-BY-4.0{c.modified ? ", modified" : ""})
+          ({c.license}
+          {c.modified ? ", modified" : ""})
         </div>
       ))}
     </div>

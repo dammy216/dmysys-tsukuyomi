@@ -3,7 +3,8 @@ import type { SkyVariant } from "@/features/scenery";
 
 /**
  * ルート("/")3Dシーンの UI 状態。ボタン操作で変わる純粋な状態だけを持つ
- * (副作用フック useStarfallSong / useSceneRecorder は RootScene に残す)。
+ * (副作用フック useStarfallSong / useReplySong / useSceneRecorder は
+ * RootScene に残す)。
  *
  * zustand ストアは React context を使わないモジュールシングルトンなので、
  * R3F の <Canvas> 境界をまたいで SceneContents からも直接購読できる。
@@ -23,15 +24,27 @@ type SceneState = {
    * (useStarfallSong が RootScene 経由でセットする)。
    */
   starfallPlaying: boolean;
-  /** 星降る海モード中だけ意味を持つ。true でカメラの自動演出を止めて自由視点にする */
-  starfallFreeCam: boolean;
+  /** Reply ボタンが押されているか(ユーザーの意思)。押した瞬間に true */
+  reply: boolean;
+  /**
+   * starfallPlaying の Reply 版。江戸城・ステージ・ホログラムの演出と
+   * かぐやの歌唱はこちらで駆動する(useReplySong が RootScene 経由でセット)。
+   */
+  replyPlaying: boolean;
+  /**
+   * 演出モード(星降る海 / Reply)中だけ意味を持つ。true でカメラの自動演出を
+   * 止めて自由視点にする。どちらのモードでも同じボタンで切り替える。
+   */
+  freeCam: boolean;
 
   toggleKaguya: () => void;
   toggleYachiyo: () => void;
   setSkyVariant: (variant: SkyVariant) => void;
   toggleStarfallSea: () => void;
   setStarfallPlaying: (playing: boolean) => void;
-  toggleStarfallFreeCam: () => void;
+  toggleReply: () => void;
+  setReplyPlaying: (playing: boolean) => void;
+  toggleFreeCam: () => void;
 };
 
 export const useSceneStore = create<SceneState>((set) => ({
@@ -40,7 +53,9 @@ export const useSceneStore = create<SceneState>((set) => ({
   skyVariant: "dusk",
   starfallSea: false,
   starfallPlaying: false,
-  starfallFreeCam: false,
+  reply: false,
+  replyPlaying: false,
+  freeCam: false,
 
   toggleKaguya: () => set((s) => ({ showKaguya: !s.showKaguya })),
   toggleYachiyo: () => set((s) => ({ showYachiyo: !s.showYachiyo })),
@@ -49,7 +64,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   /*
     星降る海の ON/OFF に伴う協調更新を1アクションにまとめる。
     - 演出を始めるときは歌うヤチヨを見せたいので自動で表示する
-    - 次に星降る海へ入るときは必ずアニメーションモードから始める
+    - Reply とは排他。曲が2つ重なるとカメラ制御も競合するため必ず落とす
+    - 次に演出へ入るときは必ずアニメーションモードから始める
   */
   toggleStarfallSea: () =>
     set((s) => {
@@ -58,13 +74,34 @@ export const useSceneStore = create<SceneState>((set) => ({
         starfallSea: next,
         // 再生開始は useStarfallSong が次の tick でセットする。OFF は即座に
         starfallPlaying: next ? s.starfallPlaying : false,
+        reply: false,
+        replyPlaying: false,
         showYachiyo: next ? true : s.showYachiyo,
-        starfallFreeCam: false,
+        freeCam: false,
       };
     }),
 
   setStarfallPlaying: (starfallPlaying) => set({ starfallPlaying }),
 
-  toggleStarfallFreeCam: () =>
-    set((s) => ({ starfallFreeCam: !s.starfallFreeCam })),
+  /*
+    Reply の ON/OFF。星降る海と対になる協調更新。
+    こちらはかぐやが歌うので、自動で表示するのはかぐや。
+  */
+  toggleReply: () =>
+    set((s) => {
+      const next = !s.reply;
+      return {
+        reply: next,
+        // 再生開始は useReplySong が次の tick でセットする。OFF は即座に
+        replyPlaying: next ? s.replyPlaying : false,
+        starfallSea: false,
+        starfallPlaying: false,
+        showKaguya: next ? true : s.showKaguya,
+        freeCam: false,
+      };
+    }),
+
+  setReplyPlaying: (replyPlaying) => set({ replyPlaying }),
+
+  toggleFreeCam: () => set((s) => ({ freeCam: !s.freeCam })),
 }));

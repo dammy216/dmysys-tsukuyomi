@@ -9,6 +9,7 @@
   --color-hud: #5de3e6; /* 水色アクセント */
   --color-hud-glass: #060c18eb; /* パネル/バーの濃紺ガラス地 = rgb(6 12 24 / 0.92) */
   --color-hud-pink: #fa0577; /* 「星降る海」アクセント */
+  --color-hud-reply: #ff5a1e; /* 「Reply」アクセント。江戸城の赤いライトに合わせた橙赤 */
   --color-hud-rec: #ff5b6e; /* 録画中 */
 
   /* 録画ボタンの点滅。motion-reduce:animate-none で無効化する */
