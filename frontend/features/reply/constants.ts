@@ -91,7 +91,7 @@ export const REPLY_BUILD_END_SECONDS = 11;
  */
 export const REPLY_CASTLE_BUILD_END_SECONDS = REPLY_BUILD_END_SECONDS;
 /** 11秒を過ぎてから、周回カメラが PATH(引きの全景)へ移りきるまでの秒数 */
-export const REPLY_PULLBACK_SECONDS = 0.4;
+export const REPLY_PULLBACK_SECONDS = 0.8;
 /**
  * 11秒でステージ照明(投影光・ビーム・ステージ・鳥居・ホログラム)が
  * 点きあがるまでの秒数。カメラの引き(REPLY_PULLBACK_SECONDS)とは分ける。
@@ -188,9 +188,10 @@ const TORII_TOP_OFFSET = REPLY_TORII_GATE_HEIGHT;
 
 /**
  * ホログラム画面の縦幅。横幅は映像の実寸(1920x818 ≒ 2.35:1)から決まるので
- * 28.2 になる。ReplyHologram.tsx と、下の REPLY_HOLOGRAM_Y の算出で共有する。
+ * 18.8 になる。星降る海(16:9で高さ9)より横長なぶん高さを1つ落としてある。
+ * ReplyHologram.tsx と、上の REPLY_HOLOGRAM_Y の算出で共有する。
  */
-export const HOLOGRAM_HEIGHT = 12;
+export const HOLOGRAM_HEIGHT = 8;
 /**
  * 鳥居の上端から画面の下辺までの間合い。星降る海(鳥居の上端から約5)より
  * 詰めてある: こちらは土台が江戸城のぶん塔が高く、同じだけ空けると
