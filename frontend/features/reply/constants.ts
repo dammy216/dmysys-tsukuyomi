@@ -55,8 +55,13 @@ export const REPLY_BASE_POSITION: [number, number, number] = [0, 0, -2];
  * 底面がちょうど y=0、頂部が y=0.5992 になる。
  */
 const CASTLE_MODEL_HEIGHT = 0.5992;
-/** 江戸城の拡大率。高さ約15.6、底面約12.9×11.5 になる */
-export const CASTLE_SCALE = 26;
+/**
+ * 江戸城の拡大率。高さ約36、底面約29.7×26.4 になる。隅櫓は
+ * CASTLE_TOP_Y に対する比率(towerLayout.ts)で持っているので自動で
+ * 追従して大きくなる。ステージ・鳥居のサイズ(STAGE_RADIUS等)・灯籠の
+ * 集まる範囲(SceneContents.tsx の LANTERN_*)はこれとは連動させない指定。
+ */
+export const CASTLE_SCALE = 60;
 /** 江戸城の頂部(屋根の頂点)のワールドY */
 export const CASTLE_TOP_Y = CASTLE_MODEL_HEIGHT * CASTLE_SCALE;
 /**
@@ -79,8 +84,14 @@ export const CASTLE_HALF_DEPTH = 0.2203 * CASTLE_SCALE;
  * カメラ、ここを過ぎたらカメラが引いて塔の全景へ移る。
  */
 export const REPLY_BUILD_END_SECONDS = 11;
+/**
+ * 天守**本体**の飛来ブロックが組み上がりきる再生位置(秒)。指定で天守だけ
+ * 0.8秒早く終わらせる(隅櫓・カメラの引き・照明点灯などは従来どおり
+ * REPLY_BUILD_END_SECONDS(11秒)のまま=「周りは今のまま」)。
+ */
+export const REPLY_CASTLE_BUILD_END_SECONDS = REPLY_BUILD_END_SECONDS;
 /** 11秒を過ぎてから、周回カメラが PATH(引きの全景)へ移りきるまでの秒数 */
-export const REPLY_PULLBACK_SECONDS = 2.2;
+export const REPLY_PULLBACK_SECONDS = 0.4;
 /**
  * 11秒でステージ照明(投影光・ビーム・ステージ・鳥居・ホログラム)が
  * 点きあがるまでの秒数。カメラの引き(REPLY_PULLBACK_SECONDS)とは分ける。
@@ -117,31 +128,69 @@ export const BUILD_EDGE_JITTER = 1.1;
 export const BUILD_EDGE_GLOW = 1.1;
 
 /** ステージの甲板の高さ。屋根の頂点から少しだけ浮かせて宙に張り出させる */
-export const STAGE_Y = CASTLE_TOP_Y + 0.3;
+export const STAGE_Y = CASTLE_TOP_Y - 1;
+
 /**
- * ステージ(円形の甲板)の半径。鳥居(この縮尺で幅5.5)を載せられる最小限に留める。
- * 大きくすると天守の屋根(頂部は下端よりかなり細い)から甲板だけが大きく
- * せり出して、城の上に載っているように見えなくなる。
+ * ステージ(円形の甲板)の半径。3体の鳥居(宮島×2+中央の大鳥居)を横一列に
+ * 載せられる、屋根にちょうど収まるサイズ。
  */
-export const STAGE_RADIUS = 6;
+export const STAGE_RADIUS = 5;
 /** 甲板の厚み */
 export const STAGE_THICKNESS = 0.6;
 
 /**
- * ステージに載せる宮島の鳥居の拡大率。地上の鳥居と同じ0.18。
- * ローカル bbox が y ∈ [-3.67, 25.22] なので、原点を甲板の高さに置くと
- * 根本が少しだけ甲板へ埋まり、上端が STAGE_Y + 4.54 に来る。
+ * 左右に置く宮島鳥居(小)の拡大率。中央の大鳥居(ToriiGate)を主役に
+ * するため、地上の鳥居と同じ縮尺(0.18)より一回り絞ってある
+ * (高さ 25.22×0.10 ≒ 2.5。中央の大鳥居 REPLY_TORII_GATE_HEIGHT=4.3 の6割ほど)。
  */
-export const REPLY_TORII_SCALE = 0.18;
-/** 上の縮尺での鳥居の上端(ローカル25.22 × 0.18) */
-const TORII_TOP_OFFSET = 25.22 * REPLY_TORII_SCALE;
+export const REPLY_TORII_SIDE_SCALE = 0.1;
+/**
+ * 左右の宮島鳥居を置く中心からのXオフセット。中央の大鳥居からは
+ * REPLY_TORII_SIDE_FORWARD_OFFSET ぶん手前(奥行き方向)にも離してあり、
+ * 3体が横一列ではなく手前に出た配置になる(参考画像と同じ、手前の左右に
+ * 赤い鳥居・奥に主役の大鳥居という構図)。向きは REPLY_TORII_SIDE_ROTATION
+ * で外側(ステージの外)を向かせる。
+ */
+export const REPLY_TORII_SIDE_OFFSET = 2;
+
+/**
+ * 中央の大鳥居と左右の宮島鳥居のZ方向の間隔(奥行きの差)。
+ * 3体の重心がステージ(甲板)の中心に来るよう、この間隔を保ったまま
+ * 中央を奥へ2/3・左右を手前へ1/3に振り分けている
+ * (下の REPLY_TORII_CENTER_Z_OFFSET / REPLY_TORII_SIDE_Z_OFFSET 参照。
+ * 中央だけをZ=0に置いて左右だけ手前へ出すと、重心がステージ中心より
+ * 手前へずれてしまう)。
+ */
+export const REPLY_TORII_SIDE_FORWARD_OFFSET = 2.2;
+/** 中央の大鳥居のZオフセット(ステージ中心から奥へ)。3体の重心を0にする値 */
+export const REPLY_TORII_CENTER_Z_OFFSET =
+  -(REPLY_TORII_SIDE_FORWARD_OFFSET * 2) / 3;
+/** 左右の宮島鳥居のZオフセット(ステージ中心から手前へ)。中央との間隔は上と同じ */
+export const REPLY_TORII_SIDE_Z_OFFSET =
+  REPLY_TORII_CENTER_Z_OFFSET + REPLY_TORII_SIDE_FORWARD_OFFSET;
+/**
+ * 左右の宮島鳥居の振り角(ラジアン)。真横(90°)ではなく斜めに、かつ
+ * くぐる向き(鳥居を貫く軸)が中央ではなく外側(ステージの外)を
+ * 向くようにする。SceneContents.tsx では左に -、右に + を掛けて
+ * 左右対称にする(左は外=-X側、右は外=+X側を向く)。
+ */
+export const REPLY_TORII_SIDE_ROTATION = Math.PI / 4;
+
+/**
+ * ステージ中央に置く大鳥居(torii gate)の高さ(ワールド単位)。
+ * ToriiGate.tsx 側でモデルを「scale=1で高さ1」に正規化してあるので、
+ * この値がそのまま scale prop になる。幅は高さの約1.38倍(実測)になるので
+ * 5.9ほど。
+ */
+export const REPLY_TORII_GATE_HEIGHT = 4.3;
+/** 上の大鳥居の高さぶん、ホログラムを持ち上げる基準にする(3体のうち一番高い) */
+const TORII_TOP_OFFSET = REPLY_TORII_GATE_HEIGHT;
 
 /**
  * ホログラム画面の縦幅。横幅は映像の実寸(1920x818 ≒ 2.35:1)から決まるので
- * 18.8 になる。星降る海(16:9で高さ9)より横長なぶん高さを1つ落としてある。
- * ReplyHologram.tsx と、上の REPLY_HOLOGRAM_Y の算出で共有する。
+ * 28.2 になる。ReplyHologram.tsx と、下の REPLY_HOLOGRAM_Y の算出で共有する。
  */
-export const HOLOGRAM_HEIGHT = 8;
+export const HOLOGRAM_HEIGHT = 12;
 /**
  * 鳥居の上端から画面の下辺までの間合い。星降る海(鳥居の上端から約5)より
  * 詰めてある: こちらは土台が江戸城のぶん塔が高く、同じだけ空けると
@@ -153,23 +202,25 @@ const HOLOGRAM_GAP = 2;
 export const REPLY_HOLOGRAM_Y =
   STAGE_Y + TORII_TOP_OFFSET + HOLOGRAM_GAP + HOLOGRAM_HEIGHT / 2;
 
-/** 塔の頂点 = ホログラム画面の上辺 */
-const TOWER_TOP_Y = REPLY_HOLOGRAM_Y + HOLOGRAM_HEIGHT / 2;
-
 /**
- * カメラの注視点。**ホログラムの中心ではなく、塔全体の構図の中心**にしてある。
+ * カメラの注視点 = **ホログラム画面の中心**。
  *
- * ホログラムを向かせると、画面が視野の真ん中に来る代わりに約26下の江戸城が
- * フレームから落ちてしまう(fov68°でも足りない)。ライブの画と同じく
- * 「上段にスクリーン・下段にステージと城」を1枚に収めたいので、
- * 水面からホログラムの上辺までの中点よりやや上=ステージの高さあたりを向く。
+ * camera.lookAt はここを画面のど真ん中に置くので、11秒以降のカメラワークは
+ * ホログラムを中心に据えたまま回る。以前は塔全体の構図の中心
+ * (水面〜ホログラム上辺の中点よりやや上=y約27)を向いていたが、それだと
+ * ホログラムが中心より18も上に外れ、回転の軸が天守の中ほどにあるように
+ * 見えてしまっていた。
+ *
+ * 代わりに、引きの画では江戸城の足元(石垣のあたり)がフレームの下から
+ * 外れる。両方を1枚に収めたいときは PATH 全体を遠ざける
+ * (ReplyCamera の DISTANCE_SCALE)か、低いキーフレームの高さを上げる。
  *
  * ReplyCamera はここを向き続け、PATH の距離もここを支点に伸縮する。
  * OrbitControls の target も同じ点。
  */
 export const REPLY_FOCUS: [number, number, number] = [
   REPLY_BASE_POSITION[0],
-  TOWER_TOP_Y * 0.55,
+  REPLY_HOLOGRAM_Y,
   REPLY_BASE_POSITION[2],
 ];
 

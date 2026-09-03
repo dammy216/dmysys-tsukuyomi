@@ -124,6 +124,8 @@ function usePreparedTorii(): PreparedTorii {
 
 type MiyajimaToriiProps = {
   position?: [number, number, number];
+  /** Y軸まわりの向き(ラジアン)。省略時は正面(通常の設置向き)のまま */
+  rotation?: [number, number, number];
   scale?: number;
   /**
    * 星降る海の進行度(0〜1)を持つ ref。鳥居の発光強度をここに連動させる。
@@ -146,6 +148,7 @@ type MiyajimaToriiProps = {
  */
 export function MiyajimaTorii({
   position = [0, 0, 0],
+  rotation = [0, 0, 0],
   scale = 1,
   glowRef,
   dimRef,
@@ -171,7 +174,14 @@ export function MiyajimaTorii({
     });
   });
 
-  return <primitive object={scene} position={position} scale={scale} />;
+  return (
+    <primitive
+      object={scene}
+      position={position}
+      rotation={rotation}
+      scale={scale}
+    />
+  );
 }
 
 useGLTF.preload(MODEL_PATH);

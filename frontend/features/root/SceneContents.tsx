@@ -37,12 +37,18 @@ import {
 import {
   CastleAssembly,
   ConcertStage,
+  CornerTowers,
   EdoCastle,
   ReplyCamera,
   ReplyHologram,
   StageBeams,
+  ToriiGate,
+  CASTLE_HALF_DEPTH,
+  CASTLE_HALF_WIDTH,
+  CASTLE_TOP_Y,
   REPLY_BASE_POSITION,
   REPLY_BUILD_END_SECONDS,
+  REPLY_CASTLE_BUILD_END_SECONDS,
   REPLY_FADE_SECONDS,
   REPLY_FLASH_EXPOSURE,
   REPLY_FLASH_SECONDS,
@@ -52,7 +58,12 @@ import {
   REPLY_HOLOGRAM_Y,
   REPLY_OUTRO_FADE_SECONDS,
   REPLY_OUTRO_LEAD_SECONDS,
-  REPLY_TORII_SCALE,
+  REPLY_TORII_CENTER_Z_OFFSET,
+  REPLY_TORII_GATE_HEIGHT,
+  REPLY_TORII_SIDE_OFFSET,
+  REPLY_TORII_SIDE_ROTATION,
+  REPLY_TORII_SIDE_SCALE,
+  REPLY_TORII_SIDE_Z_OFFSET,
   STAGE_Y,
 } from "@/features/reply";
 import { Water } from "./Water";
@@ -90,6 +101,55 @@ const FOCUS_TARGET: [number, number, number] = [0, 3, -2];
 const SCREEN_FOCUS: [number, number, number] = [0, 14, -2];
 /** 通常モード(星降る海OFF)でのOrbitControlsの注視点。鳥居の中ほど */
 const NORMAL_ORBIT_TARGET: [number, number, number] = [0, 2, -2];
+
+/**
+ * Replyが終わったとき、天守のまわりに集まった灯籠が水面へ戻るのにかける秒数。
+ * replyBuildRef は reply を止めた瞬間に0へ飛ぶ(天守の組み上げ演出はそれで
+ * 問題ないが、灯籠がワープして見えると目立つ)ので、戻すときだけこの秒数で
+ * ゆっくり追従させる(下の lanternGatherRef 参照)。
+ */
+const LANTERN_GATHER_RELEASE_SECONDS = 3;
+
+/**
+ * 灯籠の総数。Lanterns.tsx 側のデフォルト(900)より増やす指定なので、
+ * root(この SceneContents.tsx)側で明示的に渡す(Lanterns 自体のデフォルト
+ * は変えない)。
+ */
+const LANTERN_COUNT = 1200;
+
+/**
+ * 灯籠が Reply 中に集まる輪(天守を取り囲む位置)。
+ *
+ * 半径の下限は0にしてある(=天守のすぐ際まで、輪ではなく塗りつぶした円に
+ * 近い分布)。以前は外壁の外側にだけ帯を作っていたが、それだと天守の
+ * まわりだけ灯籠が来ない「堀」のような空白ができ、避けているように
+ * 見えてしまっていた。近すぎて天守の中に来た分は、そのぶん天守の
+ * 不透明なメッシュに隠れるだけなので見た目上の問題にはならない。
+ */
+const LANTERN_GATHER_RADIUS_MIN = 0;
+const LANTERN_GATHER_RADIUS_MAX =
+  Math.max(CASTLE_HALF_WIDTH, CASTLE_HALF_DEPTH) * 2.3;
+/*
+  高さの下限は水面すれすれ(0.5)まで下げてある。4くらいまで上げると
+  水面〜そこまでの帯に1個も灯籠が来ず、円柱の下端だけ切れて浮いているように
+  見えてしまう(下限を上げるほど、その高さより下は完全な空白になる)。
+*/
+const LANTERN_GATHER_HEIGHT_MIN = 0.5;
+const LANTERN_GATHER_HEIGHT_MAX = CASTLE_TOP_Y + 24;
+
+/**
+ * 11秒を過ぎてカメラが引く(ReplyCamera の PATH)のに合わせて、灯籠の輪を
+ * さらに広げた状態。PATH は塔全体(高さ約30、ホログラムまで)を大きく
+ * 回り込むので、11秒直後の輪(LANTERN_GATHER_*)のままだと引いた画では
+ * 画面の隅に小さく寄るだけになる。塔の高さ・PATHの間合いより一回り大きく
+ * 取り、引いた画でも画面いっぱいに灯籠がある見た目にする。
+ */
+// 下限は0。理由は LANTERN_GATHER_RADIUS_MIN のコメント参照
+const LANTERN_EXPAND_RADIUS_MIN = 0;
+const LANTERN_EXPAND_RADIUS_MAX = 60;
+// 下限は水面すれすれ(0.5)。理由は LANTERN_GATHER_HEIGHT_MIN のコメント参照
+const LANTERN_EXPAND_HEIGHT_MIN = 0.5;
+const LANTERN_EXPAND_HEIGHT_MAX = REPLY_HOLOGRAM_Y + 40;
 
 
 /**
@@ -198,11 +258,27 @@ export function SceneContents({
   */
   const replyActivationRef = useRef(0);
   /*
-    天守の組み上げ進行度(0〜1)。押した瞬間から REPLY_BUILD_SECONDS かけて
-    0→1 まで上がり、江戸城が下から生成される(飛来ブロックは CastleAssembly、
-    切り落とし＋発光帯は EdoCastle のシェーダー)。これも毎フレーム変わるので ref。
+    組み上げ進行度(0〜1)。押した瞬間から REPLY_BUILD_END_SECONDS(11秒)かけて
+    0→1 まで上がる。隅櫓(CornerTowers)・隅櫓ぶんの飛来ブロック・灯籠の集合・
+    レンズ効果・11秒の閃光トリガーなど、天守本体**以外**の「11秒を基準にする」
+    ものはこれを使う。毎フレーム変わるので ref。
   */
   const replyBuildRef = useRef(0);
+  /*
+    天守**本体**だけの組み上げ進行度(0〜1)。REPLY_CASTLE_BUILD_END_SECONDS
+    (11秒-0.8=10.2秒)かけて0→1になる別の ref。指定で「天守のブロックが
+    飛来する演出だけ0.8秒早く終わらせる、周りはそのまま」なので、
+    EdoCastle のシェーダーと CastleAssembly の天守ぶんのブロックだけこちらを
+    渡し、隅櫓・カメラの引き・照明点灯は上の replyBuildRef(11秒)のまま触らない。
+  */
+  const replyCastleBuildRef = useRef(0);
+  /*
+    灯籠が天守のまわりへ集まる進み具合(0〜1)。指定で「11秒に向けて集まる」
+    なので replyBuildRef(=曲の再生位置/11秒)の立ち上がりをそのまま使うが、
+    reply を止めたときは replyBuildRef のように0へ瞬断せず、
+    LANTERN_GATHER_RELEASE_SECONDS かけてゆっくり水面へ戻す(下のuseFrame参照)。
+  */
+  const lanternGatherRef = useRef(0);
   /*
     ステージ・鳥居・ホログラム用の進行度(0〜1)。天守が STAGE_IN_FROM まで
     組み上がってから 0→1 へ上げる。組み上げと同時に出すと、まだ何も無い空中に
@@ -485,6 +561,11 @@ export function SceneContents({
         Math.max(replyTime / REPLY_BUILD_END_SECONDS, 0),
         1,
       );
+      // 天守本体だけ0.8秒早く終わる別の進行度(上の replyCastleBuildRef のコメント参照)
+      replyCastleBuildRef.current = Math.min(
+        Math.max(replyTime / REPLY_CASTLE_BUILD_END_SECONDS, 0),
+        1,
+      );
       const sinceEnd = replyTime - REPLY_BUILD_END_SECONDS;
       replyPullbackRef.current = Math.min(
         Math.max(sinceEnd / REPLY_PULLBACK_SECONDS, 0),
@@ -496,8 +577,23 @@ export function SceneContents({
       );
     } else {
       replyBuildRef.current = 0;
+      replyCastleBuildRef.current = 0;
       replyPullbackRef.current = 0;
       replyLightsRef.current = 0;
+    }
+
+    /*
+      灯籠の集合(Lanterns.tsx の gatherRef)。上がるときは replyBuildRef と
+      まったく同じ値(=11秒に向けてリアルタイムに追従)。下がるとき(reply終了)
+      だけ LANTERN_GATHER_RELEASE_SECONDS で緩めて、replyBuildRef の瞬断を隠す。
+    */
+    if (replyBuildRef.current >= lanternGatherRef.current) {
+      lanternGatherRef.current = replyBuildRef.current;
+    } else {
+      lanternGatherRef.current = Math.max(
+        lanternGatherRef.current - delta / LANTERN_GATHER_RELEASE_SECONDS,
+        replyBuildRef.current,
+      );
     }
 
     /*
@@ -587,9 +683,14 @@ export function SceneContents({
         自己発光のビームだけが残る「真っ黒画面」になっていた)。
       */}
       <Suspense fallback={<color attach="background" args={["#1c2540"]} />}>
-        {/* 演出モード(星降る海 / Reply)の間は、夕暮れを選んでいても夜空に切り替える */}
+        {/*
+          演出モード(星降る海 / Reply)の間は、夕暮れを選んでいても夜空に
+          切り替える。Reply だけはオーロラ(aurora-vertical)ではなく
+          nightsky-vertical(下半分は黒画像)を使う専用の "reply" バリアント
+          (SkyBackground.tsx 参照)。
+        */}
         <SkyBackground
-          variant={starfallPlaying || replyPlaying ? "night" : skyVariant}
+          variant={replyPlaying ? "reply" : starfallPlaying ? "night" : skyVariant}
         />
         {/*
           映像の鳥居は根本が橙色、上に行くほど赤みが強い発光をしている。
@@ -676,13 +777,27 @@ export function SceneContents({
             <EdoCastle
               position={REPLY_BASE_POSITION}
               activationRef={replyActivationRef}
-              buildRef={replyBuildRef}
+              buildRef={replyCastleBuildRef}
               lightsRef={replyLightsRef}
             />
-            {/* 天守を組み上げる飛来ブロック。組み上がりきると全部消える */}
+            {/*
+              天守を組み上げる飛来ブロック。天守ぶんは replyCastleBuildRef
+              (0.8秒早く終わる)、隅櫓ぶんは従来どおり replyBuildRef で分けている。
+            */}
             <CastleAssembly
               position={REPLY_BASE_POSITION}
+              buildRef={replyCastleBuildRef}
+              towerBuildRef={replyBuildRef}
+            />
+            {/*
+              江戸城の四隅に立つ隅櫓。天守本体とは違い、こちらは従来どおり
+              replyBuildRef(11秒)のまま(指定で「周りは今のまま」)。
+            */}
+            <CornerTowers
+              position={REPLY_BASE_POSITION}
               buildRef={replyBuildRef}
+              activationRef={replyActivationRef}
+              lightsRef={replyLightsRef}
             />
             {/*
               曲が11秒に達した瞬間、背後から放射状に伸びるサーチライトが点く。
@@ -706,12 +821,45 @@ export function SceneContents({
                 activationRef={replyStageRef}
               />
               {/*
-                ステージに載せる鳥居。地上の鳥居と同じ発光シェーダーを使うが、
-                転調の概念が無いので dimRef は渡さない(常に減光なし)。
+                ステージに載せる鳥居は3つ。中央奥に主役の大鳥居(ToriiGate)、
+                手前の左右に宮島鳥居(小)を斜めに置く指定。左右は中心から
+                X(REPLY_TORII_SIDE_OFFSET)だけ離し、Zは3体の重心がステージ
+                (甲板)の中心に来るよう REPLY_TORII_CENTER_Z_OFFSET(中央・奥)/
+                REPLY_TORII_SIDE_Z_OFFSET(左右・手前)に振り分けてある
+                (constants.ts のコメント参照。中央をZ=0に置いたままだと
+                重心が手前へずれる)。くぐる向き(鳥居を貫く軸)がステージの
+                外側を向くよう REPLY_TORII_SIDE_ROTATION ぶん振ってある
+                (左鳥居は外=-X側、右鳥居は外=+X側を向く)。
+                地上の鳥居と同じ発光シェーダーを使うが、転調の概念が無いので
+                dimRef は渡さない(常に減光なし)。
               */}
               <MiyajimaTorii
-                position={[REPLY_BASE_POSITION[0], STAGE_Y, REPLY_BASE_POSITION[2]]}
-                scale={REPLY_TORII_SCALE}
+                position={[
+                  REPLY_BASE_POSITION[0] - REPLY_TORII_SIDE_OFFSET,
+                  STAGE_Y,
+                  REPLY_BASE_POSITION[2] + REPLY_TORII_SIDE_Z_OFFSET,
+                ]}
+                rotation={[0, -REPLY_TORII_SIDE_ROTATION, 0]}
+                scale={REPLY_TORII_SIDE_SCALE}
+                glowRef={replyStageRef}
+              />
+              <ToriiGate
+                position={[
+                  REPLY_BASE_POSITION[0],
+                  STAGE_Y,
+                  REPLY_BASE_POSITION[2] + REPLY_TORII_CENTER_Z_OFFSET,
+                ]}
+                scale={REPLY_TORII_GATE_HEIGHT}
+                glowRef={replyStageRef}
+              />
+              <MiyajimaTorii
+                position={[
+                  REPLY_BASE_POSITION[0] + REPLY_TORII_SIDE_OFFSET,
+                  STAGE_Y,
+                  REPLY_BASE_POSITION[2] + REPLY_TORII_SIDE_Z_OFFSET,
+                ]}
+                rotation={[0, REPLY_TORII_SIDE_ROTATION, 0]}
+                scale={REPLY_TORII_SIDE_SCALE}
                 glowRef={replyStageRef}
               />
               <ReplyHologram
@@ -726,8 +874,31 @@ export function SceneContents({
             </group>
           </>
         )}
-        {/* 灯ろうは演出モード中は魚の渦・城と喧嘩するので隠す */}
-        {!starfallVisible && !replyVisible && <Lanterns />}
+        {/*
+          灯ろうは星降る海の間は魚の渦と喧嘩するので隠す。Reply中は隠さず、
+          gatherRef(lanternGatherRef)で11秒に向けて天守を取り囲む輪の中へ
+          集まらせ(頂上の一点に集中させず周囲を囲む見た目にする指定。
+          LANTERN_GATHER_* 定数のコメント参照)、expandRef(replyPullbackRef)で
+          そのあとカメラが引くのに合わせて輪をさらに広げる
+          (引いた画でも画面いっぱいに灯籠がある見た目にする指定。
+          LANTERN_EXPAND_* 定数のコメント参照)。
+        */}
+        {!starfallVisible && (
+          <Lanterns
+            count={LANTERN_COUNT}
+            gatherRef={lanternGatherRef}
+            gatherCenter={[REPLY_BASE_POSITION[0], REPLY_BASE_POSITION[2]]}
+            gatherRadiusMin={LANTERN_GATHER_RADIUS_MIN}
+            gatherRadiusMax={LANTERN_GATHER_RADIUS_MAX}
+            gatherHeightMin={LANTERN_GATHER_HEIGHT_MIN}
+            gatherHeightMax={LANTERN_GATHER_HEIGHT_MAX}
+            expandRef={replyPullbackRef}
+            expandRadiusMin={LANTERN_EXPAND_RADIUS_MIN}
+            expandRadiusMax={LANTERN_EXPAND_RADIUS_MAX}
+            expandHeightMin={LANTERN_EXPAND_HEIGHT_MIN}
+            expandHeightMax={LANTERN_EXPAND_HEIGHT_MAX}
+          />
+        )}
         <Water />
       </Suspense>
 

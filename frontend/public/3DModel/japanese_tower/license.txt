@@ -1,0 +1,11 @@
+Model Information:
+* title:	Japanese Tower
+* source:	https://sketchfab.com/3d-models/japanese-tower-e09244dc5ca84b7b98e9bdbe6ae99c69
+* author:	florenciocristan77 (https://sketchfab.com/florenciocristan77)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Japanese Tower" (https://sketchfab.com/3d-models/japanese-tower-e09244dc5ca84b7b98e9bdbe6ae99c69) by florenciocristan77 (https://sketchfab.com/florenciocristan77) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

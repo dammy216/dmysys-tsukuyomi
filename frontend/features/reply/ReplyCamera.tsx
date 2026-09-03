@@ -34,12 +34,35 @@ const BASE = new Vector3(...REPLY_BASE_POSITION);
  */
 const BUILD_ORBIT_RADIUS_FROM = 40;
 const BUILD_ORBIT_RADIUS_TO = 11.5;
-/** 周回の高さ。水面近くから始めて、組み上がりに合わせて上がる */
-const BUILD_ORBIT_Y_FROM = 2.5;
-const BUILD_ORBIT_Y_TO = CASTLE_TOP_Y + 2;
-/** 見る先の高さ。組み上げ面を追いかけるように上げていく */
-const BUILD_LOOK_Y_FROM = 1;
-const BUILD_LOOK_Y_TO = CASTLE_TOP_Y * 0.85;
+/**
+ * 周回の高さ。組み上がりに合わせて上がっていく。
+ *
+ * FROM は水面すれすれ(2.5)ではなく、天守の高さ(36)の1/3ほどの位置から
+ * 始める。低い位置から見上げると、飛来するブロックと石垣が重なって
+ * 何が起きているのか読み取りにくい。少し上から見下ろすことで、
+ * ブロックが四方から集まってくる広がりが最初から見える。
+ *
+ * TO は**ステージの甲板より少しだけ上**。11秒でステージ・鳥居・ホログラムが
+ * 一斉に点くので、そこを見下ろす位置に居ると、せっかく現れたステージを
+ * 上から潰した画になってしまう。甲板とほぼ同じ高さに着けておくことで、
+ * ステージをほぼ真正面から(甲板の面が少し見える程度の伏角で)とらえる。
+ */
+const BUILD_ORBIT_Y_FROM = 12;
+const BUILD_ORBIT_Y_TO = STAGE_Y + 2;
+/**
+ * 見る先の高さ。組み上げ面を追いかけるように上げていく。
+ * カメラを上げたぶん FROM も上げて、見下ろす角度が付きすぎないようにする。
+ */
+const BUILD_LOOK_Y_FROM = 5;
+/**
+ * 組み上がりきる11秒ちょうどの注視点 = ステージの甲板の高さ。
+ *
+ * camera.lookAt はここを画面のど真ん中に置くので、照明が一斉に点く11秒の
+ * 瞬間、ステージがちょうど中央に来る。天守の途中(CASTLE_TOP_Y*0.85)を
+ * 向いていた頃はステージが中央より10度ほど上に外れていた。
+ * 11秒を過ぎると注視点は下の FOCUS(塔全体の構図の中心)へ移っていく。
+ */
+const BUILD_LOOK_Y_TO = STAGE_Y;
 /**
  * 組み上げ中に回る周回数。ちょうど1周。
  * 開始角と合わせて「正面から入って1周して正面へ戻る」ので、11秒の直前には
@@ -116,6 +139,30 @@ const PATH: Keyframe[] = [
  */
 const DISTANCE_SCALE = 1.15;
 
+/**
+ * 11秒の引き(pullback 0→1)のうち、**位置**の移動をどこまでで終わらせるか
+ * (0〜1、pullback に対する割合)。
+ *
+ * 以前は位置(周回位置→PATH位置)と見る先(天守の途中→ホログラム)を同じ
+ * handoff で同時に動かしていたため、後ろへ引きながら同時に見る先も
+ * ホログラムへ持ち上がっていき、「引いているのに視線が上へ流れる」
+ * 素直でない動きになっていた。位置をこの割合までで先に終わらせ、
+ * 見る先は下の LOOK_TRANSITION_SECONDS で改めてゆっくり動かすことで、
+ * 「まず真後ろへ引く」→「引ききってからホログラムへ向き直す」の
+ * 2拍に分ける。
+ */
+const PULLBACK_POSITION_END = 0.5;
+/**
+ * 見る先(天守の途中→ホログラム)の向き直りにかける秒数。
+ *
+ * **REPLY_PULLBACK_SECONDS(位置が引ききるまでの時間。現状0.4秒とかなり短い)
+ * とは独立**させてある。以前は pullback の残り割合をそのまま使っていたため、
+ * 位置の引きを速くするほど向き直りまで一緒に速くなり、「引いたら即座に
+ * ホログラムへ飛びつく」ような早さになっていた。ここだけ専用の秒数を持たせ、
+ * 位置をどれだけ速く引いても、向き直りは常にこの秒数でゆっくり進む。
+ */
+const LOOK_TRANSITION_SECONDS = 2.6;
+
 /** なめらかな加減速(ease-in-out)。等速で動くと機械的に見えるため */
 function smoothstep(x: number) {
   return x * x * (3 - 2 * x);
@@ -185,10 +232,19 @@ export function ReplyCamera({
   const look = useRef(new Vector3());
   const orbitPos = useRef(new Vector3());
   const orbitLook = useRef(new Vector3());
+  /**
+   * 見る先の向き直りが始まってからの経過秒数。位置が引ききる(posHandoff=1)
+   * までは0のまま、そこから毎フレーム delta を積む。LOOK_TRANSITION_SECONDS
+   * で正規化して lookHandoff を作る(下の useFrame 参照)。
+   */
+  const lookElapsed = useRef(0);
 
   // 入るたびに演出を頭から始める
   useEffect(() => {
-    if (active) elapsed.current = 0;
+    if (active) {
+      elapsed.current = 0;
+      lookElapsed.current = 0;
+    }
   }, [active]);
 
   useFrame((_, delta) => {
@@ -199,11 +255,34 @@ export function ReplyCamera({
     const build = buildRef?.current ?? 1;
 
     /*
-      組み上げ中の周回 → PATH への引き継ぎ具合(0=周回のみ, 1=PATHのみ)。
-      曲が11秒に達してから立ち上がる pullback をそのまま使う
-      (SceneContents 側で 0→1 を作っている)。
+      組み上げ中の周回 → PATH への引き継ぎ。曲が11秒に達してから
+      REPLY_PULLBACK_SECONDS かけて 0→1 で立ち上がる pullback
+      (SceneContents 側で作る)を、位置用と見る先用の2つに分けて使う。
+
+      posHandoff: 周回位置→PATH位置(0=周回のみ, 1=PATHのみ)。
+      PULLBACK_POSITION_END までで先に1へ到達させ、「まず真後ろへ引く」を作る。
     */
-    const handoff = smoothstep(pullbackRef?.current ?? 1);
+    const pullback = pullbackRef?.current ?? 1;
+    const posHandoff = smoothstep(
+      Math.min(Math.max(pullback / PULLBACK_POSITION_END, 0), 1),
+    );
+
+    /*
+      lookHandoff: 見る先(天守の途中)→ホログラム。位置が引ききる
+      (posHandoff=1)までは lookElapsed を貯めない=0のまま見る先も
+      動かさない。引ききった瞬間から時間を積み、LOOK_TRANSITION_SECONDS で
+      正規化する。pullback の残り時間ではなく独立した秒数で動くので、
+      REPLY_PULLBACK_SECONDS(位置の速さ)をどう変えても向き直りの速さは
+      変わらない。
+    */
+    if (posHandoff >= 1) {
+      lookElapsed.current += delta;
+    } else {
+      lookElapsed.current = 0;
+    }
+    const lookHandoff = smoothstep(
+      Math.min(lookElapsed.current / LOOK_TRANSITION_SECONDS, 1),
+    );
 
     /*
       天守のまわりの周回。BUILD_HOLD の間は正面の遠くで止まったまま
@@ -232,22 +311,28 @@ export function ReplyCamera({
     );
 
     /*
-      通常の PATH。handoff を掛けて進めるので、引き継ぎが始まるまでは
-      頭(t=0)で止まったまま = 引き継いだ瞬間から動き出す。
+      通常の PATH。posHandoff を掛けて進めるので、引き継ぎが始まるまでは
+      頭(t=0)で止まったまま = 引き継いだ瞬間から動き出す。PATH の時間経過は
+      位置の話なので、見る先の lookHandoff ではなく posHandoff で駆動する。
     */
-    elapsed.current += delta * handoff;
+    elapsed.current += delta * posHandoff;
     const t = (elapsed.current % CYCLE_SECONDS) / CYCLE_SECONDS;
     samplePath(t, pos.current);
 
     // 手持ちカメラ風の細かい揺れ。周回中は入れない(意図した動きを濁らせるため)
-    const shake = activation * 0.35 * handoff;
+    const shake = activation * 0.35 * posHandoff;
     const st = elapsed.current;
     pos.current.x += Math.sin(st * 2.7) * shake;
     pos.current.y += Math.sin(st * 3.4 + 1.1) * shake * 0.6;
 
-    // 周回 → PATH を合成する。見る先も天守の中ほどからホログラムへ移る
-    pos.current.lerp(orbitPos.current, 1 - handoff);
-    look.current.copy(orbitLook.current).lerp(FOCUS, handoff);
+    /*
+      周回 → PATH を合成する。位置は posHandoff、見る先は lookHandoff と
+      別々の進み具合で動かす(上のコメント参照)。これで「引いている間は
+      見る先を動かさず真後ろへ引き、引ききってからホログラムへ向き直る」
+      という2拍の動きになる。
+    */
+    pos.current.lerp(orbitPos.current, 1 - posHandoff);
+    look.current.copy(orbitLook.current).lerp(FOCUS, lookHandoff);
 
     /*
       塔の軸から最低限の距離を確保する。
@@ -286,6 +371,9 @@ export function ReplyCamera({
     /*
       演出の立ち上がり中は現在位置から徐々に寄せる(切り替えた瞬間に飛ばない)。
       係数は delta からの指数減衰にして、fps が変わっても同じ速さで寄るようにする。
+      (向き=camera.lookAt はここでは平滑化しない。lookHandoff 自体が
+      smoothstep で滑らかなので、ここでさらに遅らせると向き直りがもたついて
+      見える)
     */
     const follow = 1 - Math.exp(-FOLLOW_RATE * delta * Math.min(activation, 1));
     camera.position.lerp(pos.current, follow);
