@@ -4,12 +4,11 @@
  */
 
 /**
- * ホログラムに映すライブ映像(CPK - Reply v2)。音声トラック付きで、
- * その音を鳴らす(ボーカルステムを重ねる)。長さ 約127.5秒 /
- * 1920x818(≒2.35:1 のシネスコ)。
+ * ホログラムに映すライブ映像(CPK - Reply)。音声トラック付きで、その音を鳴らす。
+ * 長さ 約127.5秒 / 1920x1080(16:9)。
  */
-export const REPLY_VIDEO_SRC = "/videos/replyv2.mp4";
-/** ボーカルのみのステム。映像に重ねて鳴らし、かぐやの口パクの振幅もここから取る */
+export const REPLY_VIDEO_SRC = "/videos/reply.mp4";
+/** ボーカルのみのステム。無音で回してかぐやの口パクの振幅解析にだけ使う */
 export const REPLY_VOCALS_SRC = encodeURI(
   "/sounds/Reply-vocals-C major-170bpm-440hz.m4a",
 );
@@ -183,8 +182,8 @@ export const REPLY_TORII_GATE_HEIGHT = 4.3;
 const TORII_TOP_OFFSET = REPLY_TORII_GATE_HEIGHT;
 
 /**
- * ホログラム画面の縦幅。横幅は映像の実寸(1920x818 ≒ 2.35:1)から決まるので
- * 18.8 になる。星降る海(16:9で高さ9)より横長なぶん高さを1つ落としてある。
+ * ホログラム画面の縦幅。横幅は映像の実寸(1920x1080 = 16:9)から決まるので
+ * 約14.2 になる。星降る海(16:9で高さ9)と同じ比率で、少し小さめ。
  * ReplyHologram.tsx と、上の REPLY_HOLOGRAM_Y の算出で共有する。
  */
 export const HOLOGRAM_HEIGHT = 8;

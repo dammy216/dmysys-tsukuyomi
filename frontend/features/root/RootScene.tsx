@@ -35,9 +35,8 @@ export function RootScene() {
   } = useStarfallSong(starfallSea);
 
   /*
-    Reply の映像と音。構成は星降る海と同じだが、歌うのはかぐやなので
-    ボーカルの音量はかぐやの口パクに使う。映像(CPK)は元から音声トラックを
-    持たないので、音は必ずステム側から鳴る。
+    Reply の映像と音。replyv3 は音声トラック付きなので音は映像から鳴る。
+    ボーカルステムは無音で回して、その音量解析をかぐやの口パクに使うだけ。
   */
   const {
     videoRef: replyVideoRef,

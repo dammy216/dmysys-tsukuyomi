@@ -2,7 +2,7 @@
 
 import {
   PiArrowsOutCardinalBold,
-  PiCastleTurretBold,
+  PiEnvelopeBold,
   PiEyeBold,
   PiEyeSlashBold,
   PiMoonStarsBold,
@@ -202,7 +202,7 @@ export function ControlBar({
             onClick={onToggleReply}
             aria-pressed={reply}
           >
-            <PiCastleTurretBold size={16} />
+            <PiEnvelopeBold size={16} />
             Reply
           </button>
           {/* 演出モード中だけ意味を持つカメラ切替。それ以外は押せなくする */}

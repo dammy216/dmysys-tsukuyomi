@@ -24,9 +24,9 @@ const SYNC_INTERVAL = 1000;
 /**
  * 「Reply」の再生をまとめて受け持つ。
  *
- * - 映像を流し、音は映像トラック＋ボーカルステム(重ねて鳴らす)
- * - ボーカルを基準時計にして、映像のずれを定期的に直す
- * - ボーカルを解析につないで、かぐやの口パク用の振幅を取り出す
+ * - 映像を流し、音は映像トラックのみ(replyv3 は音声付き)
+ * - ボーカルステムは無音(gain 0)で一緒に回し、解析からかぐやの口パク用の
+ *   振幅を取り出す。基準時計はボーカルで、映像のずれを定期的に直す
  *
  * ループは映像の ended で回す。ボーカルステム(269.3秒)は映像より長いので、
  * 映像が終わった時点でステムも止める = 超えた分がカットされる。
@@ -47,9 +47,10 @@ export function useReplySong(active: boolean) {
   const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const wiredRef = useRef(false);
   /*
-    録画用の音声出力。ボーカルステムをここへも流し、getCaptureStream() で
-    MediaRecorder に渡せる音声トラックにする(3D画面キャプチャと合成する)。
-    映像の音声は要素そのままの出力なので、録画には別途 captureStream から乗る。
+    録画用の音声出力。現状 Reply の音は映像要素そのままの出力で Web Audio を
+    通っていない(ボーカルステムは無音の解析専用)。なので録画音声はここに
+    乗らず、getCaptureStream() は null を返す = Reply の録画は音声なしになる。
+    録画に音を乗せるなら映像を Web Audio 経由にしてここへ繋ぐ必要がある。
   */
   const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
@@ -85,29 +86,20 @@ export function useReplySong(active: boolean) {
   }, []);
 
   /**
-   * ボーカルステムを Web Audio グラフへつなぐ。
+   * ボーカルステムを Web Audio グラフへつなぐ。口パクの振幅解析専用で、
+   * **音は出さない**(gain 0)。
    * createMediaElementSource は1つの要素につき一度しか呼べないので、
    * wiredRef で二重配線を防ぐ(useStarfallSong と同じ構成)。
    *
    * グラフ:
-   *   vocals → analyser ─┬→ ctx.destination (スピーカー)
-   *                       └→ captureDest     (録画)
-   * analyser を通すのは口パクの振幅を取るため。
+   *   vocals → analyser → gain(0) → ctx.destination
+   *     gain 0 で無音。ただし destination まで繋がないと一部ブラウザが
+   *     この枝の音声を pull せず解析値が 0 のままになるため、繋ぐ。
+   *     要素の muted は使わない(muted だと MediaElementSource のタップまで
+   *     無音になって解析できない)。
    */
   const wireAnalyser = useCallback(() => {
-    /*
-      HMR 等で「グラフはあるが録画用の出力(captureDest)だけ無い」状態に
-      なることがある。その場合は既存グラフへ captureDest を足すだけにする。
-    */
-    if (wiredRef.current) {
-      const ctx = audioCtxRef.current;
-      if (ctx && !captureDestRef.current) {
-        const captureDest = ctx.createMediaStreamDestination();
-        analyserRef.current?.connect(captureDest);
-        captureDestRef.current = captureDest;
-      }
-      return;
-    }
+    if (wiredRef.current) return;
 
     const vocals = vocalsRef.current;
     if (!vocals) return;
@@ -122,15 +114,15 @@ export function useReplySong(active: boolean) {
     const vocalsSource = ctx.createMediaElementSource(vocals);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
-    const captureDest = ctx.createMediaStreamDestination();
+    const silentGain = ctx.createGain();
+    silentGain.gain.value = 0;
 
     vocalsSource.connect(analyser);
-    analyser.connect(ctx.destination);
-    analyser.connect(captureDest);
+    analyser.connect(silentGain);
+    silentGain.connect(ctx.destination);
 
     audioCtxRef.current = ctx;
     analyserRef.current = analyser;
-    captureDestRef.current = captureDest;
     dataRef.current = new Uint8Array(new ArrayBuffer(analyser.fftSize));
     wiredRef.current = true;
   }, []);
@@ -163,8 +155,24 @@ export function useReplySong(active: boolean) {
       // 前の周で速度微調整が残っていることがあるので必ず戻す
       video.playbackRate = 1;
       vocals.currentTime = 0;
-      video.play().catch(() => {});
-      vocals.play().catch(() => {});
+      vocals.pause();
+      /*
+        vocals は「映像が実際に鳴り始めてから」開始する。
+        replyv2 は 245MB あり、初回はバッファ／デコードで数十〜数百ms出遅れる。
+        同じ tick で両方 play() すると軽い vocals ステムだけ先に鳴り、
+        歌が二重に前ズレして聞こえる。play() の解決を待って、そのときの
+        映像位置へ vocals を合わせてから鳴らす。
+      */
+      video
+        .play()
+        .then(() => {
+          vocals.currentTime = video.currentTime;
+          vocals.play().catch(() => {});
+        })
+        .catch(() => {
+          // 映像の再生が拒否されたら(通常起きない)ひとまず vocals だけでも回す
+          vocals.play().catch(() => {});
+        });
       setPlaying(true);
     };
 

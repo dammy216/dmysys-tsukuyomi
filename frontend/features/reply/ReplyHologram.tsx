@@ -20,12 +20,12 @@ import {
 } from "./constants";
 
 /**
- * 画面の縦幅。横幅は映像の実寸(1920x818 ≒ 2.347:1)に合わせる。
+ * 画面の縦幅。横幅は映像の実寸(1920x1080 = 16:9)に合わせる。
  * 高さは constants 側と共有する(REPLY_HOLOGRAM_Y の算出にも使うため、
  * ここで別に持つとズレて鳥居との間合いが狂う)。
  */
 const SCREEN_HEIGHT = HOLOGRAM_HEIGHT;
-const SCREEN_ASPECT = 1920 / 818;
+const SCREEN_ASPECT = 1920 / 1080;
 const SCREEN_WIDTH = SCREEN_HEIGHT * SCREEN_ASPECT;
 
 /** ふわりと上下する幅と速さ。完全に静止しているとパネルが置物に見える */
