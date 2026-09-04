@@ -1,0 +1,332 @@
+{
+  "source": "frontend/public/videos/reply.mp4",
+  "title": "Reply — 超かぐや姫 ライブシーン",
+  "duration": 127.467,
+  "grid": {
+    "bpm": 170.0,
+    "beat_seconds": 0.35294117647058826,
+    "bar_seconds": 1.411764705882353,
+    "beat_offset": 0.0219,
+    "bar_origin_note": "小節頭の位相は音源から一意に決まらない。SKILL.md §2.3 参照。",
+    "measured_bpm_candidates": [
+      169.965,
+      170.13,
+      170.15
+    ],
+    "total_bars_approx": 90.2
+  },
+  "anchors": {
+    "music_start": 0.392,
+    "intro_pulse": [
+      0.392,
+      3.219,
+      6.043,
+      8.867
+    ],
+    "intro_pulse_period_bars": 2,
+    "bass_entry": 11.05,
+    "fade_start": 121.3,
+    "silence": 127.37
+  },
+  "sections": [
+    {
+      "id": 0,
+      "name": "intro-A",
+      "label": "イントロ1（原調・静か）",
+      "start": 0.0,
+      "end": 11.05,
+      "bars": 7.83,
+      "start_bar": 0.98,
+      "rms_db": -18.43,
+      "bass_pct": 0.54,
+      "brightness": 0.158,
+      "cuts_per_s": 0.36
+    },
+    {
+      "id": 1,
+      "name": "intro-B",
+      "label": "イントロ2（転調・アップテンポ／ベース入り）",
+      "start": 11.05,
+      "end": 23.0,
+      "bars": 8.46,
+      "start_bar": 8.81,
+      "rms_db": -10.21,
+      "bass_pct": 0.815,
+      "brightness": 0.043,
+      "cuts_per_s": 0.25
+    },
+    {
+      "id": 2,
+      "name": "breath",
+      "label": "歌前の間（音が落ち着く）",
+      "start": 23.0,
+      "end": 27.5,
+      "bars": 3.19,
+      "start_bar": 17.28,
+      "rms_db": -12.55,
+      "bass_pct": 0.785,
+      "brightness": 0.031,
+      "cuts_per_s": 0.67
+    },
+    {
+      "id": 3,
+      "name": "A",
+      "label": "Aメロ",
+      "start": 27.5,
+      "end": 49.5,
+      "bars": 15.58,
+      "start_bar": 20.46,
+      "rms_db": -10.87,
+      "bass_pct": 0.664,
+      "brightness": 0.049,
+      "cuts_per_s": 0.59
+    },
+    {
+      "id": 4,
+      "name": "B",
+      "label": "Bメロ",
+      "start": 49.5,
+      "end": 62.0,
+      "bars": 8.85,
+      "start_bar": 36.05,
+      "rms_db": -10.18,
+      "bass_pct": 0.739,
+      "brightness": 0.05,
+      "cuts_per_s": 0.48
+    },
+    {
+      "id": 5,
+      "name": "SABI",
+      "label": "サビ",
+      "start": 62.0,
+      "end": 83.0,
+      "bars": 14.88,
+      "start_bar": 44.9,
+      "rms_db": -10.09,
+      "bass_pct": 0.733,
+      "brightness": 0.072,
+      "cuts_per_s": 1.29
+    },
+    {
+      "id": 6,
+      "name": "LATTER",
+      "label": "後半（落ちサビ〜大サビ）",
+      "start": 83.0,
+      "end": 107.0,
+      "bars": 17.0,
+      "start_bar": 59.78,
+      "rms_db": -10.07,
+      "bass_pct": 0.74,
+      "brightness": 0.072,
+      "cuts_per_s": 1.04
+    },
+    {
+      "id": 7,
+      "name": "outro",
+      "label": "アウトロ（イントロ2の再現）",
+      "start": 107.0,
+      "end": 121.3,
+      "bars": 10.13,
+      "start_bar": 76.78,
+      "rms_db": -10.11,
+      "bass_pct": 0.797,
+      "brightness": 0.044,
+      "cuts_per_s": 0.33
+    },
+    {
+      "id": 8,
+      "name": "fade",
+      "label": "フェードアウト",
+      "start": 121.3,
+      "end": 127.37,
+      "bars": 4.3,
+      "start_bar": 86.91,
+      "rms_db": -14.79,
+      "bass_pct": 0.886,
+      "brightness": 0.014,
+      "cuts_per_s": 0.0
+    }
+  ],
+  "lyrics": [
+    {
+      "t": 27.5,
+      "section": "A",
+      "text": "瞳　映る　静かな世界",
+      "bar": 20.46
+    },
+    {
+      "t": 33.5,
+      "section": "A",
+      "text": "なにを見てたんだろう",
+      "bar": 24.71
+    },
+    {
+      "t": 39.0,
+      "section": "A",
+      "text": "優しい思い出　ふさいだ鍵穴",
+      "bar": 28.61
+    },
+    {
+      "t": 45.0,
+      "section": "A",
+      "text": "さわれない　きみだけの彩",
+      "bar": 32.86
+    },
+    {
+      "t": 49.5,
+      "section": "B",
+      "text": "わがままになって いいの？",
+      "bar": 36.05
+    },
+    {
+      "t": 52.5,
+      "section": "B",
+      "text": "遊び過ぎちゃって いいよ！",
+      "bar": 38.17
+    },
+    {
+      "t": 55.0,
+      "section": "B",
+      "text": "どこにもないカラフル",
+      "bar": 39.94
+    },
+    {
+      "t": 59.0,
+      "section": "B",
+      "text": "つかまえよう…さぁ！",
+      "bar": 42.78
+    },
+    {
+      "t": 62.0,
+      "section": "SABI",
+      "text": "この一瞬が最高のパーティーなんだ",
+      "bar": 44.9
+    },
+    {
+      "t": 67.5,
+      "section": "SABI",
+      "text": "全部ぎゅっと憶えてようよ",
+      "bar": 48.8
+    },
+    {
+      "t": 70.5,
+      "section": "SABI",
+      "text": "まぶしい日を",
+      "bar": 50.92
+    },
+    {
+      "t": 72.5,
+      "section": "SABI",
+      "text": "ねぇ　もっとフザけて",
+      "bar": 52.34
+    },
+    {
+      "t": 75.5,
+      "section": "SABI",
+      "text": "夢だけ　シェアして",
+      "bar": 54.46
+    },
+    {
+      "t": 78.5,
+      "section": "SABI",
+      "text": "ありふれてる好きな物にずっとまみれて",
+      "bar": 56.59
+    },
+    {
+      "t": 83.0,
+      "section": "LATTER",
+      "text": "君といたあの部屋も電子の海も",
+      "bar": 59.78
+    },
+    {
+      "t": 90.0,
+      "section": "LATTER",
+      "text": "胸のなか　つめ込んで　タカラバコにしまおう",
+      "bar": 64.73
+    },
+    {
+      "t": 96.0,
+      "section": "LATTER",
+      "text": "ねぇ　もっとはしゃいで",
+      "bar": 68.98
+    },
+    {
+      "t": 98.0,
+      "section": "LATTER",
+      "text": "アンコールないのって",
+      "bar": 70.4
+    },
+    {
+      "t": 101.0,
+      "section": "LATTER",
+      "text": "おねだりして",
+      "bar": 72.53
+    },
+    {
+      "t": 104.0,
+      "section": "LATTER",
+      "text": "とびきり",
+      "bar": 74.65
+    },
+    {
+      "t": 106.0,
+      "section": "LATTER",
+      "text": "キラめいてうたおう",
+      "bar": 76.07
+    }
+  ],
+  "fade_curve": [
+    [
+      121.0,
+      0.93
+    ],
+    [
+      121.5,
+      0.86
+    ],
+    [
+      122.0,
+      0.74
+    ],
+    [
+      122.5,
+      0.74
+    ],
+    [
+      123.0,
+      0.61
+    ],
+    [
+      123.5,
+      0.59
+    ],
+    [
+      124.0,
+      0.54
+    ],
+    [
+      124.5,
+      0.35
+    ],
+    [
+      125.0,
+      0.33
+    ],
+    [
+      125.5,
+      0.23
+    ],
+    [
+      126.0,
+      0.19
+    ],
+    [
+      126.5,
+      0.1
+    ],
+    [
+      127.37,
+      0.0
+    ]
+  ]
+}
