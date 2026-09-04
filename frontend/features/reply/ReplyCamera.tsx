@@ -36,20 +36,20 @@ const BASE = new Vector3(...REPLY_BASE_POSITION);
  * それより寄せると水平距離クランプに引っかかって寄せの終盤で
  * カメラが急に押し戻される不自然な動きになる。
  */
-const BUILD_ORBIT_RADIUS_START = 70;
+const BUILD_ORBIT_RADIUS_START = 100;
 const BUILD_ORBIT_RADIUS_MID = 40;
 const BUILD_ORBIT_RADIUS_TO = 11.5;
 /**
  * Reply を押してから、前進を始めるまでの秒数。この間は正面の56で静止する
  * (組み上げ面が最初に生えてくる様子を、動かず見せる)。
  */
-const BUILD_HOLD_SECONDS = 3;
+const BUILD_HOLD_SECONDS = 2.5;
 /**
  * 静止のあと、前進(START→MID)にかける秒数。ここもまだ回転はしない。
  * 天守は幅12.9なので、寄り切ると石垣が画面いっぱいに来る。
  * 引いて全景を見せるのは11秒以降(DRONE_PATH)の役目。
  */
-const BUILD_DOLLY_SECONDS = 3;
+const BUILD_DOLLY_SECONDS = 3.5;
 /** 上2つを build(0〜1) の割合に換算したもの */
 const BUILD_HOLD_FRACTION = BUILD_HOLD_SECONDS / REPLY_BUILD_END_SECONDS;
 const BUILD_DOLLY_FRACTION = BUILD_DOLLY_SECONDS / REPLY_BUILD_END_SECONDS;
@@ -68,7 +68,13 @@ const BUILD_ORBIT_START_FRACTION = BUILD_HOLD_FRACTION + BUILD_DOLLY_FRACTION;
  * 上から潰した画になってしまう。甲板とほぼ同じ高さに着けておくことで、
  * ステージをほぼ真正面から(甲板の面が少し見える程度の伏角で)とらえる。
  */
-const BUILD_ORBIT_Y_FROM = 12;
+const BUILD_ORBIT_Y_FROM = 2;
+/**
+ * ドリーイン(START→MID)が終わる時点の高さ。radius が MID に達するのと同時に
+ * 少し高いところに来るよう、下の dollyK で START→MID へ前進する間に
+ * FROM から一緒に持ち上げる(静止中はまだ動かない)。
+ */
+const BUILD_ORBIT_Y_MID = 20;
 const BUILD_ORBIT_Y_TO = STAGE_Y + 2;
 /**
  * 見る先の高さ。組み上げ面を追いかけるように上げていく。
@@ -405,11 +411,12 @@ export function ReplyCamera({
     /*
       天守のまわりの周回(11秒まで)。3段階に分かれる。
 
-      1. 静止(BUILD_HOLD_SECONDS=3秒): 正面の START(56) で待つ。回転もしない。
-      2. ドリーイン(BUILD_DOLLY_SECONDS=3秒): そこからまっすぐ
-         START→MID(40) へ前進するだけ(まだ回転もY移動もしない)。
-      3. 周回: そこから smoothstep で回り込みながら MID→TO(11.5) へ寄り、
-         高さも Y_FROM→Y_TO へ上がっていく(見る先は build 直結で
+      1. 静止(BUILD_HOLD_SECONDS): 正面の START で待つ。回転もしない。
+      2. ドリーイン(BUILD_DOLLY_SECONDS): そこからまっすぐ START→MID へ
+         前進しながら、高さも Y_FROM→Y_MID へ一緒に持ち上げる
+         (まだ回転はしない)。
+      3. 周回: そこから smoothstep で回り込みながら MID→TO へ寄り、
+         高さも Y_MID→Y_TO へ上がっていく(見る先は build 直結で
          このフェーズより前から継続して上がっている。下の orbitLook 参照)。
     */
     const dollyK = smoothstep(
@@ -433,9 +440,13 @@ export function ReplyCamera({
       dollyK * (BUILD_ORBIT_RADIUS_MID - BUILD_ORBIT_RADIUS_START);
     const orbitRadius =
       dollyRadius + move * (BUILD_ORBIT_RADIUS_TO - BUILD_ORBIT_RADIUS_MID);
+    // 高さも radius と同じ2段階(静止=一定 → ドリーイン中に持ち上げ → 周回中に持ち上げ)
+    const dollyY =
+      BUILD_ORBIT_Y_FROM + dollyK * (BUILD_ORBIT_Y_MID - BUILD_ORBIT_Y_FROM);
+    const orbitY = dollyY + move * (BUILD_ORBIT_Y_TO - BUILD_ORBIT_Y_MID);
     orbitPos.current.set(
       BASE.x + Math.sin(orbitAngle) * orbitRadius,
-      BASE.y + BUILD_ORBIT_Y_FROM + move * (BUILD_ORBIT_Y_TO - BUILD_ORBIT_Y_FROM),
+      BASE.y + orbitY,
       BASE.z + Math.cos(orbitAngle) * orbitRadius,
     );
     orbitLook.current.set(
