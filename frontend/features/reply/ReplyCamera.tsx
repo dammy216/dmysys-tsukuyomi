@@ -26,21 +26,28 @@ const BASE = new Vector3(...REPLY_BASE_POSITION);
 
 /**
  * 周回の半径。3段階に分かれる。
- *   1. 静止(BUILD_HOLD_SECONDS): START(56) のまま正面で待つ。回転もしない。
- *   2. ドリーイン(BUILD_DOLLY_SECONDS): まっすぐ START→MID(40) へ前進する
+ *   1. 静止(BUILD_HOLD_SECONDS): START のまま正面で待つ。回転もしない。
+ *   2. ドリーイン(BUILD_DOLLY_SECONDS): まっすぐ START→MID へ前進する
  *      だけ(これも回転しない)。
- *   3. 周回: そこから回り込みながらさらに MID→TO まで寄っていく
- *      (下の move で動かす)。
+ *   3. 周回: そこから回り込みながらさらに MID→TO まで寄っていく。
+ *
+ * **ドリーインと周回の継ぎ目(MID)で速度が0に落ちないこと。**
+ * 単純に「ドリーインを smoothstep で減速して止め、周回を smoothstep で
+ * 0から助走する」と、前進の勢いが継ぎ目で一度完全に殺されてから
+ * 回転が始まる不自然な間ができる。下の RADIUS_JUNCTION_VELOCITY /
+ * Y_JUNCTION_VELOCITY と useFrame 内の Hermite 補間で、継ぎ目の速度
+ * (dRadius/dBuild)を2区間で厳密に一致させ、ドリーインの勢いがそのまま
+ * 周回(回転)へ引き継がれるようにしてある。
  *
  * TO は下の MIN_ORBIT_DISTANCE(11) ぎりぎりまで詰めてある。
  * それより寄せると水平距離クランプに引っかかって寄せの終盤で
  * カメラが急に押し戻される不自然な動きになる。
  */
-const BUILD_ORBIT_RADIUS_START = 100;
-const BUILD_ORBIT_RADIUS_MID = 40;
+const BUILD_ORBIT_RADIUS_START = 60;
+const BUILD_ORBIT_RADIUS_MID = 30;
 const BUILD_ORBIT_RADIUS_TO = 11.5;
 /**
- * Reply を押してから、前進を始めるまでの秒数。この間は正面の56で静止する
+ * Reply を押してから、前進を始めるまでの秒数。この間は正面の START で静止する
  * (組み上げ面が最初に生えてくる様子を、動かず見せる)。
  */
 const BUILD_HOLD_SECONDS = 2.5;
@@ -55,13 +62,19 @@ const BUILD_HOLD_FRACTION = BUILD_HOLD_SECONDS / REPLY_BUILD_END_SECONDS;
 const BUILD_DOLLY_FRACTION = BUILD_DOLLY_SECONDS / REPLY_BUILD_END_SECONDS;
 /** ドリーインが終わり、周回が始まる build の割合 */
 const BUILD_ORBIT_START_FRACTION = BUILD_HOLD_FRACTION + BUILD_DOLLY_FRACTION;
+/** 周回フェーズの長さ(build の割合)。Hermite の区間長として使う */
+const BUILD_ORBIT_DURATION_FRACTION = 1 - BUILD_ORBIT_START_FRACTION;
 /**
- * 周回の高さ。組み上がりに合わせて上がっていく。
+ * 周回の高さ。組み上がりに合わせて上がっていく(radius と同じ3段階)。
  *
  * FROM は水面すれすれ(2.5)ではなく、天守の高さ(36)の1/3ほどの位置から
  * 始める。低い位置から見上げると、飛来するブロックと石垣が重なって
  * 何が起きているのか読み取りにくい。少し上から見下ろすことで、
  * ブロックが四方から集まってくる広がりが最初から見える。
+ *
+ * MID はドリーインが終わる時点の高さ。radius と同様、継ぎ目の速度を
+ * Hermite で揃えるので「前進しながら一緒に上がっていた勢い」のまま
+ * 周回の上昇へ引き継がれる。
  *
  * TO は**ステージの甲板より少しだけ上**。11秒でステージ・鳥居・ホログラムが
  * 一斉に点くので、そこを見下ろす位置に居ると、せっかく現れたステージを
@@ -69,13 +82,25 @@ const BUILD_ORBIT_START_FRACTION = BUILD_HOLD_FRACTION + BUILD_DOLLY_FRACTION;
  * ステージをほぼ真正面から(甲板の面が少し見える程度の伏角で)とらえる。
  */
 const BUILD_ORBIT_Y_FROM = 2;
-/**
- * ドリーイン(START→MID)が終わる時点の高さ。radius が MID に達するのと同時に
- * 少し高いところに来るよう、下の dollyK で START→MID へ前進する間に
- * FROM から一緒に持ち上げる(静止中はまだ動かない)。
- */
 const BUILD_ORBIT_Y_MID = 20;
 const BUILD_ORBIT_Y_TO = STAGE_Y + 2;
+
+/**
+ * ドリーイン→周回の継ぎ目(MID)で共有する速度(dRadius/dBuild, dY/dBuild)。
+ *
+ * 前後2区間それぞれの平均勾配(距離/区間の長さ)を平均するだけの
+ * 簡便な式(Catmull-Rom スプラインの内部接線と同じ考え方)。これを
+ * Hermite 補間の両区間の端点で共通の接線として使うことで、継ぎ目の
+ * 前後で速度が数式的に一致する(=体感で勢いが途切れない)。
+ */
+const RADIUS_JUNCTION_VELOCITY =
+  0.5 *
+  ((BUILD_ORBIT_RADIUS_MID - BUILD_ORBIT_RADIUS_START) / BUILD_DOLLY_FRACTION +
+    (BUILD_ORBIT_RADIUS_TO - BUILD_ORBIT_RADIUS_MID) / BUILD_ORBIT_DURATION_FRACTION);
+const Y_JUNCTION_VELOCITY =
+  0.5 *
+  ((BUILD_ORBIT_Y_MID - BUILD_ORBIT_Y_FROM) / BUILD_DOLLY_FRACTION +
+    (BUILD_ORBIT_Y_TO - BUILD_ORBIT_Y_MID) / BUILD_ORBIT_DURATION_FRACTION);
 /**
  * 見る先の高さ。組み上げ面を追いかけるように上げていく。
  * カメラを上げたぶん FROM も上げて、見下ろす角度が付きすぎないようにする。
@@ -232,6 +257,24 @@ const SHAKE_MAX = 0.5;
 function smoothstep(x: number) {
   const k = x < 0 ? 0 : x > 1 ? 1 : x;
   return k * k * (3 - 2 * k);
+}
+
+/**
+ * 3次エルミート補間。p0→p1 を、両端の速度(v0, v1。区間全体を1とした
+ * ローカル時間 t∈[0,1] に対する dp/dt)を指定して補間する。
+ *
+ * ドリーイン→周回の継ぎ目(RADIUS_JUNCTION_VELOCITY / Y_JUNCTION_VELOCITY)
+ * のように、隣り合う区間の端点で同じ速度を指定すれば、区間をまたいでも
+ * 速度が数式的に連続になる(=継ぎ目で勢いが途切れない)。
+ */
+function hermite(p0: number, v0: number, p1: number, v1: number, t: number) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const h00 = 2 * t3 - 3 * t2 + 1;
+  const h10 = t3 - 2 * t2 + t;
+  const h01 = -2 * t3 + 3 * t2;
+  const h11 = t3 - t2;
+  return h00 * p0 + h10 * v0 + h01 * p1 + h11 * v1;
 }
 
 /** 航路を時刻 t(秒) で標本化する。返り値は破壊的に out へ書く */
@@ -415,35 +458,63 @@ export function ReplyCamera({
       2. ドリーイン(BUILD_DOLLY_SECONDS): そこからまっすぐ START→MID へ
          前進しながら、高さも Y_FROM→Y_MID へ一緒に持ち上げる
          (まだ回転はしない)。
-      3. 周回: そこから smoothstep で回り込みながら MID→TO へ寄り、
+      3. 周回: そこから回り込みながら MID→TO へ寄り、
          高さも Y_MID→Y_TO へ上がっていく(見る先は build 直結で
          このフェーズより前から継続して上がっている。下の orbitLook 参照)。
+
+      radius・高さは**エルミート補間**で繋ぐ(上の RADIUS_JUNCTION_VELOCITY /
+      Y_JUNCTION_VELOCITY のコメント参照)。ドリーイン区間は
+      (速度0 → 継ぎ目の速度)、周回区間は(継ぎ目の速度 → 速度0)という
+      具合に、継ぎ目(MID)の速度を両区間でぴったり同じ値にしてあるので、
+      ドリーインの勢いが数式的に途切れず周回(回転)へ引き継がれる。
+      回転(orbitAngle)は継ぐべき前の動きが無い(ドリーイン中は回転0固定)
+      ので、そのぶんは普通に smoothstep で0から立ち上げてよい。
     */
-    const dollyK = smoothstep(
-      Math.min(
-        Math.max((build - BUILD_HOLD_FRACTION) / BUILD_DOLLY_FRACTION, 0),
-        1,
-      ),
+    const dollyPhase = Math.min(
+      Math.max((build - BUILD_HOLD_FRACTION) / BUILD_DOLLY_FRACTION, 0),
+      1,
     );
-    const move = smoothstep(
-      Math.min(
-        Math.max(
-          (build - BUILD_ORBIT_START_FRACTION) / (1 - BUILD_ORBIT_START_FRACTION),
+    const orbitPhase = Math.min(
+      Math.max(
+        (build - BUILD_ORBIT_START_FRACTION) / BUILD_ORBIT_DURATION_FRACTION,
+        0,
+      ),
+      1,
+    );
+    const rotate = smoothstep(orbitPhase);
+    const orbitAngle =
+      BUILD_ORBIT_START_ANGLE + rotate * BUILD_ORBIT_TURNS * Math.PI * 2;
+    const inDolly = build < BUILD_ORBIT_START_FRACTION;
+    const orbitRadius = inDolly
+      ? hermite(
+          BUILD_ORBIT_RADIUS_START,
           0,
-        ),
-        1,
-      ),
-    );
-    const orbitAngle = BUILD_ORBIT_START_ANGLE + move * BUILD_ORBIT_TURNS * Math.PI * 2;
-    const dollyRadius =
-      BUILD_ORBIT_RADIUS_START +
-      dollyK * (BUILD_ORBIT_RADIUS_MID - BUILD_ORBIT_RADIUS_START);
-    const orbitRadius =
-      dollyRadius + move * (BUILD_ORBIT_RADIUS_TO - BUILD_ORBIT_RADIUS_MID);
-    // 高さも radius と同じ2段階(静止=一定 → ドリーイン中に持ち上げ → 周回中に持ち上げ)
-    const dollyY =
-      BUILD_ORBIT_Y_FROM + dollyK * (BUILD_ORBIT_Y_MID - BUILD_ORBIT_Y_FROM);
-    const orbitY = dollyY + move * (BUILD_ORBIT_Y_TO - BUILD_ORBIT_Y_MID);
+          BUILD_ORBIT_RADIUS_MID,
+          RADIUS_JUNCTION_VELOCITY * BUILD_DOLLY_FRACTION,
+          dollyPhase,
+        )
+      : hermite(
+          BUILD_ORBIT_RADIUS_MID,
+          RADIUS_JUNCTION_VELOCITY * BUILD_ORBIT_DURATION_FRACTION,
+          BUILD_ORBIT_RADIUS_TO,
+          0,
+          orbitPhase,
+        );
+    const orbitY = inDolly
+      ? hermite(
+          BUILD_ORBIT_Y_FROM,
+          0,
+          BUILD_ORBIT_Y_MID,
+          Y_JUNCTION_VELOCITY * BUILD_DOLLY_FRACTION,
+          dollyPhase,
+        )
+      : hermite(
+          BUILD_ORBIT_Y_MID,
+          Y_JUNCTION_VELOCITY * BUILD_ORBIT_DURATION_FRACTION,
+          BUILD_ORBIT_Y_TO,
+          0,
+          orbitPhase,
+        );
     orbitPos.current.set(
       BASE.x + Math.sin(orbitAngle) * orbitRadius,
       BASE.y + orbitY,
