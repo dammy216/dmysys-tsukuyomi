@@ -7,6 +7,7 @@ import {
   REPLY_BAR_ORIGIN,
   REPLY_BAR_SECONDS,
   REPLY_BASE_POSITION,
+  REPLY_BUILD_END_SECONDS,
   REPLY_FOCUS,
   STAGE_Y,
 } from "./constants";
@@ -24,16 +25,36 @@ const BASE = new Vector3(...REPLY_BASE_POSITION);
  * ------------------------------------------------------------------ */
 
 /**
- * 周回の半径。正面の遠くから入って、回りながら寄っていく。
- * 天守は幅12.9なので、寄り切ると石垣が画面いっぱいに来る。
- * 引いて全景を見せるのは11秒以降(DRONE_PATH)の役目。
+ * 周回の半径。3段階に分かれる。
+ *   1. 静止(BUILD_HOLD_SECONDS): START(56) のまま正面で待つ。回転もしない。
+ *   2. ドリーイン(BUILD_DOLLY_SECONDS): まっすぐ START→MID(40) へ前進する
+ *      だけ(これも回転しない)。
+ *   3. 周回: そこから回り込みながらさらに MID→TO まで寄っていく
+ *      (下の move で動かす)。
  *
  * TO は下の MIN_ORBIT_DISTANCE(11) ぎりぎりまで詰めてある。
  * それより寄せると水平距離クランプに引っかかって寄せの終盤で
  * カメラが急に押し戻される不自然な動きになる。
  */
-const BUILD_ORBIT_RADIUS_FROM = 40;
+const BUILD_ORBIT_RADIUS_START = 70;
+const BUILD_ORBIT_RADIUS_MID = 40;
 const BUILD_ORBIT_RADIUS_TO = 11.5;
+/**
+ * Reply を押してから、前進を始めるまでの秒数。この間は正面の56で静止する
+ * (組み上げ面が最初に生えてくる様子を、動かず見せる)。
+ */
+const BUILD_HOLD_SECONDS = 3;
+/**
+ * 静止のあと、前進(START→MID)にかける秒数。ここもまだ回転はしない。
+ * 天守は幅12.9なので、寄り切ると石垣が画面いっぱいに来る。
+ * 引いて全景を見せるのは11秒以降(DRONE_PATH)の役目。
+ */
+const BUILD_DOLLY_SECONDS = 3;
+/** 上2つを build(0〜1) の割合に換算したもの */
+const BUILD_HOLD_FRACTION = BUILD_HOLD_SECONDS / REPLY_BUILD_END_SECONDS;
+const BUILD_DOLLY_FRACTION = BUILD_DOLLY_SECONDS / REPLY_BUILD_END_SECONDS;
+/** ドリーインが終わり、周回が始まる build の割合 */
+const BUILD_ORBIT_START_FRACTION = BUILD_HOLD_FRACTION + BUILD_DOLLY_FRACTION;
 /**
  * 周回の高さ。組み上がりに合わせて上がっていく。
  *
@@ -72,11 +93,6 @@ const BUILD_ORBIT_TURNS = 1;
  * (通常時のカメラ [0,3,11] と同じ向き)。
  */
 const BUILD_ORBIT_START_ANGLE = 0;
-/**
- * 動き出すまで「正面から見ているだけ」の時間(build の割合)。
- * 0.2 = 11秒のうち最初の約2.2秒。
- */
-const BUILD_HOLD = 0.2;
 
 /**
  * カメラを目標位置へ寄せる速さ(1/秒)。
@@ -387,18 +403,36 @@ export function ReplyCamera({
     const lookHandoff = smoothstep(Math.min(lookElapsed.current / 2.6, 1));
 
     /*
-      天守のまわりの周回(11秒まで)。BUILD_HOLD の間は正面の遠くで止まったまま
-      (見る先だけが組み上げ面を追って上がっていく)、そこから smoothstep で
-      ゆっくり動き出し、回り込みながら寄って昇る。
+      天守のまわりの周回(11秒まで)。3段階に分かれる。
+
+      1. 静止(BUILD_HOLD_SECONDS=3秒): 正面の START(56) で待つ。回転もしない。
+      2. ドリーイン(BUILD_DOLLY_SECONDS=3秒): そこからまっすぐ
+         START→MID(40) へ前進するだけ(まだ回転もY移動もしない)。
+      3. 周回: そこから smoothstep で回り込みながら MID→TO(11.5) へ寄り、
+         高さも Y_FROM→Y_TO へ上がっていく(見る先は build 直結で
+         このフェーズより前から継続して上がっている。下の orbitLook 参照)。
     */
-    const move = smoothstep(
-      Math.min(Math.max((build - BUILD_HOLD) / (1 - BUILD_HOLD), 0), 1),
+    const dollyK = smoothstep(
+      Math.min(
+        Math.max((build - BUILD_HOLD_FRACTION) / BUILD_DOLLY_FRACTION, 0),
+        1,
+      ),
     );
-    const orbitAngle =
-      BUILD_ORBIT_START_ANGLE + move * BUILD_ORBIT_TURNS * Math.PI * 2;
+    const move = smoothstep(
+      Math.min(
+        Math.max(
+          (build - BUILD_ORBIT_START_FRACTION) / (1 - BUILD_ORBIT_START_FRACTION),
+          0,
+        ),
+        1,
+      ),
+    );
+    const orbitAngle = BUILD_ORBIT_START_ANGLE + move * BUILD_ORBIT_TURNS * Math.PI * 2;
+    const dollyRadius =
+      BUILD_ORBIT_RADIUS_START +
+      dollyK * (BUILD_ORBIT_RADIUS_MID - BUILD_ORBIT_RADIUS_START);
     const orbitRadius =
-      BUILD_ORBIT_RADIUS_FROM +
-      move * (BUILD_ORBIT_RADIUS_TO - BUILD_ORBIT_RADIUS_FROM);
+      dollyRadius + move * (BUILD_ORBIT_RADIUS_TO - BUILD_ORBIT_RADIUS_MID);
     orbitPos.current.set(
       BASE.x + Math.sin(orbitAngle) * orbitRadius,
       BASE.y + BUILD_ORBIT_Y_FROM + move * (BUILD_ORBIT_Y_TO - BUILD_ORBIT_Y_FROM),
