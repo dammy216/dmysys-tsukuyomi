@@ -40,12 +40,12 @@ import {
   CornerTowers,
   EdoCastle,
   ReplyCamera,
+  ReplyFireworks,
   ReplyHologram,
   StageBeams,
   ToriiGate,
-  CASTLE_HALF_DEPTH,
-  CASTLE_HALF_WIDTH,
-  CASTLE_TOP_Y,
+  replyFadeGainAt,
+  replySectionEnergyAt,
   REPLY_BASE_POSITION,
   REPLY_BUILD_END_SECONDS,
   REPLY_CASTLE_BUILD_END_SECONDS,
@@ -118,38 +118,20 @@ const LANTERN_GATHER_RELEASE_SECONDS = 3;
 const LANTERN_COUNT = 1200;
 
 /**
- * 灯籠が Reply 中に集まる輪(天守を取り囲む位置)。
+ * 灯籠が Reply 中に集まる位置(塔を取り囲む、上に大きく広がった散らばり)。
+ * 11秒かけてここへ集まりきる。以前は 11秒で「天守まわりの小さい輪」に集めて
+ * から引きに合わせてさらに外へ広げていたが、その「広がる」動きはやめて、
+ * 最初から広がった位置へ 11秒かけて集める指定に変えた。
  *
- * 半径の下限は0にしてある(=天守のすぐ際まで、輪ではなく塗りつぶした円に
- * 近い分布)。以前は外壁の外側にだけ帯を作っていたが、それだと天守の
- * まわりだけ灯籠が来ない「堀」のような空白ができ、避けているように
- * 見えてしまっていた。近すぎて天守の中に来た分は、そのぶん天守の
- * 不透明なメッシュに隠れるだけなので見た目上の問題にはならない。
+ * 半径の下限は0(=塔のすぐ際まで、輪ではなく塗りつぶした円に近い分布)。
+ * 近すぎて塔の中に来た分は不透明メッシュに隠れるだけなので問題にならない。
+ * 高さの下限は水面すれすれ(0.5)。上げるほどその高さより下が空白になる。
+ * 上限は PATH(引きの全景)で画面いっぱいに灯籠が残る広さに合わせてある。
  */
 const LANTERN_GATHER_RADIUS_MIN = 0;
-const LANTERN_GATHER_RADIUS_MAX =
-  Math.max(CASTLE_HALF_WIDTH, CASTLE_HALF_DEPTH) * 2.3;
-/*
-  高さの下限は水面すれすれ(0.5)まで下げてある。4くらいまで上げると
-  水面〜そこまでの帯に1個も灯籠が来ず、円柱の下端だけ切れて浮いているように
-  見えてしまう(下限を上げるほど、その高さより下は完全な空白になる)。
-*/
+const LANTERN_GATHER_RADIUS_MAX = 60;
 const LANTERN_GATHER_HEIGHT_MIN = 0.5;
-const LANTERN_GATHER_HEIGHT_MAX = CASTLE_TOP_Y + 24;
-
-/**
- * 11秒を過ぎてカメラが引く(ReplyCamera の PATH)のに合わせて、灯籠の輪を
- * さらに広げた状態。PATH は塔全体(高さ約30、ホログラムまで)を大きく
- * 回り込むので、11秒直後の輪(LANTERN_GATHER_*)のままだと引いた画では
- * 画面の隅に小さく寄るだけになる。塔の高さ・PATHの間合いより一回り大きく
- * 取り、引いた画でも画面いっぱいに灯籠がある見た目にする。
- */
-// 下限は0。理由は LANTERN_GATHER_RADIUS_MIN のコメント参照
-const LANTERN_EXPAND_RADIUS_MIN = 0;
-const LANTERN_EXPAND_RADIUS_MAX = 60;
-// 下限は水面すれすれ(0.5)。理由は LANTERN_GATHER_HEIGHT_MIN のコメント参照
-const LANTERN_EXPAND_HEIGHT_MIN = 0.5;
-const LANTERN_EXPAND_HEIGHT_MAX = REPLY_HOLOGRAM_Y + 40;
+const LANTERN_GATHER_HEIGHT_MAX = REPLY_HOLOGRAM_Y + 40;
 
 
 /**
@@ -308,6 +290,30 @@ export function SceneContents({
     ここを遅くすると天守が数秒真っ黒に沈む)。
   */
   const replyLightsRef = useRef(0);
+  /*
+    曲(=ホログラム映像)の再生位置(秒)。ステージ照明(StageBeams)の首振り・
+    明滅・色替えを 170bpm のビートグリッドに乗せるために渡す。
+    シーンの経過時間ではなく曲の時計を使うので、押し直してもループしても
+    照明が曲と同じ位相をなぞる。
+  */
+  const replySongTimeRef = useRef(0);
+  /*
+    曲の演出強度(0〜1)。songStructure の replySectionEnergyAt をそのまま入れる。
+    セクションの段(イントロ→Aメロ→サビ→アウトロ)をここ1本で持ち、カメラの
+    巡航速度・レンズ効果・花火の量を全部これで振る。11秒までは ReplyCamera 側の
+    posHandoff が0なので効かない(11秒までの演出は従来のまま)。
+  */
+  const replyEnergyRef = useRef(0);
+  /*
+    曲の終わりのフェード(0〜1)。実測のフェード曲線(TRACK_NOTES.md §2.3)。
+    121.0秒までは1で、そこから 127.37秒の無音へ向けて落ちる。等速フェードだと
+    音より先に絵が消えるので、露出・ブルーム・花火にこれを掛ける。
+  */
+  const replyFadeRef = useRef(1);
+  /*
+    花火の濃さ。energy と fade を掛け合わせたもの。ReplyFireworks へ渡す。
+  */
+  const replyFireworksRef = useRef(0);
   /*
     11秒の点灯の瞬間だけ焚く閃光の残り時間(秒)。露出とブルームを一段持ち上げて
     「会場の照明が一斉に入った」瞬間を立たせる(星降る海の転調の閃光と同じ手)。
@@ -530,6 +536,14 @@ export function SceneContents({
     */
     const replyTimeRaw = replyVideo?.currentTime ?? 0;
     const replyTime = Number.isFinite(replyTimeRaw) ? replyTimeRaw : 0;
+    // ステージ照明のビートグリッド用。曲の時計そのものを子へ渡す
+    replySongTimeRef.current = replyTime;
+    /*
+      曲の構成から演出強度とフェードを引く(features/reply/songStructure.ts)。
+      止めている間は 0 / 1 に戻して、次に押したとき頭から立ち上がるようにする。
+    */
+    replyEnergyRef.current = replyPlaying ? replySectionEnergyAt(replyTime) : 0;
+    replyFadeRef.current = replyPlaying ? replyFadeGainAt(replyTime) : 1;
     const replyDurationRaw = replyVideo?.duration ?? 0;
     const replyDuration = Number.isFinite(replyDurationRaw) ? replyDurationRaw : 0;
     const replyInOutro =
@@ -646,22 +660,68 @@ export function SceneContents({
       const build = replyBuildRef.current;
       // 組み上げ中は1、11秒以降は0へ抜ける
       const rush = 1 - replyLightsRef.current;
+      /*
+        11秒以降だけ曲の構成に乗せる。lit は11秒までは0なので、energy 由来の
+        項はすべて0倍 = 11秒までのレンズ効果は従来のまま。
+      */
+      const lit = replyLightsRef.current;
+      const energy = replyEnergyRef.current;
+      const fade = replyFadeRef.current;
+      // サビで開き、静かな所で締まる連続量(TRACK_NOTES.md §5-2)
+      const lift = lit * energy;
+
       if (aberrationRef.current) {
         aberrationOffset
           .copy(ABERRATION_OFFSET)
-          .multiplyScalar(replyNext * (0.5 + build * rush * 2.2));
+          .multiplyScalar(replyNext * (0.5 + build * rush * 2.2 + lift * 0.3));
         aberrationRef.current.offset = aberrationOffset;
       }
       if (bloomRef.current) {
+        /*
+          サビの上乗せは控えめにする。ここを大きくすると光が滲んで面で
+          繋がってしまい、天守やビームの輪郭が溶けて「ぼやけた」絵になる。
+        */
         bloomRef.current.intensity =
-          0.8 + replyNext * 0.45 + build * rush * 0.5 + replyFlash * 0.9;
+          0.8 +
+          replyNext * 0.45 +
+          build * rush * 0.5 +
+          replyFlash * 0.9 +
+          lift * 0.3 * fade;
       }
       if (vignetteRef.current) {
-        vignetteRef.current.darkness = replyNext * (0.35 + rush * 0.35);
+        // 盛り上がりでトンネル感を緩めて、会場の広がりを見せる
+        vignetteRef.current.darkness =
+          replyNext * (0.35 + rush * 0.35 - lift * 0.12);
       }
-      // 夜側に寄せる。星降る海(0.55)より浅くして城のディテールを残す
-      gl.toneMappingExposure = 1 - replyNext * 0.4 + replyFlash;
+      /*
+        **被写界深度(bokehScale)はここでは触らない。**
+
+        DepthOfField のピント位置は FOCUS_TARGET([0,3,-2] = 鳥居の中ほど)に
+        固定されていて、これは星降る海の被写体に合わせたもの。Reply の被写体は
+        塔の上のホログラム(REPLY_HOLOGRAM_Y ≒ 45)なので、カメラから見た
+        奥行きが大きく食い違う。しかも focalLength は 0.9 ワールド単位しか
+        なく、ピントの合う帯がごく薄い。この状態で bokehScale を上げると
+        **画面のほぼ全部がピント範囲の外**に落ちて、絵全体がぼやける。
+
+        Reply でボケを使いたくなったら、まず dofRef.target を REPLY_FOCUS へ
+        差し替え、focalLength も塔の大きさに合わせて広げること。
+      */
+      /*
+        夜側に寄せる。星降る海(0.55)より浅くして城のディテールを残す。
+        曲の終わりは実測のフェード曲線(replyFadeRef)で絵ごと落として、
+        音と同じ形で消えるようにする。
+      */
+      gl.toneMappingExposure =
+        (1 - replyNext * 0.4 + replyFlash + lift * 0.16) *
+        (1 - lit * replyNext * (1 - fade) * 0.85);
     }
+
+    /*
+      花火の濃さ。曲の構成(energy)にフェードを掛けたもの。
+      11秒より前は lights=0 なので必ず0 = 花火は上がらない。
+    */
+    replyFireworksRef.current =
+      replyNext * replyLightsRef.current * replyFadeRef.current;
 
     const replyVisibleNow = replyNext > 0.01;
     if (replyVisibleNow !== replyVisible) setReplyVisible(replyVisibleNow);
@@ -808,8 +868,21 @@ export function SceneContents({
               <StageBeams
                 position={REPLY_BASE_POSITION}
                 activationRef={replyLightsRef}
+                songTimeRef={replySongTimeRef}
               />
             </group>
+            {/*
+              打ち上げ花火。Bメロ後半(55秒)から溜めで疎に、サビ(62秒)〜後半は
+              2小節に1発、106秒の最後の歌詞で大玉。アウトロ以降は上げない。
+              玉の配置・色は添字から決まる決定的な値なので、何周しても同じ
+              位置に同じ花火が上がる(詳しくは ReplyFireworks.tsx)。
+              上げる時刻の判定はシェーダー内の再生位置だけで決まるので、
+              ここでは出しっぱなしにして濃さ(intensityRef)だけで制御する。
+            */}
+            <ReplyFireworks
+              songTimeRef={replySongTimeRef}
+              intensityRef={replyFireworksRef}
+            />
             {/*
               ステージから上。天守が組み上がって照明が入る11秒から載せる。
               組み上げと同時に出すと、まだ何も無い空中にステージだけが浮いて見える。
@@ -876,12 +949,9 @@ export function SceneContents({
         )}
         {/*
           灯ろうは星降る海の間は魚の渦と喧嘩するので隠す。Reply中は隠さず、
-          gatherRef(lanternGatherRef)で11秒に向けて天守を取り囲む輪の中へ
-          集まらせ(頂上の一点に集中させず周囲を囲む見た目にする指定。
-          LANTERN_GATHER_* 定数のコメント参照)、expandRef(replyPullbackRef)で
-          そのあとカメラが引くのに合わせて輪をさらに広げる
-          (引いた画でも画面いっぱいに灯籠がある見た目にする指定。
-          LANTERN_EXPAND_* 定数のコメント参照)。
+          gatherRef(lanternGatherRef)で11秒かけて、最初から広がった散らばり位置
+          (LANTERN_GATHER_* 定数)へ集める。11秒後に外へ広げる演出はやめたので
+          expandRef は渡さない。
         */}
         {!starfallVisible && (
           <Lanterns
@@ -892,11 +962,6 @@ export function SceneContents({
             gatherRadiusMax={LANTERN_GATHER_RADIUS_MAX}
             gatherHeightMin={LANTERN_GATHER_HEIGHT_MIN}
             gatherHeightMax={LANTERN_GATHER_HEIGHT_MAX}
-            expandRef={replyPullbackRef}
-            expandRadiusMin={LANTERN_EXPAND_RADIUS_MIN}
-            expandRadiusMax={LANTERN_EXPAND_RADIUS_MAX}
-            expandHeightMin={LANTERN_EXPAND_HEIGHT_MIN}
-            expandHeightMax={LANTERN_EXPAND_HEIGHT_MAX}
           />
         )}
         <Water />
@@ -921,6 +986,8 @@ export function SceneContents({
         activationRef={replyActivationRef}
         buildRef={replyBuildRef}
         pullbackRef={replyPullbackRef}
+        energyRef={replyEnergyRef}
+        songTimeRef={replySongTimeRef}
       />
 
       {/*

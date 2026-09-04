@@ -2,16 +2,14 @@
 
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type RefObject } from "react";
-import { Vector3 } from "three";
+import { PerspectiveCamera, Vector3 } from "three";
 import {
-  CASTLE_TOP_Y,
+  REPLY_BAR_ORIGIN,
+  REPLY_BAR_SECONDS,
   REPLY_BASE_POSITION,
   REPLY_FOCUS,
   STAGE_Y,
 } from "./constants";
-
-/** 演出1周の長さ(秒)。これを過ぎるとまた頭から繰り返す */
-const CYCLE_SECONDS = 28;
 
 /** カメラが向き続ける点 = ホログラム画面の中心。実質ここが回る中心になる */
 const FOCUS = new Vector3(...REPLY_FOCUS);
@@ -21,12 +19,14 @@ const BASE = new Vector3(...REPLY_BASE_POSITION);
 /* ------------------------------------------------------------------ *
  * 組み上げ中(build < 1)のカメラ。参照映像(Shelter)と同じく、生成されていく
  * 天守のまわりをぐるりと回りながら、組み上げ面といっしょに昇っていく。
+ *
+ * **ここは11秒までの演出。触らないこと。**
  * ------------------------------------------------------------------ */
 
 /**
  * 周回の半径。正面の遠くから入って、回りながら寄っていく。
  * 天守は幅12.9なので、寄り切ると石垣が画面いっぱいに来る。
- * 引いて全景を見せるのは11秒以降(PATH)の役目。
+ * 引いて全景を見せるのは11秒以降(DRONE_PATH)の役目。
  *
  * TO は下の MIN_ORBIT_DISTANCE(11) ぎりぎりまで詰めてある。
  * それより寄せると水平距離クランプに引っかかって寄せの終盤で
@@ -58,18 +58,13 @@ const BUILD_LOOK_Y_FROM = 5;
  * 組み上がりきる11秒ちょうどの注視点 = ステージの甲板の高さ。
  *
  * camera.lookAt はここを画面のど真ん中に置くので、照明が一斉に点く11秒の
- * 瞬間、ステージがちょうど中央に来る。天守の途中(CASTLE_TOP_Y*0.85)を
- * 向いていた頃はステージが中央より10度ほど上に外れていた。
- * 11秒を過ぎると注視点は下の FOCUS(塔全体の構図の中心)へ移っていく。
+ * 瞬間、ステージがちょうど中央に来る。
  */
 const BUILD_LOOK_Y_TO = STAGE_Y;
 /**
  * 組み上げ中に回る周回数。ちょうど1周。
  * 開始角と合わせて「正面から入って1周して正面へ戻る」ので、11秒の直前には
- * 必ず天守の正面に居る。そこから真後ろへ引くのが11秒以降の PATH。
- *
- * 2周だと下の BUILD_HOLD で動ける時間が短くなったぶん回転が速く、
- * 「徐々に回り込む」ではなく振り回される画になる。
+ * 必ず天守の正面に居る。そこから真後ろへ引くのが11秒以降の飛行。
  */
 const BUILD_ORBIT_TURNS = 1;
 /**
@@ -80,10 +75,6 @@ const BUILD_ORBIT_START_ANGLE = 0;
 /**
  * 動き出すまで「正面から見ているだけ」の時間(build の割合)。
  * 0.2 = 11秒のうち最初の約2.2秒。
- *
- * 参照映像(Shelter 1:21〜)と同じく、まず正面の遠くから石が湧き出すのを
- * 見せて、そこから寄りと回り込みが始まる。0にすると押した瞬間から
- * カメラが動き出すので、生成の始まりが流れて見えない。
  */
 const BUILD_HOLD = 0.2;
 
@@ -92,8 +83,8 @@ const BUILD_HOLD = 0.2;
  *
  * ここは「毎フレーム一定割合ずつ寄せる」ではなく delta から指数減衰で
  * 係数を作る。割合固定だと追従の速さがフレームレートに比例してしまい、
- * 低fpsの端末では周回の目標点(11秒で0.8周する)に全く追いつかず、
- * カメラが天守の軸付近に取り残される(実測で距離30のはずが5〜17だった)。
+ * 低fpsの端末では周回の目標点に全く追いつかず、カメラが天守の軸付近に
+ * 取り残される。
  */
 const FOLLOW_RATE = 6;
 
@@ -104,91 +95,160 @@ const FOLLOW_RATE = 6;
  */
 const MIN_ORBIT_DISTANCE = 11;
 
-type Keyframe = {
-  /** サイクル内の位置(0〜1) */
+/* ================================================================== *
+ * 11秒以降 — ドローン撮影のカメラ。
+ *
+ * **星降る海(StarfallCamera)とは作りから変えてある。**
+ *   星降る海: XYZ のキーフレームを 24秒周期でループし、常に1点(SCREEN_FOCUS)を
+ *             見続ける。曲とは無関係に同じ軌道を繰り返す。
+ *   Reply:    塔を軸にした**円筒座標**のキーフレームを**曲の再生位置**に
+ *             直接刺してある。ループしない1本の飛行で、曲が終わるまで
+ *             二度と同じ画に戻らない。
+ *
+ * ドローンらしさを作っている要素は3つ:
+ *   1. **バンク(ロール)** — 旋回の角速度からカメラを傾ける。これが無いと
+ *      どれだけ動かしても「レール上の台車」にしか見えない。
+ *   2. **注視点の高さが動く** — 高いところからは会場を見下ろし、低い
+ *      ところからはホログラムを煽る。1点を見続けないので首振りが出る。
+ *   3. **画角が動く** — 至近の煽りは広角(76度)で誇張し、最後の離脱は
+ *      望遠(52度)に寄せて圧縮する。
+ * ================================================================== */
+
+/** ドローンの航路のキーフレーム。塔の軸を中心にした円筒座標で持つ */
+type DroneKey = {
+  /** 曲中の時刻(秒)。**曲の構成(TRACK_NOTES.md §3)の境界に合わせてある** */
   t: number;
-  /** カメラ位置 */
-  pos: [number, number, number];
+  /**
+   * 塔の軸まわりの回転(周)。**単調に増やすこと。**
+   * 隣り合うキーの差がそのまま旋回量になるので、差が大きいほど速く回る
+   * (= バンクも深くなる)。戻すと逆回転して見える。
+   */
+  turn: number;
+  /** 軸からの水平距離 */
+  radius: number;
+  /** カメラの高さ */
+  y: number;
+  /** 注視点の高さ(塔の軸上)。カメラの y との差が伏角/仰角になる */
+  lookY: number;
+  /** 画角(度) */
+  fov: number;
 };
 
 /**
- * 天守 → ステージ → 鳥居 → ホログラムと縦に積んだ塔を舐めるカメラワーク。
- * 星降る海が「渦の中を潜る」動きなのに対し、こちらは塔の高さを見せるため
- * 上下に大きく振りながら旋回する。
+ * 航路。**時刻は曲の構成の境界そのもの**なので、ここを触るときは
+ * TRACK_NOTES.md §3 の表と突き合わせること。
+ *
+ * 半径の下限に注意: 天守は高さ約36・底面の半径約14.9あるので、
+ * **y が 38 より低いキーでは radius を 20 以上**にしないと石垣に潜る。
  */
-const PATH: Keyframe[] = [
-  // 正面やや引き。塔の全景から入る
-  { t: 0.0, pos: [0, CASTLE_TOP_Y + 10, 46] },
-  // 右へ流しながら降りて、天守の石垣を見上げる
-  { t: 0.16, pos: [34, 6, 30] },
-  // 一気に上昇して斜め上からステージを見下ろす
-  { t: 0.34, pos: [40, STAGE_Y + 18, -4] },
-  // 裏側へ回り込み、夜空を背に塔のシルエットを抜く
-  { t: 0.52, pos: [6, CASTLE_TOP_Y, -44] },
-  // 左後方から鳥居の高さまで上がる
-  { t: 0.68, pos: [-36, STAGE_Y + 12, -20] },
-  // 低い位置まで降りて塔全体を見上げる
-  { t: 0.85, pos: [-38, 4, 24] },
-  // 引きに戻ってループ
-  { t: 1.0, pos: [0, CASTLE_TOP_Y + 10, 46] },
-];
+const DRONE_PATH: readonly DroneKey[] = [
+  // 11秒: 引きの着地点。ここは従来の引きと同じ間合いに合わせてある
+  { t: 11.0, turn: 0.0, radius: 53, y: 46, lookY: 45, fov: 68 },
+  // イントロ2: 上昇しながら寄る
+  { t: 15.0, turn: 0.09, radius: 45, y: 52, lookY: 43, fov: 66 },
+  { t: 19.0, turn: 0.2, radius: 37, y: 60, lookY: 37, fov: 64 },
+  // 歌前の間: 最高高度でホバリング。会場を見下ろす
+  { t: 23.0, turn: 0.28, radius: 34, y: 65, lookY: 35, fov: 64 },
+  // Aメロ: ゆっくり降りながら、見下ろし→水平へ
+  { t: 27.5, turn: 0.32, radius: 33, y: 64, lookY: 36, fov: 66 },
+  { t: 33.5, turn: 0.43, radius: 32, y: 57, lookY: 40, fov: 66 },
+  { t: 39.0, turn: 0.54, radius: 31, y: 50, lookY: 44, fov: 66 },
+  { t: 45.0, turn: 0.66, radius: 29, y: 44, lookY: 45, fov: 66 },
+  // Bメロ: 螺旋で降りながら詰める。旋回が速くなってバンクが付き始める
+  { t: 49.5, turn: 0.76, radius: 27, y: 40, lookY: 45, fov: 68 },
+  { t: 55.0, turn: 0.96, radius: 24, y: 35, lookY: 45, fov: 70 },
+  { t: 59.0, turn: 1.14, radius: 22, y: 31, lookY: 44, fov: 72 },
+  // サビ: 最も低く近い煽り。広角で誇張する
+  { t: 62.0, turn: 1.28, radius: 21, y: 28, lookY: 45, fov: 76 },
+  // サビ中: 一気に開けて大きく回る(10.5秒で0.64周=最速。バンクが深く出る)
+  { t: 67.5, turn: 1.62, radius: 30, y: 40, lookY: 45, fov: 72 },
+  { t: 72.5, turn: 1.92, radius: 42, y: 54, lookY: 43, fov: 68 },
+  { t: 78.5, turn: 2.28, radius: 34, y: 60, lookY: 39, fov: 68 },
+  // 後半: 振り戻して寄る
+  { t: 83.0, turn: 2.52, radius: 25, y: 45, lookY: 45, fov: 74 },
+  // フライバイ: 外へ抜けてから低く戻る
+  { t: 90.0, turn: 2.92, radius: 46, y: 38, lookY: 42, fov: 70 },
+  { t: 96.0, turn: 3.22, radius: 31, y: 31, lookY: 44, fov: 72 },
+  // 至近をかすめる。最後の歌詞へ向けて上昇に転じる
+  { t: 101.0, turn: 3.48, radius: 23, y: 33, lookY: 45, fov: 76 },
+  { t: 106.0, turn: 3.76, radius: 31, y: 48, lookY: 45, fov: 70 },
+  // アウトロ: 望遠に寄せながら引き上げていく
+  { t: 107.0, turn: 3.82, radius: 35, y: 51, lookY: 45, fov: 68 },
+  { t: 114.0, turn: 4.02, radius: 62, y: 60, lookY: 44, fov: 62 },
+  // フェード: 圧縮した望遠で静かに離脱する
+  { t: 121.3, turn: 4.18, radius: 88, y: 68, lookY: 42, fov: 56 },
+  { t: 127.5, turn: 4.28, radius: 108, y: 74, lookY: 40, fov: 52 },
+] as const;
 
 /**
- * PATH 全体をホログラム(FOCUS)から遠ざける倍率。1.0だと PATH 本来の距離のまま。
- * 各カットの寄り引き感は保ったまま、全体の間合いだけここで調整する。
+ * バンク(ロール)の強さ。旋回の角速度[rad/s]に掛ける。
+ * サビの最速区間(約0.38rad/s)で 0.23rad ≒ 13度 傾く。
  */
-const DISTANCE_SCALE = 1.15;
+const BANK_GAIN = 0.6;
+/** バンクの上限(ラジアン)。約17度。これ以上倒すと曲芸になる */
+const BANK_MAX = 0.3;
+/**
+ * バンクの追従の速さ(1/秒)。角速度をそのまま入れるとキーの切れ目で
+ * カクつくので、ここで一段なまらせて「機体が傾いていく」動きにする。
+ */
+const BANK_SMOOTH = 2.2;
 
 /**
- * 11秒の引き(pullback 0→1)のうち、**位置**の移動をどこまでで終わらせるか
- * (0〜1、pullback に対する割合)。
+ * 1小節(1.41秒)周期の、ごく浅い寄り引き。ホログラムを支点にした距離の倍率。
  *
- * 以前は位置(周回位置→PATH位置)と見る先(天守の途中→ホログラム)を同じ
- * handoff で同時に動かしていたため、後ろへ引きながら同時に見る先も
- * ホログラムへ持ち上がっていき、「引いているのに視線が上へ流れる」
- * 素直でない動きになっていた。位置をこの割合までで先に終わらせ、
- * 見る先は下の LOOK_TRANSITION_SECONDS で改めてゆっくり動かすことで、
- * 「まず真後ろへ引く」→「引ききってからホログラムへ向き直す」の
- * 2拍に分ける。
+ * 170bpm は1拍0.35秒とかなり速いので、拍で動かすとチカチカする。
+ * TRACK_NOTES.md §5-1 の通り**小節を基本単位**にして、ホバリング中の機体が
+ * 位置を保とうとして揺れているくらいの浅さに留める。
  */
-const PULLBACK_POSITION_END = 0.5;
-/**
- * 見る先(天守の途中→ホログラム)の向き直りにかける秒数。
- *
- * **REPLY_PULLBACK_SECONDS(位置が引ききるまでの時間。現状0.4秒とかなり短い)
- * とは独立**させてある。以前は pullback の残り割合をそのまま使っていたため、
- * 位置の引きを速くするほど向き直りまで一緒に速くなり、「引いたら即座に
- * ホログラムへ飛びつく」ような早さになっていた。ここだけ専用の秒数を持たせ、
- * 位置をどれだけ速く引いても、向き直りは常にこの秒数でゆっくり進む。
- */
-const LOOK_TRANSITION_SECONDS = 2.6;
+const BREATH_AMOUNT = 0.014;
+
+/** 手持ち風の揺れ。静かな所と盛り上がりで振り幅を変える */
+const SHAKE_MIN = 0.18;
+const SHAKE_MAX = 0.5;
 
 /** なめらかな加減速(ease-in-out)。等速で動くと機械的に見えるため */
 function smoothstep(x: number) {
-  return x * x * (3 - 2 * x);
+  const k = x < 0 ? 0 : x > 1 ? 1 : x;
+  return k * k * (3 - 2 * k);
 }
 
-/**
- * PATH の隣り合うキーフレームを補間して、時刻 t のカメラ位置を得る。
- * 注視点は常に FOCUS(ホログラム画面)固定なので、ここでは扱わない。
- */
-function samplePath(t: number, outPos: Vector3) {
+/** 航路を時刻 t(秒) で標本化する。返り値は破壊的に out へ書く */
+function sampleDrone(
+  t: number,
+  out: { turn: number; radius: number; y: number; lookY: number; fov: number },
+) {
+  const last = DRONE_PATH.length - 1;
+  if (t <= DRONE_PATH[0].t) {
+    const k = DRONE_PATH[0];
+    out.turn = k.turn;
+    out.radius = k.radius;
+    out.y = k.y;
+    out.lookY = k.lookY;
+    out.fov = k.fov;
+    return;
+  }
+  if (t >= DRONE_PATH[last].t) {
+    const k = DRONE_PATH[last];
+    out.turn = k.turn;
+    out.radius = k.radius;
+    out.y = k.y;
+    out.lookY = k.lookY;
+    out.fov = k.fov;
+    return;
+  }
+
   let i = 0;
-  while (i < PATH.length - 2 && t > PATH[i + 1].t) i++;
-
-  const a = PATH[i];
-  const b = PATH[i + 1];
+  while (i < last - 1 && t > DRONE_PATH[i + 1].t) i++;
+  const a = DRONE_PATH[i];
+  const b = DRONE_PATH[i + 1];
   const span = b.t - a.t || 1;
-  const k = smoothstep(Math.min(Math.max((t - a.t) / span, 0), 1));
+  const k = smoothstep((t - a.t) / span);
 
-  outPos.set(
-    a.pos[0] + (b.pos[0] - a.pos[0]) * k,
-    a.pos[1] + (b.pos[1] - a.pos[1]) * k,
-    a.pos[2] + (b.pos[2] - a.pos[2]) * k,
-  );
-
-  // ホログラムを支点に、向きは保ったまま距離だけ伸ばす
-  outPos.sub(FOCUS).multiplyScalar(DISTANCE_SCALE).add(FOCUS);
+  out.turn = a.turn + (b.turn - a.turn) * k;
+  out.radius = a.radius + (b.radius - a.radius) * k;
+  out.y = a.y + (b.y - a.y) * k;
+  out.lookY = a.lookY + (b.lookY - a.lookY) * k;
+  out.fov = a.fov + (b.fov - a.fov) * k;
 }
 
 type ReplyCameraProps = {
@@ -200,52 +260,107 @@ type ReplyCameraProps = {
    */
   activationRef: RefObject<number>;
   /**
-   * 天守の組み上げ進行度(0〜1)を持つ ref。1未満の間は PATH ではなく
+   * 天守の組み上げ進行度(0〜1)を持つ ref。1未満の間は航路ではなく
    * 天守のまわりを周回するカメラに切り替える。これも毎フレーム変わるので ref。
    */
   buildRef?: RefObject<number>;
   /**
    * 11秒を過ぎてからの「引き」の進み具合(0〜1)を持つ ref。
-   * 0で天守まわりの周回、1で PATH(塔の全景)へ移りきった状態。
+   * 0で天守まわりの周回、1でドローンの航路へ移りきった状態。
    */
   pullbackRef?: RefObject<number>;
+  /**
+   * 曲の演出強度(0〜1)を持つ ref(songStructure の replySectionEnergyAt)。
+   * 揺れと呼吸の振り幅に使う。**11秒までは posHandoff=0 なので効かない。**
+   */
+  energyRef?: RefObject<number>;
+  /**
+   * 曲(=映像)の再生位置(秒)。航路はこれで直接引く(ループしない)。
+   */
+  songTimeRef?: RefObject<number>;
 };
 
 /**
  * 「Reply」モード中だけカメラを乗っ取る。
  *
  * - 組み上げ中(build < 1): 生成されていく天守のまわりを周回しながら昇る
- * - 組み上がったあと: PATH のカット割りを繰り返す
+ * - 組み上がったあと: 曲の構成に刺したドローンの航路を1本だけ飛ぶ
  *
  * 押した瞬間の位置から滑らかに寄せ、OFF にした瞬間の位置から OrbitControls へ
- * 滑らかに操作を返す(StarfallCamera と同じ作り)。
+ * 滑らかに操作を返す。
  */
 export function ReplyCamera({
   active,
   activationRef,
   buildRef,
   pullbackRef,
+  energyRef,
+  songTimeRef,
 }: ReplyCameraProps) {
   const { camera } = useThree();
-  const elapsed = useRef(0);
   const pos = useRef(new Vector3());
   const look = useRef(new Vector3());
   const orbitPos = useRef(new Vector3());
   const orbitLook = useRef(new Vector3());
+  /** ドローン航路側の注視点。周回側(orbitLook)と混ぜて look を作る */
+  const droneLook = useRef(new Vector3());
+  const forward = useRef(new Vector3());
+  const up = useRef(new Vector3());
+  /** sampleDrone の出力先。毎フレーム作らないよう使い回す */
+  const key = useRef({ turn: 0, radius: 0, y: 0, lookY: 0, fov: 68 });
+  /** 前フレームの機首方位(ラジアン)。バンクを角速度から作るのに使う */
+  const heading = useRef(Number.NaN);
+  /** なました現在のバンク角 */
+  const bank = useRef(0);
+  /** Canvas 側の既定の画角。OFF のときここへ戻す */
+  const baseFov = useRef(Number.NaN);
+  /*
+    画角を書くための ref。useFrame から useThree の戻り値のプロパティへ直接
+    代入すると react-hooks/immutability に引っかかるため、一度 ref へ移してから
+    触る(CornerTowers / ReplyFireworks と同じ手当て)。
+    position/up は入れ物の中身を書くだけなのでこの回避は要らない。
+  */
+  const perspectiveRef = useRef<PerspectiveCamera | null>(null);
   /**
-   * 見る先の向き直りが始まってからの経過秒数。位置が引ききる(posHandoff=1)
-   * までは0のまま、そこから毎フレーム delta を積む。LOOK_TRANSITION_SECONDS
-   * で正規化して lookHandoff を作る(下の useFrame 参照)。
+   * 見る先の向き直りが始まってからの経過秒数。位置が引ききるまでは0のまま、
+   * そこから毎フレーム delta を積む。
    */
   const lookElapsed = useRef(0);
 
   // 入るたびに演出を頭から始める
   useEffect(() => {
     if (active) {
-      elapsed.current = 0;
       lookElapsed.current = 0;
+      heading.current = Number.NaN;
+      bank.current = 0;
     }
   }, [active]);
+
+  /*
+    画角を書くための入口を ref へ移し、あわせて既定の画角を控えておく。
+  */
+  useEffect(() => {
+    const perspective = camera instanceof PerspectiveCamera ? camera : null;
+    perspectiveRef.current = perspective;
+    if (perspective && !Number.isFinite(baseFov.current)) {
+      baseFov.current = perspective.fov;
+    }
+  }, [camera]);
+
+  /*
+    OFF になったらロールと画角を必ず戻す。戻さないと OrbitControls が
+    傾いた up ベクトルを引き継いで通常時のカメラが斜めになり、画角も
+    Reply のまま(広角/望遠)に居座ってしまう。
+  */
+  useEffect(() => {
+    if (active) return;
+    const perspective = perspectiveRef.current;
+    camera.up.set(0, 1, 0);
+    if (perspective && Number.isFinite(baseFov.current)) {
+      perspective.fov = baseFov.current;
+      perspective.updateProjectionMatrix();
+    }
+  }, [active, camera]);
 
   useFrame((_, delta) => {
     if (!active) return;
@@ -253,56 +368,41 @@ export function ReplyCamera({
     // 進行度はどちらもref経由(数値propだと親ごと毎フレーム再レンダー)
     const activation = activationRef.current ?? 0;
     const build = buildRef?.current ?? 1;
+    const energy = Math.min(Math.max(energyRef?.current ?? 0.5, 0), 1);
+    const songTime = songTimeRef?.current ?? 0;
 
     /*
-      組み上げ中の周回 → PATH への引き継ぎ。曲が11秒に達してから
-      REPLY_PULLBACK_SECONDS かけて 0→1 で立ち上がる pullback
-      (SceneContents 側で作る)を、位置用と見る先用の2つに分けて使う。
-
-      posHandoff: 周回位置→PATH位置(0=周回のみ, 1=PATHのみ)。
-      PULLBACK_POSITION_END までで先に1へ到達させ、「まず真後ろへ引く」を作る。
+      組み上げ中の周回 → ドローン航路への引き継ぎ。曲が11秒に達してから
+      REPLY_PULLBACK_SECONDS かけて 0→1 で立ち上がる pullback を、
+      位置用と見る先用の2つに分けて使う。
     */
     const pullback = pullbackRef?.current ?? 1;
-    const posHandoff = smoothstep(
-      Math.min(Math.max(pullback / PULLBACK_POSITION_END, 0), 1),
-    );
+    const posHandoff = smoothstep(Math.min(Math.max(pullback / 0.5, 0), 1));
 
-    /*
-      lookHandoff: 見る先(天守の途中)→ホログラム。位置が引ききる
-      (posHandoff=1)までは lookElapsed を貯めない=0のまま見る先も
-      動かさない。引ききった瞬間から時間を積み、LOOK_TRANSITION_SECONDS で
-      正規化する。pullback の残り時間ではなく独立した秒数で動くので、
-      REPLY_PULLBACK_SECONDS(位置の速さ)をどう変えても向き直りの速さは
-      変わらない。
-    */
     if (posHandoff >= 1) {
       lookElapsed.current += delta;
     } else {
       lookElapsed.current = 0;
     }
-    const lookHandoff = smoothstep(
-      Math.min(lookElapsed.current / LOOK_TRANSITION_SECONDS, 1),
-    );
+    const lookHandoff = smoothstep(Math.min(lookElapsed.current / 2.6, 1));
 
     /*
-      天守のまわりの周回。BUILD_HOLD の間は正面の遠くで止まったまま
+      天守のまわりの周回(11秒まで)。BUILD_HOLD の間は正面の遠くで止まったまま
       (見る先だけが組み上げ面を追って上がっていく)、そこから smoothstep で
       ゆっくり動き出し、回り込みながら寄って昇る。
-
-      終わりも smoothstep で速度が0に収束するので、11秒でそのまま
-      PATH の引きへ滑らかに渡る。
     */
     const move = smoothstep(
       Math.min(Math.max((build - BUILD_HOLD) / (1 - BUILD_HOLD), 0), 1),
     );
-    const angle = BUILD_ORBIT_START_ANGLE + move * BUILD_ORBIT_TURNS * Math.PI * 2;
-    const radius =
+    const orbitAngle =
+      BUILD_ORBIT_START_ANGLE + move * BUILD_ORBIT_TURNS * Math.PI * 2;
+    const orbitRadius =
       BUILD_ORBIT_RADIUS_FROM +
       move * (BUILD_ORBIT_RADIUS_TO - BUILD_ORBIT_RADIUS_FROM);
     orbitPos.current.set(
-      BASE.x + Math.sin(angle) * radius,
+      BASE.x + Math.sin(orbitAngle) * orbitRadius,
       BASE.y + BUILD_ORBIT_Y_FROM + move * (BUILD_ORBIT_Y_TO - BUILD_ORBIT_Y_FROM),
-      BASE.z + Math.cos(angle) * radius,
+      BASE.z + Math.cos(orbitAngle) * orbitRadius,
     );
     orbitLook.current.set(
       BASE.x,
@@ -310,37 +410,51 @@ export function ReplyCamera({
       BASE.z,
     );
 
+    /* --- ドローンの航路。曲の再生位置で直接引く(ループしない) --- */
+    sampleDrone(songTime, key.current);
+    const angle = key.current.turn * Math.PI * 2;
+    pos.current.set(
+      BASE.x + Math.sin(angle) * key.current.radius,
+      key.current.y,
+      BASE.z + Math.cos(angle) * key.current.radius,
+    );
+    droneLook.current.set(BASE.x, key.current.lookY, BASE.z);
+
     /*
-      通常の PATH。posHandoff を掛けて進めるので、引き継ぎが始まるまでは
-      頭(t=0)で止まったまま = 引き継いだ瞬間から動き出す。PATH の時間経過は
-      位置の話なので、見る先の lookHandoff ではなく posHandoff で駆動する。
+      小節周期の呼吸。ホログラムを支点にした距離の倍率として掛ける。
+      ホバリング中の機体が位置を保とうとして前後する感じ。
+
+      ※ 小節の位相(REPLY_BAR_ORIGIN)は音源から一意に決まらない
+      (TRACK_NOTES.md §1.1)。ゆっくりした呼吸なので位相がずれても破綻しない。
     */
-    elapsed.current += delta * posHandoff;
-    const t = (elapsed.current % CYCLE_SECONDS) / CYCLE_SECONDS;
-    samplePath(t, pos.current);
+    if (posHandoff > 0) {
+      const barPos = (songTime - REPLY_BAR_ORIGIN) / REPLY_BAR_SECONDS;
+      const barPhase = barPos - Math.floor(barPos);
+      const zoom =
+        1 - Math.sin(barPhase * Math.PI * 2) * BREATH_AMOUNT * energy;
+      pos.current.sub(FOCUS).multiplyScalar(zoom).add(FOCUS);
+    }
 
     // 手持ちカメラ風の細かい揺れ。周回中は入れない(意図した動きを濁らせるため)
-    const shake = activation * 0.35 * posHandoff;
-    const st = elapsed.current;
-    pos.current.x += Math.sin(st * 2.7) * shake;
-    pos.current.y += Math.sin(st * 3.4 + 1.1) * shake * 0.6;
+    const shake =
+      activation * (SHAKE_MIN + (SHAKE_MAX - SHAKE_MIN) * energy) * posHandoff;
+    pos.current.x += Math.sin(songTime * 2.7) * shake;
+    pos.current.y += Math.sin(songTime * 3.4 + 1.1) * shake * 0.6;
 
     /*
-      周回 → PATH を合成する。位置は posHandoff、見る先は lookHandoff と
-      別々の進み具合で動かす(上のコメント参照)。これで「引いている間は
-      見る先を動かさず真後ろへ引き、引ききってからホログラムへ向き直る」
-      という2拍の動きになる。
+      周回 → 航路を合成する。位置は posHandoff、見る先は lookHandoff と
+      別々の進み具合で動かす。これで「引いている間は見る先を動かさず
+      真後ろへ引き、引ききってから向き直す」という2拍の動きになる。
     */
     pos.current.lerp(orbitPos.current, 1 - posHandoff);
-    look.current.copy(orbitLook.current).lerp(FOCUS, lookHandoff);
+    look.current.copy(orbitLook.current).lerp(droneLook.current, lookHandoff);
 
     /*
       塔の軸から最低限の距離を確保する。
 
       どんな経路であれカメラが天守の内側へ入ると、天守は黒くて両面描画なので
-      画面が真っ黒になり、frustumCulled=false のビームだけがリング状に見える
-      という状態になる(実際にその不具合報告があった)。ここで押し出しておけば、
-      上流の計算が多少おかしくてもその画にはならない。
+      画面が真っ黒になる。ここで押し出しておけば、上流の計算が多少おかしくても
+      その画にはならない。
     */
     const dx = pos.current.x - BASE.x;
     const dz = pos.current.z - BASE.z;
@@ -371,13 +485,61 @@ export function ReplyCamera({
     /*
       演出の立ち上がり中は現在位置から徐々に寄せる(切り替えた瞬間に飛ばない)。
       係数は delta からの指数減衰にして、fps が変わっても同じ速さで寄るようにする。
-      (向き=camera.lookAt はここでは平滑化しない。lookHandoff 自体が
-      smoothstep で滑らかなので、ここでさらに遅らせると向き直りがもたついて
-      見える)
     */
     const follow = 1 - Math.exp(-FOLLOW_RATE * delta * Math.min(activation, 1));
     camera.position.lerp(pos.current, follow);
+
+    /*
+      バンク(ロール)。**ドローンらしさの主役。**
+
+      機首方位の変化率(=旋回の角速度)からロール角を作る。実機は旋回時に
+      内側へ倒れるので、角速度に比例して傾けると一気にそれらしくなる。
+      なました上で、進行方向(forward)まわりに up を回して camera.lookAt へ
+      渡す(lookAt は camera.up を基準に姿勢を決める)。
+
+      posHandoff を掛けてあるので、11秒までの周回中は常に0 = 水平のまま。
+    */
+    forward.current.copy(look.current).sub(camera.position);
+    const flatLen = Math.hypot(forward.current.x, forward.current.z);
+    if (flatLen > 0.001 && delta > 0) {
+      const nextHeading = Math.atan2(forward.current.x, forward.current.z);
+      if (Number.isFinite(heading.current)) {
+        // 角度差は必ず -π〜π に畳む(±πをまたぐとき暴れるため)
+        let d = nextHeading - heading.current;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        const target = Math.max(
+          -BANK_MAX,
+          Math.min(BANK_MAX, (d / delta) * BANK_GAIN),
+        );
+        bank.current += (target - bank.current) * (1 - Math.exp(-BANK_SMOOTH * delta));
+      }
+      heading.current = nextHeading;
+    }
+
+    const roll = bank.current * activation * posHandoff;
+    forward.current.normalize();
+    up.current.set(0, 1, 0);
+    if (Number.isFinite(roll) && Math.abs(roll) > 0.0001) {
+      up.current.applyAxisAngle(forward.current, roll);
+    }
+    camera.up.copy(up.current);
     camera.lookAt(look.current);
+
+    /*
+      画角。至近の煽りは広角で誇張し、離脱は望遠で圧縮する。
+      activation と posHandoff を掛けてあるので、11秒まで・OFF のときは
+      Canvas 既定の画角(68度)のまま。
+    */
+    const perspective = perspectiveRef.current;
+    if (perspective && Number.isFinite(baseFov.current)) {
+      const blend = activation * posHandoff;
+      const fov = baseFov.current + (key.current.fov - baseFov.current) * blend;
+      if (Math.abs(perspective.fov - fov) > 0.01) {
+        perspective.fov = fov;
+        perspective.updateProjectionMatrix();
+      }
+    }
   });
 
   return null;

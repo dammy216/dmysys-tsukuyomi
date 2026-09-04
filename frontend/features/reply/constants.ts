@@ -183,10 +183,15 @@ const TORII_TOP_OFFSET = REPLY_TORII_GATE_HEIGHT;
 
 /**
  * ホログラム画面の縦幅。横幅は映像の実寸(1920x1080 = 16:9)から決まるので
- * 約14.2 になる。星降る海(16:9で高さ9)と同じ比率で、少し小さめ。
+ * 約21.3 になる。星降る海(16:9で高さ9)よりひと回り大きい、会場のジャンボトロン
+ * ぐらいの主張のあるサイズにしてある。
  * ReplyHologram.tsx と、上の REPLY_HOLOGRAM_Y の算出で共有する。
+ *
+ * ここを変えると REPLY_HOLOGRAM_Y(画面中心)も連動して動くが、画面の**下辺**
+ * (鳥居の上端からの間合い)は HOLOGRAM_GAP だけで決まり HOLOGRAM_HEIGHT には
+ * 依存しないので、画面は下辺を保ったまま上へ伸びる(鳥居と被らない)。
  */
-export const HOLOGRAM_HEIGHT = 8;
+export const HOLOGRAM_HEIGHT = 16;
 /**
  * 鳥居の上端から画面の下辺までの間合い。星降る海(鳥居の上端から約5)より
  * 詰めてある: こちらは土台が江戸城のぶん塔が高く、同じだけ空けると
@@ -237,5 +242,50 @@ export const REPLY_GLOW_COLOR = "#ff3d1a";
 /** 天守に這わせる投影光(プロジェクションマッピング) */
 export const PROJECTION_COLOR_A = "#ffab3d";
 export const PROJECTION_COLOR_B = "#ff3d86";
-/** 背後から放射状に伸びるビーム。参照映像と同じ緑・マゼンタ・橙の3色を回す */
-export const BEAM_COLORS = ["#6effb0", "#ff4fa3", "#ffa93d"];
+/**
+ * 背後から放射状に伸びるビームの色。参照映像(Reply.mp4 0:05〜0:08)で
+ * 実際に出ている4色。**小節ごとにこの中から2色を選んで会場ごと総入れ替え**
+ * する(StageBeams の COLOR_BEATS)。本ごとに固定の色を割り振ると、
+ * 何が起きても色の並びが変わらないので照明卓が動いていないように見える。
+ */
+export const BEAM_COLORS = ["#6effb0", "#ff4fa3", "#ffa93d", "#8b6cff"];
+
+/*
+ * ------------------------------------------------------------------
+ * 曲(Reply)のビートグリッド。**すべて reply.mp4 の音声から実測した値**で、
+ * 勘で置いた数字ではない。ステージ照明(StageBeams)はこのグリッドの上で動く。
+ *
+ * 楽曲構成・歌詞タイミング・実測ダイナミクス・映像の絵づくりは
+ * `frontend/features/reply/TRACK_NOTES.md` に詳細をまとめてある。
+ *
+ * 測り方(再現手順):
+ *   ffmpeg -i reply.mp4 -vn -ac 1 -ar 22050 -f f32le reply.pcm
+ *   → STFT(hop 256) のスペクトルフラックスでオンセット包絡を作り、
+ *     80〜200bpm を 0.25bpm 刻み・位相 0.002秒刻みで櫛形フィルタにかける。
+ *   結果: 170.00bpm がスコア 0.0814 で単独首位(2位の136bpmは0.0444)。
+ * ------------------------------------------------------------------
+ */
+
+/** 曲のテンポ。実測で 170.00bpm ちょうど */
+export const REPLY_BPM = 170;
+/** 1拍の長さ(秒)。約0.35294秒 */
+export const REPLY_BEAT_SECONDS = 60 / REPLY_BPM;
+/** 1小節の長さ(秒)。4拍で約1.41176秒 */
+export const REPLY_BAR_SECONDS = REPLY_BEAT_SECONDS * 4;
+
+/**
+ * 最初の拍が立つ時刻(秒)。実質0だが、0にすると小節線が1拍ぶんずれる。
+ */
+export const REPLY_BEAT_OFFSET = 0.018;
+/**
+ * 最初の**小節頭**の時刻(秒)。以降 REPLY_BAR_SECONDS ごとに小節が来る。
+ *
+ * 拍のうちどれが小節頭かは、12〜60秒の安定区間でキックのオンセット強度を
+ * 4拍・8拍それぞれのスロットに振り分けて求めた(4拍→スロット2、
+ * 8拍→スロット6。8の6は4の2と一致するので整合している)。
+ * つまり小節頭は REPLY_BEAT_OFFSET から2拍後 = 0.018 + 2*0.35294。
+ *
+ * 検算: この式で8小節目の頭は 12.018秒。曲の**ドロップ**(低域が
+ * 0.34→0.67 に跳ねる点)の実測は 12.06秒で、小節頭にぴったり乗る。
+ */
+export const REPLY_BAR_ORIGIN = REPLY_BEAT_OFFSET + REPLY_BEAT_SECONDS * 2;

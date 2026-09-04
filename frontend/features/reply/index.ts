@@ -4,9 +4,19 @@ export { CornerTowers } from "./CornerTowers";
 export { ConcertStage } from "./ConcertStage";
 export { StageBeams } from "./StageBeams";
 export { ReplyHologram } from "./ReplyHologram";
+export { ReplyFireworks } from "./ReplyFireworks";
 export { ToriiGate } from "./ToriiGate";
 export { ReplyCamera } from "./ReplyCamera";
 export { useReplySong } from "./useReplySong";
+export {
+  REPLY_SECTIONS,
+  replyFadeGainAt,
+  replySectionEnergyAt,
+  replySectionIndexAt,
+  replySectionSinceAt,
+  type ReplySection,
+  type ReplySectionName,
+} from "./songStructure";
 export {
   CASTLE_HALF_DEPTH,
   CASTLE_HALF_WIDTH,
