@@ -323,7 +323,7 @@ const pathObj = pathSheet.object("Path", {
  * PATH の t は0〜1(CYCLE_SECONDS に対する割合)なので、Theatre側の
  * シーケンス位置(秒)には `t * CYCLE_SECONDS` に変換して打つ。
  */
-function seedStarfallPathKeyframes() {
+async function seedStarfallPathKeyframes() {
   const studio = getStudio();
   if (!studio) {
     console.warn("[Starfall Sea] Theatre studio がまだ初期化されていません");
@@ -331,6 +331,13 @@ function seedStarfallPathKeyframes() {
   }
   for (const key of PATH) {
     pathSheet.sequence.position = key.t * CYCLE_SECONDS;
+    /*
+      position の代入直後に transaction を呼ぶと、Theatre内部の反応系が
+      新しい再生位置をまだ反映していない状態で set() が実行され、
+      全キーフレームが同じ位置に上書きされ続けてしまう(ReplyCamera.tsxで
+      実際に発生した不具合と同じ)。1フレーム待って反映を確定させる。
+    */
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     studio.transaction(({ set }) => {
       set(pathObj.props.pos, {
         x: key.pos[0],

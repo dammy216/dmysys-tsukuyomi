@@ -6,6 +6,7 @@ import { ControlBar } from "@/features/scene-controls";
 import { useStarfallSong } from "@/features/starfall-sea";
 import { useReplySong } from "@/features/reply";
 import { useSceneRecorder } from "@/features/scene-recording";
+import { EditorLayout } from "./EditorLayout";
 import { RootCanvas } from "./RootCanvas";
 import { useSceneStore } from "./store";
 
@@ -19,6 +20,8 @@ export function RootScene() {
   const reply = useSceneStore((s) => s.reply);
   const setStarfallPlaying = useSceneStore((s) => s.setStarfallPlaying);
   const setReplyPlaying = useSceneStore((s) => s.setReplyPlaying);
+  // 編集モード中はサイトのHUDを全部隠し、EditorLayout の枠へ差し替える
+  const editorMode = useSceneStore((s) => s.editorMode);
 
   /*
     星降る海の映像と音。映像はミュートで流し、音はボーカル／伴奏の
@@ -60,6 +63,20 @@ export function RootScene() {
   }, [replyPlaying, setReplyPlaying]);
 
   /*
+    編集モードを抜けたら、そこで一時停止していた映像を必ず再生へ戻す。
+    ストア側では editorPaused を false に戻しているが、<video> 自体は
+    止めたままなので、ここで明示的に再生し直さないと「通常表示に戻ったのに
+    映像だけ止まっている」状態になる。
+  */
+  useEffect(() => {
+    if (editorMode) return;
+    const video = replyVideoRef.current;
+    if (video && video.paused && replyPlaying) {
+      void video.play().catch(() => {});
+    }
+  }, [editorMode, replyPlaying, replyVideoRef]);
+
+  /*
     3D画面の録画。WebGLキャンバス(captureStream)＋再生中の曲の音声を webm に。
     キャラや下部バーは別DOMなので写らない = 「3D画面だけ」。
     解像度はウィンドウそのまま。綺麗に録りたいときはウィンドウを大きく or F11。
@@ -88,13 +105,21 @@ export function RootScene() {
     canvasRef.current = canvas;
   }, []);
 
+  const canvas = (
+    <RootCanvas
+      hologramVideoRef={hologramVideoRef}
+      replyVideoRef={replyVideoRef}
+      onCanvasReady={handleCanvasReady}
+    />
+  );
+
+  if (editorMode) {
+    return <EditorLayout replyVideoRef={replyVideoRef}>{canvas}</EditorLayout>;
+  }
+
   return (
     <>
-      <RootCanvas
-        hologramVideoRef={hologramVideoRef}
-        replyVideoRef={replyVideoRef}
-        onCanvasReady={handleCanvasReady}
-      />
+      {canvas}
       <CharacterOverlay
         getStarfallAmplitude={getStarfallAmplitude}
         getReplyAmplitude={getReplyAmplitude}

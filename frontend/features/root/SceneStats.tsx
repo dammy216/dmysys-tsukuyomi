@@ -9,6 +9,11 @@ import StatsImpl from "stats.js";
  * ただし stats.js 本来の「クリックで FPS→MS→MB を1枚ずつ切替」ではなく、
  * 既定は FPS のみ表示 / クリックで MS・MB をその下にドロップダウン展開する。
  * 各項目の意味: FPS=毎秒フレーム数, MS=1フレームの描画ミリ秒, MB=JSヒープ使用量(Chrome系のみ)。
+ *
+ * 編集モード(EditorLayout)中はこのパネルごと隠す(呼び出し元の SceneContents
+ * 側で分岐)。Theatre のパネルは画面の絶対位置に浮くだけで実際の占有範囲を
+ * 予測できず、CSSでの位置合わせでは避けきれなかったため、編集モード専用の
+ * FPS表示は代わりに EditorToolbar が自前で計算して出す。
  */
 export function SceneStats() {
   useEffect(() => {

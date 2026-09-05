@@ -151,6 +151,7 @@ export function SceneContents({
   const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
   const freeCam = useSceneStore((s) => s.freeCam);
+  const editorMode = useSceneStore((s) => s.editorMode);
 
   /*
     Theatre.js の Studio パネル起動は SceneContents から1箇所だけ呼ぶ
@@ -999,6 +1000,7 @@ export function SceneContents({
         pullbackRef={replyPullbackRef}
         energyRef={replyEnergyRef}
         songTimeRef={replySongTimeRef}
+        videoRef={replyVideoRef}
       />
 
       {/*
@@ -1021,7 +1023,8 @@ export function SceneContents({
               : NORMAL_ORBIT_TARGET
         }
       />
-      <SceneStats />
+      {/* 編集モード中は EditorToolbar が自前でFPSを出すので、こちらは隠す */}
+      {!editorMode && <SceneStats />}
 
       {/*
         エフェクトは常に同じ構成でマウントし続け、強さだけを上の useFrame で

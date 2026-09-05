@@ -1,5 +1,17 @@
+"use client";
+
+import { useSceneStore } from "@/features/root/store";
+
 /** サイト共通ヘッダー。DMYSYSのロゴ+ワードマークを表示する（下部ControlBarと同じ近未来HUDデザイン） */
 export function Header() {
+  /*
+    Theatre.js の編集モード中は隠す。編集モードでは画面をビューポートと
+    パネル置き場に分けるので、画面左上へ固定されるこのヘッダーが
+    Outline パネルの上に重なってしまうため。
+  */
+  const editorMode = useSceneStore((s) => s.editorMode);
+  if (editorMode) return null;
+
   return (
     <header
       className="fixed top-[max(var(--header-offset),env(safe-area-inset-top))] left-[max(var(--header-offset),env(safe-area-inset-left))] z-30

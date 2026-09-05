@@ -4,6 +4,7 @@ import { type RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
 import { SceneContents } from "./SceneContents";
 import { Credits } from "./Credits";
+import { useSceneStore } from "./store";
 
 /** ルート("/")の R3F <Canvas> ラッパ。シーンの状態は useSceneStore から SceneContents が直接読む */
 export function RootCanvas({
@@ -17,8 +18,17 @@ export function RootCanvas({
   /** WebGLキャンバスが用意できたら渡す。録画(captureStream)の対象にする */
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }) {
+  const editorMode = useSceneStore((s) => s.editorMode);
+
+  /*
+    編集モードでは EditorLayout 側がビューポートの矩形を決めるので、
+    ここは親いっぱい(h-full)に広がるだけにする。通常時は今まで通り
+    画面の高さいっぱい(h-dvh)。クレジットは編集の邪魔になるので隠す。
+  */
   return (
-    <div className="relative h-dvh w-full bg-[#0b1626]">
+    <div
+      className={`relative w-full bg-[#0b1626] ${editorMode ? "h-full" : "h-dvh"}`}
+    >
       {/*
         fov は迫力を出すため広めに取っている(50→68)。
         preserveDrawingBuffer は録画(canvas.captureStream)で確実にフレームを
@@ -35,7 +45,7 @@ export function RootCanvas({
         />
       </Canvas>
 
-      <Credits />
+      {!editorMode && <Credits />}
     </div>
   );
 }

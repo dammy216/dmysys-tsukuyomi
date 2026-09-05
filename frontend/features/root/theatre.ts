@@ -2,6 +2,7 @@
 
 import { getProject } from "@theatre/core";
 import type { IStudio } from "@theatre/studio";
+import { useSceneStore } from "./store";
 
 /**
  * Theatre.js のプロジェクト。シーン全体でこれ1つだけをモジュールスコープで
@@ -27,11 +28,11 @@ export const sceneProject = getProject("Scene");
  * 何もレンダリングしない副作用のみの関数。呼び出し側で useEffect(() => {
  * initTheatreStudio(); }, []) のように1回だけ呼ぶ。
  *
- * Studio のパネルは起動直後は**非表示**にしておく。表示したままだと
- * 常時左上のDMYSYSヘッダー・右上のFPS統計パネル(SceneStats)と
- * 位置が被る(Studio側にUIの初期位置・z-indexを変えるオプションが無い
- * ため、こちらの見た目を動かすのではなく「使うときだけ出す」方で解決する)。
- * Lキーで studio.ui.hide()/restore() をトグルして必要なときだけ呼び出す。
+ * Studio のパネルは起動直後は**非表示**にしておく。`L`キーで
+ * 「編集モード」(useSceneStore.editorMode)と Studio パネルの表示を
+ * まとめてトグルする。編集モードでは EditorLayout が画面を
+ * 「3Dビューポート」と「パネル置き場」に分けるので、Studio のパネルが
+ * 3D画面に重なって見えなくなる問題も同時に解消される。
  */
 let studioInitialized = false;
 
@@ -47,6 +48,22 @@ export function getStudio(): IStudio | null {
   return studioInstance;
 }
 
+/**
+ * 編集モード(useSceneStore.editorMode)と Studio パネルの表示を必ず
+ * 同時に切り替える。`L`キーのハンドラと、EditorToolbar の「編集モード終了」
+ * ボタンの両方からこれ1つを呼ぶ(呼び出し元が別々に切り替えるとズレるため)。
+ */
+export function toggleEditorModeAndStudio() {
+  useSceneStore.getState().toggleEditorMode();
+  const studio = studioInstance;
+  if (!studio) return;
+  if (studio.ui.isHidden) {
+    studio.ui.restore();
+  } else {
+    studio.ui.hide();
+  }
+}
+
 export function initTheatreStudio() {
   if (process.env.NODE_ENV !== "development") return;
   if (studioInitialized) return;
@@ -58,11 +75,17 @@ export function initTheatreStudio() {
     studio.ui.hide();
     window.addEventListener("keydown", (e) => {
       if (e.key !== "l" && e.key !== "L") return;
-      if (studio.ui.isHidden) {
-        studio.ui.restore();
-      } else {
-        studio.ui.hide();
+      // 入力欄にフォーカスがあるときは文字入力を邪魔しない
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
       }
+      toggleEditorModeAndStudio();
     });
   });
 }

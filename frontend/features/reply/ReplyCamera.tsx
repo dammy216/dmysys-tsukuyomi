@@ -5,6 +5,7 @@ import { types } from "@theatre/core";
 import { useEffect, useRef, type RefObject } from "react";
 import { PerspectiveCamera, Vector3 } from "three";
 import { exposeDevSeed, getStudio, sceneProject } from "@/features/root/theatre";
+import { useSceneStore } from "@/features/root/store";
 import {
   REPLY_BAR_ORIGIN,
   REPLY_BAR_SECONDS,
@@ -164,14 +165,9 @@ const MIN_ORBIT_DISTANCE = 11;
  * ================================================================== */
 
 /*
-  Theatre.js への移行(下の droneSheet/droneObj)はまだキーフレームが
-  Studio で1つも打たれていない。sheet.object の値はキーフレーム無しだと
-  常に初期値(定数)のまま = カメラが航路を辿らず静止して見える(2026-09-05
-  に発生した「星降る海のカメラが止まった」と同種の不具合)。
-  Studio で実際に打ち直して確認が取れるまで、ここでは元の手組み実装
-  (DRONE_PATH/sampleDrone)をそのまま動かす。droneSheet/droneObj は
-  Studio パネルに項目を出すためだけに生成してあり、値の読み出しには
-  まだ使わない(下の useFrame 参照)。
+  以下 DroneKey 型 / DRONE_PATH は Theatre.js 移行後は実行時に使わない
+  参照用データ。Studio でキーフレームを打ち直す/調整する際、元の値を
+  見ながら作業するために残してある(下の droneSheet/droneObj 参照)。
 */
 
 /** ドローンの航路のキーフレーム。塔の軸を中心にした円筒座標で持つ */
@@ -290,57 +286,84 @@ function hermite(p0: number, v0: number, p1: number, v1: number, t: number) {
   return h00 * p0 + h10 * v0 + h01 * p1 + h11 * v1;
 }
 
-/** 航路を時刻 t(秒) で標本化する。返り値は破壊的に out へ書く */
-function sampleDrone(
-  t: number,
-  out: { turn: number; radius: number; y: number; lookY: number; fov: number },
-) {
-  const last = DRONE_PATH.length - 1;
-  if (t <= DRONE_PATH[0].t) {
-    const k = DRONE_PATH[0];
-    out.turn = k.turn;
-    out.radius = k.radius;
-    out.y = k.y;
-    out.lookY = k.lookY;
-    out.fov = k.fov;
-    return;
-  }
-  if (t >= DRONE_PATH[last].t) {
-    const k = DRONE_PATH[last];
-    out.turn = k.turn;
-    out.radius = k.radius;
-    out.y = k.y;
-    out.lookY = k.lookY;
-    out.fov = k.fov;
-    return;
-  }
-
-  let i = 0;
-  while (i < last - 1 && t > DRONE_PATH[i + 1].t) i++;
-  const a = DRONE_PATH[i];
-  const b = DRONE_PATH[i + 1];
-  const span = b.t - a.t || 1;
-  const k = smoothstep((t - a.t) / span);
-
-  out.turn = a.turn + (b.turn - a.turn) * k;
-  out.radius = a.radius + (b.radius - a.radius) * k;
-  out.y = a.y + (b.y - a.y) * k;
-  out.lookY = a.lookY + (b.lookY - a.lookY) * k;
-  out.fov = a.fov + (b.fov - a.fov) * k;
+/**
+ * 11秒までの周回カメラ(BUILD_ORBIT_*・hermite。上のコメント通りここは
+ * 触らない)を、Theatre.js のタイムラインへシードするためだけに**同じ式で
+ * 再計算する**サンプリング関数。**カメラの実際の描画ロジック
+ * (useFrame内。下を参照)はこの関数を使わず、既存のhermite計算式を
+ * そのまま実行し続ける**(seedReplyBuildOrbitKeyframes 用の副産物)。
+ *
+ * turn は DRONE_PATH と同じ「回転数」表現に揃えるが、そのままだと build=1
+ * (t=11)で1.0(=1回転)になり、DRONE_PATH[0].turn=0 と数値上ズレる
+ * (sin/cosは2π周期なので見た目は同じ角度だが、Theatre側は生の数値を
+ * 線形補間するので、そのままだと11秒の継ぎ目で逆回転する不具合になる)。
+ * BUILD_ORBIT_TURNS ぶん引いて、t=11 でちょうど 0 に着地するよう
+ * 通し番号にしてある(t=0 の時点では turn=-BUILD_ORBIT_TURNS)。
+ */
+function sampleBuildOrbit(t: number) {
+  const build = Math.min(Math.max(t / REPLY_BUILD_END_SECONDS, 0), 1);
+  const dollyPhase = Math.min(
+    Math.max((build - BUILD_HOLD_FRACTION) / BUILD_DOLLY_FRACTION, 0),
+    1,
+  );
+  const orbitPhase = Math.min(
+    Math.max(
+      (build - BUILD_ORBIT_START_FRACTION) / BUILD_ORBIT_DURATION_FRACTION,
+      0,
+    ),
+    1,
+  );
+  const rotate = smoothstep(orbitPhase);
+  const inDolly = build < BUILD_ORBIT_START_FRACTION;
+  const orbitRadius = inDolly
+    ? hermite(
+        BUILD_ORBIT_RADIUS_START,
+        0,
+        BUILD_ORBIT_RADIUS_MID,
+        RADIUS_JUNCTION_VELOCITY * BUILD_DOLLY_FRACTION,
+        dollyPhase,
+      )
+    : hermite(
+        BUILD_ORBIT_RADIUS_MID,
+        RADIUS_JUNCTION_VELOCITY * BUILD_ORBIT_DURATION_FRACTION,
+        BUILD_ORBIT_RADIUS_TO,
+        0,
+        orbitPhase,
+      );
+  const orbitY = inDolly
+    ? hermite(
+        BUILD_ORBIT_Y_FROM,
+        0,
+        BUILD_ORBIT_Y_MID,
+        Y_JUNCTION_VELOCITY * BUILD_DOLLY_FRACTION,
+        dollyPhase,
+      )
+    : hermite(
+        BUILD_ORBIT_Y_MID,
+        Y_JUNCTION_VELOCITY * BUILD_ORBIT_DURATION_FRACTION,
+        BUILD_ORBIT_Y_TO,
+        0,
+        orbitPhase,
+      );
+  return {
+    turn: (rotate - 1) * BUILD_ORBIT_TURNS,
+    radius: orbitRadius,
+    y: BASE.y + orbitY,
+    lookY:
+      BASE.y + BUILD_LOOK_Y_FROM + build * (BUILD_LOOK_Y_TO - BUILD_LOOK_Y_FROM),
+    fov: DRONE_PATH[0].fov,
+  };
 }
 
 /**
  * project="Scene" → sheet=feature名("Reply") → object=対象名("Drone Path")
- * の命名規則(features/root/theatre.ts 参照)。Studio パネル(開発時のみ
- * 起動)に項目を出すためだけに生成してある。**キーフレームが1つも
- * 打たれていないため、値の読み出しにはまだ使わない**(上のコメント参照。
- * 使うと DRONE_PATH の代わりに常に初期値のまま = カメラが静止する)。
- * Studio で航路を打ち直して確認が取れたら、useFrame 内の sampleDrone
- * 呼び出しをこのオブジェクトの .value 読み出しに置き換えること。
+ * の命名規則(features/root/theatre.ts 参照)。Studio でキーフレームを
+ * 打ち込み済み(下の useFrame で droneObj.value を読んでカメラを駆動する)。
+ * Studio パネル自体は開発時のみ起動。
  */
 const droneSheet = sceneProject.sheet("Reply");
 const droneObj = droneSheet.object("Drone Path", {
-  turn: types.number(0, { range: [0, 4.5], nudgeMultiplier: 0.01 }),
+  turn: types.number(0, { range: [-1, 4.5], nudgeMultiplier: 0.01 }),
   radius: types.number(53, { range: [15, 120] }),
   y: types.number(46, { range: [20, 80] }),
   lookY: types.number(45, { range: [30, 50] }),
@@ -359,7 +382,7 @@ const droneObj = droneSheet.object("Drone Path", {
  * 単なる静的値の上書きになる。プロップをシーケンス化する操作自体は
  * Theatre.js の公開APIには無く、Studio UIでの操作が必要)。
  */
-function seedReplyDroneKeyframes() {
+async function seedReplyDroneKeyframes() {
   const studio = getStudio();
   if (!studio) {
     console.warn("[Reply] Theatre studio がまだ初期化されていません");
@@ -367,6 +390,21 @@ function seedReplyDroneKeyframes() {
   }
   for (const key of DRONE_PATH) {
     droneSheet.sequence.position = key.t;
+    /*
+      position の代入直後に transaction を呼ぶと、Theatre内部の反応系が
+      新しい再生位置をまだ反映していない状態で set() が実行され、
+      キーフレームが意図した時刻からズレて密集してしまう(実際に発生した不具合。
+      1フレーム固定待ちでは足りなかった)。
+      droneSheet.sequence.position を読み直して、実際に代入した値に
+      落ち着くまでフレームを待つ(最大60フレーム=約1秒でタイムアウト)。
+    */
+    for (
+      let i = 0;
+      i < 60 && Math.abs(droneSheet.sequence.position - key.t) > 1e-6;
+      i++
+    ) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
     studio.transaction(({ set }) => {
       set(droneObj.props.turn, key.turn);
       set(droneObj.props.radius, key.radius);
@@ -376,10 +414,69 @@ function seedReplyDroneKeyframes() {
     });
   }
   console.log(
-    `[Reply] ${DRONE_PATH.length}個のキーフレームを投入した。Studioで確認できたら、useFrame内のsampleDrone呼び出しをdroneObj.valueの読み出しに戻すこと。`,
+    `[Reply] ${DRONE_PATH.length}個のキーフレームを投入した(最終position=${droneSheet.sequence.position})。Studioで確認できたら、useFrame内のsampleDrone呼び出しをdroneObj.valueの読み出しに戻すこと。`,
   );
 }
 exposeDevSeed("seedReplyDroneKeyframes", seedReplyDroneKeyframes);
+
+/**
+ * 0〜11秒(周回カメラ。BUILD_ORBIT_*・hermite)を sampleBuildOrbit() で
+ * サンプリングして、既存の Drone Path(11秒〜)キーフレームの手前へ続く
+ * キーフレームとして打ち込む、一度きりの移行スクリプト。開発時のみ
+ * `window.seedReplyBuildOrbitKeyframes()` として呼べる。
+ *
+ * 事前準備は seedReplyDroneKeyframes と同じ(turn/radius/y/lookY/fov を
+ * Studio で「Sequence this prop」済みであること)。既に済んでいれば
+ * 改めて実行不要。
+ *
+ * **DRONE_PATH と同じ発想で、区間の境目を中心にした少数のキーフレーム
+ * に絞ってある**(以前0.25秒刻みで打った44個は手で調整するには多すぎた)。
+ *   - 0 / 2.5: 静止(HOLD)区間の両端。値は同じなので実質フラットになる
+ *   - 4.0: ドリーイン(DOLLY)区間の中間点。radius/yのエルミート曲線の
+ *     カーブ形状を拾うため
+ *   - 6.0: ドリーイン→周回の継ぎ目(BUILD_HOLD_SECONDS+BUILD_DOLLY_SECONDS)
+ *   - 7.5 / 9.0: 周回(ORBIT)区間の中間点。turnのsmoothstepイーズと
+ *     radius/yのエルミート曲線、両方のカーブ形状を拾うため
+ *   - lookYはbuildに対して単純な直線(区間で変わらない)なので、点を
+ *     間引いても崩れない。
+ *
+ * **11.0秒ちょうどのキーフレームは打たない**(既存の DRONE_PATH[0] の
+ * キーフレームとぶつかるため。9.0秒までを打ち、そこから先は既存の
+ * キーフレームへ繋がる)。
+ *
+ * 以前0.25秒刻みで打った分が残っている場合は、Studio上で0〜11秒の
+ * キーフレームを先に削除してから実行すること。
+ */
+async function seedReplyBuildOrbitKeyframes() {
+  const studio = getStudio();
+  if (!studio) {
+    console.warn("[Reply] Theatre studio がまだ初期化されていません");
+    return;
+  }
+  const SAMPLE_TIMES = [0, 2.5, 4.0, 6.0, 7.5, 9.0];
+  for (const t of SAMPLE_TIMES) {
+    const sample = sampleBuildOrbit(t);
+    droneSheet.sequence.position = t;
+    for (
+      let i = 0;
+      i < 60 && Math.abs(droneSheet.sequence.position - t) > 1e-6;
+      i++
+    ) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    studio.transaction(({ set }) => {
+      set(droneObj.props.turn, sample.turn);
+      set(droneObj.props.radius, sample.radius);
+      set(droneObj.props.y, sample.y);
+      set(droneObj.props.lookY, sample.lookY);
+      set(droneObj.props.fov, sample.fov);
+    });
+  }
+  console.log(
+    `[Reply] 周回カメラを${SAMPLE_TIMES.length}個のキーフレームにした(最終position=${droneSheet.sequence.position})。`,
+  );
+}
+exposeDevSeed("seedReplyBuildOrbitKeyframes", seedReplyBuildOrbitKeyframes);
 
 type ReplyCameraProps = {
   active: boolean;
@@ -408,6 +505,12 @@ type ReplyCameraProps = {
    * 曲(=映像)の再生位置(秒)。航路はこれで直接引く(ループしない)。
    */
   songTimeRef?: RefObject<number>;
+  /**
+   * ホログラムに映している Reply の映像本体。Studio の Sequence Editor で
+   * プレイヘッドを手で動かしたときに、この映像を一時停止してその位置へ
+   * シークするために使う(下の useFrame 内の解説参照)。
+   */
+  videoRef?: RefObject<HTMLVideoElement | null>;
 };
 
 /**
@@ -426,6 +529,7 @@ export function ReplyCamera({
   pullbackRef,
   energyRef,
   songTimeRef,
+  videoRef,
 }: ReplyCameraProps) {
   const { camera } = useThree();
   const pos = useRef(new Vector3());
@@ -436,8 +540,44 @@ export function ReplyCamera({
   const droneLook = useRef(new Vector3());
   const forward = useRef(new Vector3());
   const up = useRef(new Vector3());
-  /** droneTimeline.seek() 後に droneProxy から写す先。毎フレーム作らないよう使い回す */
+  /** droneObj.value から毎フレーム写す先。使い回すことで new を避ける */
   const key = useRef({ turn: 0, radius: 0, y: 0, lookY: 0, fov: 68 });
+  /**
+   * 直前のフレームで自分が droneSheet.sequence.position に書き込んだ値。
+   * Studio の Sequence Editor でプレイヘッドを手で動かすと、次のフレームで
+   * 読み返した sequence.position がこの値とズレる(=自分が書いた覚えのない
+   * 変化)。それを「手動でスクラブされた」の判定に使う(下の useFrame 参照)。
+   */
+  const lastWrittenPositionRef = useRef<number | null>(null);
+  /*
+    videoRef(prop)の.currentを直接書き換えると react-hooks/immutability に
+    引っかかるため、一度ローカルrefへ移してから触る(下の perspectiveRef と
+    同じ手当て)。
+  */
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  /**
+   * 編集モードのツールバー(EditorToolbar)で押された一時停止。
+   * Theatre.js 標準の再生/一時停止(スペースキー、
+   * sequence.pointer.playing)は**使わない**——それに反応しようとすると、
+   * Theatre側の内部時計が独自に sequence.position を進め始めてしまい、
+   * 毎フレーム動画をそれに追従させようとして「1秒ごとにガクガク動く」
+   * 不具合になった。代わりに Theatre のシーケンス自体は下の useFrame で
+   * 毎フレーム pause() して無効化し、一時停止状態はストア側で持つ。
+   *
+   * useFrame の中から毎フレーム読むので、購読(再レンダー)ではなく
+   * getState() で都度読む。
+   */
+  const isPaused = () => useSceneStore.getState().editorPaused;
+  /**
+   * 再生中にバーをスクラブした直後、動画へ commanded した seek 先。
+   * video.currentTime への代入はブラウザ側で反映に数フレームかかることが
+   * あり、その間 songTime(=video.currentTime の読み戻し)はまだ古い値の
+   * まま。この間に songTime を信用して sequence.position を書き戻すと、
+   * シークした瞬間に元の位置へ「戻る」ように見える不具合になる
+   * (実際に発生した)。songTime がこの seek 先に追いつくまでは、
+   * sequence.position をこの値に固定しておく。追いついたら null に戻す。
+   */
+  const pendingSeekTargetRef = useRef<number | null>(null);
   /** 前フレームの機首方位(ラジアン)。バンクを角速度から作るのに使う */
   const heading = useRef(Number.NaN);
   /** なました現在のバンク角 */
@@ -465,6 +605,12 @@ export function ReplyCamera({
       bank.current = 0;
     }
   }, [active]);
+
+  // videoRef(prop)の.currentをローカルrefへ移す(videoElRefのコメント参照)
+  useEffect(() => {
+    videoElRef.current = videoRef?.current ?? null;
+  }, [videoRef]);
+
 
   /*
     画角を書くための入口を ref へ移し、あわせて既定の画角を控えておく。
@@ -592,11 +738,74 @@ export function ReplyCamera({
     );
 
     /*
-      ドローンの航路。曲の再生位置で直接引く(ループしない)。
-      Theatre.js への移行はまだキーフレーム未作成のため保留中
-      (上の sampleDrone 手前のコメント参照)。
+      Theatre.js 自身の再生エンジンは毎フレーム止めておく。Studio 側の
+      スペースキー/再生ボタンで sequence.playing が true になると、
+      Theatre が内部時計で sequence.position を勝手に進め始めてしまい、
+      それを動画に追従させようとして映像がガクつく不具合になった
+      (frozenRef のコメント参照)。一時停止/再開はこちらの frozenRef と
+      `P`キーだけで管理する。
     */
-    sampleDrone(songTime, key.current);
+    droneSheet.sequence.pause();
+
+    /*
+      ドローンの航路。基本は曲の再生位置を Theatre.js のシーケンス位置へ
+      直接代入してシークする(公式にサポートされた外部時刻との同期方法)。
+
+      Studio の Sequence Editor でプレイヘッドを手でスクラブしたときは、
+      毎フレーム自分で書き込んだ値(lastWrittenPositionRef)と今読み返した
+      sequence.position がズレることで検知する。この「スクラブされた」
+      イベントが起きたときの挙動を frozenRef で分ける:
+        - 一時停止中(frozenRef=true): そこへシークして止まったまま
+        - 再生中(frozenRef=false): そこへシークしてそのまま再生を続ける
+      スクラブが無い間は、一時停止中なら位置を一切いじらず(止まったまま)、
+      そうでなければ今まで通り songTime で毎フレーム上書きする。
+    */
+    const currentSeqPosition = droneSheet.sequence.position;
+    const wasScrubbedManually =
+      lastWrittenPositionRef.current !== null &&
+      Math.abs(currentSeqPosition - lastWrittenPositionRef.current) > 0.03;
+
+    const paused = isPaused();
+
+    if (wasScrubbedManually) {
+      const video = videoElRef.current;
+      if (video) {
+        // 一時停止中でもシーク自体は必ず行う(その位置の画を見たいため)
+        video.currentTime = Math.max(currentSeqPosition, 0);
+        if (paused) {
+          video.pause();
+        } else if (video.paused) {
+          void video.play().catch(() => {});
+        }
+      }
+      lastWrittenPositionRef.current = currentSeqPosition;
+      // 再生中のスクラブだけ、動画がシーク先に追いつくまでの保持が要る
+      pendingSeekTargetRef.current = paused ? null : currentSeqPosition;
+    } else if (paused) {
+      // 一時停止中は何もしない(sequence.position を songTime で上書きしない)
+    } else if (
+      pendingSeekTargetRef.current !== null &&
+      Math.abs(songTime - pendingSeekTargetRef.current) > 0.2
+    ) {
+      /*
+        直前のスクラブで命じた seek 先に、動画(songTime)がまだ追いついて
+        いない。ここで songTime を信用すると、シークした瞬間に元の位置へ
+        「戻る」ように見える不具合になる(実際に発生した)。動画側の再生は
+        続いているので数フレームで自然に追いつく。それまでは seek 先を
+        維持する。
+      */
+      droneSheet.sequence.position = pendingSeekTargetRef.current;
+      lastWrittenPositionRef.current = pendingSeekTargetRef.current;
+    } else {
+      pendingSeekTargetRef.current = null;
+      droneSheet.sequence.position = songTime;
+      lastWrittenPositionRef.current = songTime;
+    }
+    key.current.turn = droneObj.value.turn;
+    key.current.radius = droneObj.value.radius;
+    key.current.y = droneObj.value.y;
+    key.current.lookY = droneObj.value.lookY;
+    key.current.fov = droneObj.value.fov;
     const angle = key.current.turn * Math.PI * 2;
     pos.current.set(
       BASE.x + Math.sin(angle) * key.current.radius,

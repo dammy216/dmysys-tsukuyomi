@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSceneStore } from "@/features/root/store";
 import {
   REPLY_LOOP_GAP_SECONDS,
   REPLY_VIDEO_SRC,
@@ -34,6 +35,8 @@ const SYNC_INTERVAL = 1000;
  * ボタンを押すとほぼ即座に映像＋ステムを 0 秒から再生開始し、playing=true になる。
  */
 export function useReplySong(active: boolean) {
+  // 編集モードの一時停止(EditorToolbar)。下の vocals 追従エフェクトで参照する
+  const editorPaused = useSceneStore((s) => s.editorPaused);
   /*
     メディア要素は ref だけで持つ(useStarfallSong と同じ理由)。
     useMemo や state に入れると「フックへ渡した値」とみなされ、
@@ -207,6 +210,50 @@ export function useReplySong(active: boolean) {
       setPlaying(false);
     };
   }, [active, wireAnalyser]);
+
+  /*
+    編集モードの一時停止(EditorToolbar)に vocals を追従させる。
+    EditorToolbar は replyVideoRef(= video)だけを pause()/play() するため、
+    ここで vocals 側も合わせないと、一時停止中も vocals だけ鳴り続けてしまう。
+    その状態だと下の同期エフェクトが「video が大きく遅れた」と誤検知し、
+    video.currentTime を鳴り続ける vocals の位置へ強制ジャンプさせてしまう
+    (一時停止したはずなのに数秒おきに画が飛ぶ不具合の原因だった)。
+    再開時は vocals を video の現在位置へ合わせ直してから鳴らす。
+  */
+  useEffect(() => {
+    if (!active) return;
+    const video = videoRef.current;
+    const vocals = vocalsRef.current;
+    if (!video || !vocals) return;
+    if (editorPaused) {
+      vocals.pause();
+    } else if (vocals.paused && !video.paused) {
+      vocals.currentTime = video.currentTime;
+      void vocals.play().catch(() => {});
+    }
+  }, [active, editorPaused]);
+
+  /*
+    video が(EditorToolbar のシークバー／早送り・巻き戻し、または ReplyCamera
+    が Studio の Sequence Editor スクラブに反応してシークしたときなど)どこかで
+    シークされたら、vocals も同じ位置へ追従させる。
+
+    これをしないと、シークバーで video だけを進めても vocals は元の位置の
+    ままになり、下の同期エフェクトが「video が vocals から大きくずれた」と
+    誤検知して video.currentTime を vocals の(進める前の)位置へ強制的に
+    戻してしまう(実際に発生した不具合: シークで進めても数秒後に元へ戻る)。
+  */
+  useEffect(() => {
+    if (!active) return;
+    const video = videoRef.current;
+    const vocals = vocalsRef.current;
+    if (!video || !vocals) return;
+    const handleSeeked = () => {
+      vocals.currentTime = video.currentTime;
+    };
+    video.addEventListener("seeked", handleSeeked);
+    return () => video.removeEventListener("seeked", handleSeeked);
+  }, [active]);
 
   // 再生中のずれを定期的に直す(星降る海と同じ方式)
   useEffect(() => {

@@ -37,6 +37,21 @@ type SceneState = {
    */
   freeCam: boolean;
 
+  /**
+   * Theatre.js の編集モード(開発時のみ。`L`キーで切り替え)。
+   * true の間はサイトのHUD(ヘッダー/ControlBar/かぐやパネル/FPS/クレジット)を
+   * すべて隠し、3Dキャンバスを中央のビューポートへ縮めて、まわりに
+   * Theatre のパネル(左=Outline / 右=Details / 下=Sequence Editor)用の
+   * 余白を空ける。操作系は EditorToolbar に集約する。
+   */
+  editorMode: boolean;
+  /**
+   * 編集モードの再生/一時停止。true で Reply の映像・音を止め、
+   * ReplyCamera 側は songTime による Theatre シーケンス位置の上書きをやめる
+   * (= タイムライン上のバーが動かなくなり、その位置の画を見続けられる)。
+   */
+  editorPaused: boolean;
+
   toggleKaguya: () => void;
   toggleYachiyo: () => void;
   setSkyVariant: (variant: SkyVariant) => void;
@@ -45,6 +60,8 @@ type SceneState = {
   toggleReply: () => void;
   setReplyPlaying: (playing: boolean) => void;
   toggleFreeCam: () => void;
+  toggleEditorMode: () => void;
+  setEditorPaused: (paused: boolean) => void;
 };
 
 export const useSceneStore = create<SceneState>((set) => ({
@@ -56,6 +73,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   reply: false,
   replyPlaying: false,
   freeCam: false,
+  editorMode: false,
+  editorPaused: false,
 
   toggleKaguya: () => set((s) => ({ showKaguya: !s.showKaguya })),
   toggleYachiyo: () => set((s) => ({ showYachiyo: !s.showYachiyo })),
@@ -104,4 +123,16 @@ export const useSceneStore = create<SceneState>((set) => ({
   setReplyPlaying: (replyPlaying) => set({ replyPlaying }),
 
   toggleFreeCam: () => set((s) => ({ freeCam: !s.freeCam })),
+
+  /*
+    編集モードを抜けるときは一時停止も必ず解除する。止めたまま抜けると
+    通常表示に戻ったのに映像が止まったままになり、原因が分かりにくい。
+  */
+  toggleEditorMode: () =>
+    set((s) => {
+      const next = !s.editorMode;
+      return { editorMode: next, editorPaused: next ? s.editorPaused : false };
+    }),
+
+  setEditorPaused: (editorPaused) => set({ editorPaused }),
 }));
