@@ -11,6 +11,12 @@ model: sonnet
 
 - `frontend/CLAUDE.md` — feature 構成、状態管理2層、R3F パフォーマンス規約、スタイル規約
 - `.agents/skills/react-three-fiber/` / `threejs-animation/` / `threejs-shaders/` の該当箇所
+- **タイムライン/キーフレームアニメーション(カメラワーク等)を扱うときは
+  `.agents/skills/theatre-js/` も読む。** ただし `@theatre/r3f` は使わない
+  (`@react-three/fiber ^8` 固定で開発停止済み、このプロジェクトの `^9` と非互換)。
+  `@theatre/core` + `@theatre/studio` を `frontend/features/root/theatre.ts` の
+  `sceneProject`/`getStudio`/`exposeDevSeed` 経由で使う。命名規則・既存の使用例は
+  `features/reply/ReplyCamera.tsx` と `features/starfall-sea/StarfallCamera.tsx` 参照。
 
 ## 絶対に外さない点
 

@@ -1,8 +1,10 @@
 "use client";
 
 import { useFrame, useThree } from "@react-three/fiber";
+import { types } from "@theatre/core";
 import { useEffect, useRef, type RefObject } from "react";
 import { Vector3 } from "three";
+import { exposeDevSeed, getStudio, sceneProject } from "@/features/root/theatre";
 
 /** 演出1周の長さ(秒)。これを過ぎるとまた頭から繰り返す */
 const CYCLE_SECONDS = 24;
@@ -15,6 +17,20 @@ const CYCLE_SECONDS = 24;
  */
 const SCREEN_FOCUS = new Vector3(0, 14, -2);
 
+/*
+  Theatre.js への移行(下の pathSheet/pathObj)はまだキーフレームが
+  Studio で1つも打たれていない。sheet.object の値はキーフレーム無しだと
+  常に初期値(定数)のまま = カメラが航路を辿らず静止して見える
+  (2026-09-05 に発生した「星降る海のカメラが止まった」不具合の原因)。
+  Studio で実際に打ち直して確認が取れるまで、ここでは元の手組み実装
+  (PATH/samplePath)をそのまま動かす。pathSheet/pathObj は Studio パネルに
+  項目を出すためだけに生成してあり、値の読み出しにはまだ使わない
+  (下の useFrame 参照)。
+
+  **t は0〜1(CYCLE_SECONDS=24秒に対する割合)。Theatre 側のキーフレーム
+  時刻は秒指定(sheet.sequence.position の単位は秒)なので、Studio で
+  打ち直すときは `t * CYCLE_SECONDS` 秒の位置にキーを置くこと。**
+*/
 type Keyframe = {
   /** サイクル内の位置(0〜1) */
   t: number;
@@ -271,6 +287,68 @@ function samplePath(t: number, outPos: Vector3) {
   outPos.y = composeY + (outPos.y - composeY) * CAMERA_PULLBACK;
   outPos.z = composeZ + (outPos.z - composeZ) * CAMERA_PULLBACK;
 }
+
+/**
+ * project="Scene" → sheet=feature名("Starfall Sea") → object=対象名("Path")
+ * の命名規則(features/root/theatre.ts 参照)。Studio パネル(開発時のみ
+ * 起動)に項目を出すためだけに生成してある。**キーフレームが1つも
+ * 打たれていないため、値の読み出しにはまだ使わない**(上のコメント参照。
+ * 使うと PATH の代わりに常に初期値のまま = カメラが静止する)。
+ * Studio で航路を打ち直して確認が取れたら、useFrame 内の samplePath
+ * 呼び出しをこのオブジェクトの .value 読み出しに置き換えること。
+ */
+const pathSheet = sceneProject.sheet("Starfall Sea");
+const pathObj = pathSheet.object("Path", {
+  pos: types.compound({
+    x: types.number(0, { range: [-25, 25] }),
+    y: types.number(3, { range: [-25, 25] }),
+    z: types.number(12, { range: [-25, 25] }),
+  }),
+  compose: types.compound({
+    x: types.number(0, { range: [-25, 25] }),
+    y: types.number(6, { range: [-25, 25] }),
+    z: types.number(-2, { range: [-25, 25] }),
+  }),
+});
+
+/**
+ * PATH(参考データ、上のコメント参照)を実際の Theatre.js キーフレームへ
+ * 一括投入する、一度きりの移行スクリプト。開発時のみ
+ * `window.seedStarfallPathKeyframes()` として呼べる。
+ *
+ * **事前準備が必要**: Studio の Details Panel で `pos`/`compose` それぞれを
+ * 右クリック →「Sequence this prop」で先にシーケンス化しておくこと
+ * (理由は ReplyCamera.tsx の同種のコメント参照)。
+ *
+ * PATH の t は0〜1(CYCLE_SECONDS に対する割合)なので、Theatre側の
+ * シーケンス位置(秒)には `t * CYCLE_SECONDS` に変換して打つ。
+ */
+function seedStarfallPathKeyframes() {
+  const studio = getStudio();
+  if (!studio) {
+    console.warn("[Starfall Sea] Theatre studio がまだ初期化されていません");
+    return;
+  }
+  for (const key of PATH) {
+    pathSheet.sequence.position = key.t * CYCLE_SECONDS;
+    studio.transaction(({ set }) => {
+      set(pathObj.props.pos, {
+        x: key.pos[0],
+        y: key.pos[1],
+        z: key.pos[2],
+      });
+      set(pathObj.props.compose, {
+        x: key.compose[0],
+        y: key.compose[1],
+        z: key.compose[2],
+      });
+    });
+  }
+  console.log(
+    `[Starfall Sea] ${PATH.length}個のキーフレームを投入した。Studioで確認できたら、useFrame内のsamplePath呼び出しをpathObj.valueの読み出しに戻すこと。`,
+  );
+}
+exposeDevSeed("seedStarfallPathKeyframes", seedStarfallPathKeyframes);
 
 type StarfallCameraProps = {
   active: boolean;

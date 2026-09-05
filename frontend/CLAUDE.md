@@ -62,3 +62,12 @@ feature 間は `index.ts` バレル経由で `@/features/<name>` から import �
 ## リファレンス
 
 `.agents/skills/react-three-fiber/` `threejs-animation/` `threejs-shaders/` `vertical-slice-architecture/`。
+
+タイムライン/キーフレームアニメーション(カメラワーク等)を実装・修正するときは
+`.agents/skills/theatre-js/` を読む。**ただしこのプロジェクトは `@theatre/r3f` を使わない**
+(`@react-three/fiber ^8` 固定で2022年から開発停止しており、このプロジェクトの `^9` と非互換)。
+代わりに `@theatre/core` + `@theatre/studio` を直接使い、共有初期化は
+`features/root/theatre.ts` の `sceneProject`(`getProject("Scene")`)/`getStudio()`/
+`exposeDevSeed()` 経由。命名規則は project="Scene" → sheet=feature名 → object=対象名
+(例: `features/reply/ReplyCamera.tsx` の `sceneProject.sheet("Reply").object("Drone Path", ...)`)。
+Studio パネルは開発時のみ・`L` キーでトグル表示。

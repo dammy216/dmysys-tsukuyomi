@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef, useState, type RefObject } from "react";
+import { Suspense, useEffect, useRef, useState, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
@@ -67,6 +67,7 @@ import {
   STAGE_Y,
 } from "@/features/reply";
 import { Water } from "./Water";
+import { initTheatreStudio } from "./theatre";
 import {
   ABERRATION_OFFSET,
   HEAVY_EFFECTS_DELAY_SECONDS,
@@ -150,6 +151,16 @@ export function SceneContents({
   const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
   const freeCam = useSceneStore((s) => s.freeCam);
+
+  /*
+    Theatre.js の Studio パネル起動は SceneContents から1箇所だけ呼ぶ
+    (ReplyCamera / StarfallCamera など各演出カメラは呼ばない)。
+    実体は features/root/theatre.ts の initTheatreStudio。開発時のみ・
+    一度きりに絞ってあるので、ここでの呼び出しは常に安全。
+  */
+  useEffect(() => {
+    initTheatreStudio();
+  }, []);
 
   /*
     「星降る海」の進行度(0〜1)。ONで1へ、OFFで0へゆっくり動く。

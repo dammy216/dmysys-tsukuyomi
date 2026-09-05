@@ -20,14 +20,14 @@ import {
  * 天守へ飛来するブロックの数。参照映像(Shelter 1:21〜)ほどの物量は出せないが、
  * 常時数十個が空中に居る状態を作れれば「収束してくる」感じは出る。
  */
-const BLOCK_COUNT = 900;
+const BLOCK_COUNT = 1400;
 
 /**
  * 隅櫓1棟あたりの飛来ブロック数。天守と同じ密度感になるよう、体積比
  * (櫓 ≒ 天守の 1/8)より多め。櫓は build 前半で建ちきるので、そのぶん
  * 短時間に石が集まる必要がある。
  */
-const TOWER_BLOCK_COUNT = 150;
+const TOWER_BLOCK_COUNT = 350;
 
 /** InstancedMesh の総数。天守 + 四隅の櫓 */
 const TOTAL_BLOCKS = BLOCK_COUNT + CORNER_TOWER_XZ.length * TOWER_BLOCK_COUNT;
@@ -40,7 +40,7 @@ const TOTAL_BLOCKS = BLOCK_COUNT + CORNER_TOWER_XZ.length * TOWER_BLOCK_COUNT;
  * 細かい石が絶え間なく降り積もるほうが速く感じられる。
  */
 const BLOCK_MIN_SIZE = 0.12;
-const BLOCK_MAX_SIZE = 0.38;
+const BLOCK_MAX_SIZE = 0.34;
 /** 直方体にするための各軸の伸び幅。立方体だけだと単調になる */
 const BLOCK_STRETCH = 1.3;
 

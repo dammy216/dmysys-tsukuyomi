@@ -54,6 +54,17 @@
   right: max(0.75rem, env(safe-area-inset-right)) !important;
 }
 
+/*
+ * Theatre.js Studio(#theatrejs-studio-root。features/root/theatre.ts で
+ * バッククォートキー表示時のみ描画)は z-index:100 をインラインstyleで
+ * 強制してくる。stats.js の .scene-stats(z-index:10000)より低いため、
+ * 表示してもFPSパネルの下に隠れてしまう。React外のDOMノードなので
+ * Tailwindではなくここで上書きする。
+ */
+#theatrejs-studio-root {
+  z-index: 10001 !important;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans), sans-serif;

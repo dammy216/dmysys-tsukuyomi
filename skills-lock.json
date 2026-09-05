@@ -19,6 +19,12 @@
       "skillPath": "skills/rive-scripting/SKILL.md",
       "computedHash": "d541a9584c6222e98060eb05bc0d42fff9d99cd8258840e348cff58bd5630c3a"
     },
+    "theatre-js": {
+      "source": "noklip-io/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/theatre-js/SKILL.md",
+      "computedHash": "db8234a0d016588abb3f499b5b2612185b4d509196c35d20205b8a057c1a01fd"
+    },
     "vertical-slice-architecture": {
       "source": "mryll/skills",
       "sourceType": "github",

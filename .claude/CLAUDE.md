@@ -54,6 +54,13 @@ Vercel はこのリポジトリに接続し、**Root Directory = `frontend`** �
 
 - Rive 系: `rive-scripting/rules/` `rive/references/` `rive-animations/`
 - Three.js 系: `threejs-animation/` `threejs-shaders/` `react-three-fiber/`
+- アニメーション編集(Theatre.js): `theatre-js/`。**タイムライン/キーフレームアニメーションを
+  実装・修正するときは着手前に必ず読む。** ただしこのプロジェクトは `@theatre/r3f`(スキルの
+  「R3F Scene」例が使っているもの)を**使わない**— `@react-three/fiber ^8` 固定で2022年から
+  更新が止まっており、このプロジェクトの `@react-three/fiber ^9` と非互換のため。代わりに
+  `@theatre/core` + `@theatre/studio` を直接使う、共有初期化は
+  `frontend/features/root/theatre.ts`(`sceneProject`/`getStudio`/`exposeDevSeed`)経由。
+  詳細は `frontend/CLAUDE.md`。
 - 設計: `vertical-slice-architecture/`
 
 （元モノレポの mobile / server 用スキル（`fastapi-python` `fish-audio-sdk` `gemini-live-api-dev`
@@ -62,7 +69,7 @@ Vercel はこのリポジトリに接続し、**Root Directory = `frontend`** �
 ### スキルの管理方式（2系統）
 
 - **外部ソース + ロック管理**: `rive` / `rive-scripting` / `rive-animations` /
-  `vertical-slice-architecture`。取得元とハッシュを `skills-lock.json` で管理する。
+  `vertical-slice-architecture` / `theatre-js`。取得元とハッシュを `skills-lock.json` で管理する。
   スキルを追加・削除したら `.agents/skills/` と `skills-lock.json` を同期させること。
 - **ローカル管理（ロック対象外）**: `react-three-fiber` / `threejs-animation` /
   `threejs-shaders`。外部ソースが無くこのリポジトリ内で直接編集する。`skills-lock.json` には載せない。

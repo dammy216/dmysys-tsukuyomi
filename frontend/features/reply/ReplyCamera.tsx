@@ -1,8 +1,10 @@
 "use client";
 
 import { useFrame, useThree } from "@react-three/fiber";
+import { types } from "@theatre/core";
 import { useEffect, useRef, type RefObject } from "react";
 import { PerspectiveCamera, Vector3 } from "three";
+import { exposeDevSeed, getStudio, sceneProject } from "@/features/root/theatre";
 import {
   REPLY_BAR_ORIGIN,
   REPLY_BAR_SECONDS,
@@ -43,8 +45,8 @@ const BASE = new Vector3(...REPLY_BASE_POSITION);
  * それより寄せると水平距離クランプに引っかかって寄せの終盤で
  * カメラが急に押し戻される不自然な動きになる。
  */
-const BUILD_ORBIT_RADIUS_START = 60;
-const BUILD_ORBIT_RADIUS_MID = 30;
+const BUILD_ORBIT_RADIUS_START = 70;
+const BUILD_ORBIT_RADIUS_MID = 34;
 const BUILD_ORBIT_RADIUS_TO = 11.5;
 /**
  * Reply を押してから、前進を始めるまでの秒数。この間は正面の START で静止する
@@ -82,7 +84,7 @@ const BUILD_ORBIT_DURATION_FRACTION = 1 - BUILD_ORBIT_START_FRACTION;
  * ステージをほぼ真正面から(甲板の面が少し見える程度の伏角で)とらえる。
  */
 const BUILD_ORBIT_Y_FROM = 2;
-const BUILD_ORBIT_Y_MID = 20;
+const BUILD_ORBIT_Y_MID = 16;
 const BUILD_ORBIT_Y_TO = STAGE_Y + 2;
 
 /**
@@ -160,6 +162,17 @@ const MIN_ORBIT_DISTANCE = 11;
  *   3. **画角が動く** — 至近の煽りは広角(76度)で誇張し、最後の離脱は
  *      望遠(52度)に寄せて圧縮する。
  * ================================================================== */
+
+/*
+  Theatre.js への移行(下の droneSheet/droneObj)はまだキーフレームが
+  Studio で1つも打たれていない。sheet.object の値はキーフレーム無しだと
+  常に初期値(定数)のまま = カメラが航路を辿らず静止して見える(2026-09-05
+  に発生した「星降る海のカメラが止まった」と同種の不具合)。
+  Studio で実際に打ち直して確認が取れるまで、ここでは元の手組み実装
+  (DRONE_PATH/sampleDrone)をそのまま動かす。droneSheet/droneObj は
+  Studio パネルに項目を出すためだけに生成してあり、値の読み出しには
+  まだ使わない(下の useFrame 参照)。
+*/
 
 /** ドローンの航路のキーフレーム。塔の軸を中心にした円筒座標で持つ */
 type DroneKey = {
@@ -316,6 +329,58 @@ function sampleDrone(
   out.fov = a.fov + (b.fov - a.fov) * k;
 }
 
+/**
+ * project="Scene" → sheet=feature名("Reply") → object=対象名("Drone Path")
+ * の命名規則(features/root/theatre.ts 参照)。Studio パネル(開発時のみ
+ * 起動)に項目を出すためだけに生成してある。**キーフレームが1つも
+ * 打たれていないため、値の読み出しにはまだ使わない**(上のコメント参照。
+ * 使うと DRONE_PATH の代わりに常に初期値のまま = カメラが静止する)。
+ * Studio で航路を打ち直して確認が取れたら、useFrame 内の sampleDrone
+ * 呼び出しをこのオブジェクトの .value 読み出しに置き換えること。
+ */
+const droneSheet = sceneProject.sheet("Reply");
+const droneObj = droneSheet.object("Drone Path", {
+  turn: types.number(0, { range: [0, 4.5], nudgeMultiplier: 0.01 }),
+  radius: types.number(53, { range: [15, 120] }),
+  y: types.number(46, { range: [20, 80] }),
+  lookY: types.number(45, { range: [30, 50] }),
+  fov: types.number(68, { range: [45, 80] }),
+});
+
+/**
+ * DRONE_PATH(参考データ、上のコメント参照)を実際の Theatre.js キーフレームへ
+ * 一括投入する、一度きりの移行スクリプト。開発時のみ
+ * `window.seedReplyDroneKeyframes()` として呼べる。
+ *
+ * **事前準備が必要**: Studio の Details Panel で `turn`/`radius`/`y`/
+ * `lookY`/`fov` の5つそれぞれを右クリック →「Sequence this prop」で
+ * 先にシーケンス化しておくこと(studio.transaction の set() は、対象の
+ * プロップが既にシーケンス化されていないとキーフレームにならず、
+ * 単なる静的値の上書きになる。プロップをシーケンス化する操作自体は
+ * Theatre.js の公開APIには無く、Studio UIでの操作が必要)。
+ */
+function seedReplyDroneKeyframes() {
+  const studio = getStudio();
+  if (!studio) {
+    console.warn("[Reply] Theatre studio がまだ初期化されていません");
+    return;
+  }
+  for (const key of DRONE_PATH) {
+    droneSheet.sequence.position = key.t;
+    studio.transaction(({ set }) => {
+      set(droneObj.props.turn, key.turn);
+      set(droneObj.props.radius, key.radius);
+      set(droneObj.props.y, key.y);
+      set(droneObj.props.lookY, key.lookY);
+      set(droneObj.props.fov, key.fov);
+    });
+  }
+  console.log(
+    `[Reply] ${DRONE_PATH.length}個のキーフレームを投入した。Studioで確認できたら、useFrame内のsampleDrone呼び出しをdroneObj.valueの読み出しに戻すこと。`,
+  );
+}
+exposeDevSeed("seedReplyDroneKeyframes", seedReplyDroneKeyframes);
+
 type ReplyCameraProps = {
   active: boolean;
   /**
@@ -371,7 +436,7 @@ export function ReplyCamera({
   const droneLook = useRef(new Vector3());
   const forward = useRef(new Vector3());
   const up = useRef(new Vector3());
-  /** sampleDrone の出力先。毎フレーム作らないよう使い回す */
+  /** droneTimeline.seek() 後に droneProxy から写す先。毎フレーム作らないよう使い回す */
   const key = useRef({ turn: 0, radius: 0, y: 0, lookY: 0, fov: 68 });
   /** 前フレームの機首方位(ラジアン)。バンクを角速度から作るのに使う */
   const heading = useRef(Number.NaN);
@@ -526,7 +591,11 @@ export function ReplyCamera({
       BASE.z,
     );
 
-    /* --- ドローンの航路。曲の再生位置で直接引く(ループしない) --- */
+    /*
+      ドローンの航路。曲の再生位置で直接引く(ループしない)。
+      Theatre.js への移行はまだキーフレーム未作成のため保留中
+      (上の sampleDrone 手前のコメント参照)。
+    */
     sampleDrone(songTime, key.current);
     const angle = key.current.turn * Math.PI * 2;
     pos.current.set(
