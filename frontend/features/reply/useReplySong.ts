@@ -5,6 +5,7 @@ import { useSceneStore } from "@/features/root/store";
 import {
   REPLY_LOOP_GAP_SECONDS,
   REPLY_VIDEO_SRC,
+  REPLY_VIDEO_VOLUME,
   REPLY_VOCALS_SRC,
 } from "./constants";
 
@@ -70,6 +71,7 @@ export function useReplySong(active: boolean) {
     el.src = REPLY_VIDEO_SRC;
     // replyv2 は音声トラック付き。鳴らすのでミュートしない
     el.muted = false;
+    el.volume = REPLY_VIDEO_VOLUME;
     // ループは映像・ステムをまとめて頭出しするため手動制御する
     el.loop = false;
     el.playsInline = true;

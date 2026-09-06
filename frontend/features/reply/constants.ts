@@ -8,6 +8,8 @@
  * 長さ 約127.5秒 / 1920x1080(16:9)。
  */
 export const REPLY_VIDEO_SRC = "/videos/reply.mp4";
+/** 映像の音量(0〜1)。そのまま1.0だと大きすぎるので絞ってある */
+export const REPLY_VIDEO_VOLUME = 0.4;
 /** ボーカルのみのステム。無音で回してかぐやの口パクの振幅解析にだけ使う */
 export const REPLY_VOCALS_SRC = encodeURI(
   "/sounds/Reply-vocals-C major-170bpm-440hz.m4a",
