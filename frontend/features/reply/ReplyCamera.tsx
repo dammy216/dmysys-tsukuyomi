@@ -10,8 +10,9 @@ import {
   REPLY_BUILD_END_SECONDS,
   REPLY_FOCUS,
 } from "./constants";
-import { useBuildOrbitStore, useCameraFeelStore } from "./cameraParams";
-import { sampleDrone } from "./dronePath";
+import { useBuildOrbitStore } from "./buildOrbitParams";
+import { useCameraFeelStore } from "./cameraFeelParams";
+import { sampleDrone } from "./dronePathType";
 import { useDronePathStore } from "./dronePathStore";
 
 /** カメラが向き続ける点 = ホログラム画面の中心。実質ここが回る中心になる */

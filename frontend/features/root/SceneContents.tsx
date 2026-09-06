@@ -1037,7 +1037,7 @@ export function SceneContents({
               : NORMAL_ORBIT_TARGET
         }
       />
-      {/* 編集モード中は EditorToolbar が自前でFPSを出すので、こちらは隠す */}
+      {/* 編集モード中は EditorFpsBadge が自前でFPSを出すので、こちらは隠す */}
       {!editorMode && <SceneStats />}
 
       {/*

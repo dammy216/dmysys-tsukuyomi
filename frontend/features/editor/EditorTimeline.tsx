@@ -5,22 +5,47 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent,
   type PointerEvent,
   type RefObject,
 } from "react";
-import { DRONE_PATH, useDronePathStore, type DroneKeyField } from "@/features/reply";
+import {
+  DRONE_PATH,
+  keyframeIsDirty,
+  useDronePathStore,
+  type DroneKeyField,
+} from "@/features/reply";
 import { EDITOR_OBJECTS, useEditorStore } from "./editorStore";
+import { beginGesture, endGesture } from "./editorHistory";
+import { EditorToolbar } from "./EditorToolbar";
 
 /**
  * 下パネル(Sequence Editor)。Theatre.js Studio のシーケンスエディタと同じ
  * 役割で、Drone Path のキーフレームを曲の時間軸の上に並べる。
  *
- * - 目盛りをクリック/ドラッグ → 映像をその位置へシーク(=カメラも追従)
+ * - 目盛り/トラックをクリック・ドラッグ → 映像をその位置へシーク(=カメラも追従)
  * - 菱形をクリック → そのキーフレームを選択(右の Details が切り替わる)
  * - 菱形を左右へドラッグ → キーフレームの時刻を動かす(隣は追い越さない)
+ * - **トラックを右クリック → その時刻に新しいキーフレームを追加**
+ *   (挿入時点の補間後の値を初期値にするので、追加した瞬間はカメラの動きが
+ *   変わらない。そこから Details パネルで値を調整していく)
+ * - **菱形を右クリック → そのキーフレームを削除**(航路には最低2点必要)
+ *
+ * ダブルクリックではなく右クリックにしてあるのは、ダブルクリックだと
+ * 1回目のクリックの時点で pointerdown → シークが先に発火し、狙った場所とは
+ * 違う位置に映像が動いてから追加されてしまっていたため
+ * (右クリックは contextmenu イベントで、シークの pointerdown とは別経路)。
+ * ブラウザ標準の右クリックメニューは出さない(preventDefault)。
+ * キーフレームの削除は Details パネル側のボタンからも行える。
  *
  * 再生ヘッドは毎フレーム動くので、state ではなく DOM の style を直接書く
  * (state にするとタイムライン全体が 60fps で再レンダーされる)。
+ *
+ * 再生コントロール(Reply トグル・自由視点・再生/一時停止・早送り/巻き戻し・
+ * シークバー)は EditorToolbar としてこのパネルの見出し直下に置く。
+ * 「映像(<video>)に紐づく部品」ではなく「タイムラインに紐づく部品」という
+ * 位置づけにしたく、以前はビューポート直下にあったものをここへ移した
+ * (シーク位置・再生ヘッドの現在地はどのみちタイムライン側の概念のため)。
  */
 
 /** 行に並べるプロパティ。Details の並びと揃える */
@@ -57,7 +82,6 @@ export function EditorTimeline({
 
   const trackRef = useRef<HTMLDivElement | null>(null);
   const playheadRef = useRef<HTMLDivElement | null>(null);
-  const clockRef = useRef<HTMLSpanElement | null>(null);
 
   /*
     尺は映像の長さ。読み込み前は NaN/0 になるので、その間は航路の最後の
@@ -82,9 +106,6 @@ export function EditorTimeline({
       const time = Number.isFinite(rawTime) ? rawTime : 0;
       if (playheadRef.current) {
         playheadRef.current.style.left = `${(time / nextDuration) * 100}%`;
-      }
-      if (clockRef.current) {
-        clockRef.current.textContent = `${formatClock(time)} / ${formatClock(nextDuration)}`;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -114,6 +135,13 @@ export function EditorTimeline({
     [replyVideoRef, timeFromClientX],
   );
   const onTrackPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    /*
+      pointerdown はマウスのボタン種別を問わず発火する。ここで button を
+      見ずにシークすると、右クリック(追加用)の押下そのものがシーク扱いになり、
+      「追加した瞬間に違う位置へ映像が飛ぶ」不具合になっていた。左ボタン
+      (button===0)のときだけシークを始める。
+    */
+    if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     seekingRef.current = true;
     seekTo(e.clientX);
@@ -127,15 +155,28 @@ export function EditorTimeline({
     seekingRef.current = false;
   };
 
+  /** トラックの右クリックで、その時刻に新しいキーフレームを追加する */
+  const onTrackContextMenu = (e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!keyframed) return;
+    const t = timeFromClientX(e.clientX);
+    const newIndex = useDronePathStore.getState().insertKeyframe(t);
+    selectKeyIndex(newIndex);
+  };
+
   /* 菱形のドラッグでキーフレームの時刻を動かす */
   const dragKeyRef = useRef<number | null>(null);
   const onKeyPointerDown =
     (index: number) => (e: PointerEvent<HTMLButtonElement>) => {
       // 親(トラック)のシークへ伝播させない
       e.stopPropagation();
+      // 右クリック(削除用)ではドラッグを始めない(トラック側と同じ理由)
+      if (e.button !== 0) return;
       e.currentTarget.setPointerCapture(e.pointerId);
       dragKeyRef.current = index;
       selectKeyIndex(index);
+      // ドラッグ全体を Undo 1回ぶんにまとめる(editorHistory.ts のコメント参照)
+      beginGesture();
     };
   const onKeyPointerMove =
     (index: number) => (e: PointerEvent<HTMLButtonElement>) => {
@@ -148,7 +189,25 @@ export function EditorTimeline({
     e.stopPropagation();
     e.currentTarget.releasePointerCapture(e.pointerId);
     dragKeyRef.current = null;
+    endGesture();
   };
+
+  /**
+   * 菱形の右クリックでそのキーフレームを削除する。
+   * 航路には最低2点必要なので、それ以下では dronePathStore 側が無視する
+   * (下の canDeleteKeyframe と同じ基準)。トラック側の onTrackContextMenu
+   * (追加)へ伝播させないよう stopPropagation する。
+   */
+  const onKeyContextMenu =
+    (index: number) => (e: MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const before = keyframes.length;
+      useDronePathStore.getState().removeKeyframe(index);
+      const after = useDronePathStore.getState().keyframes.length;
+      // 実際に削除できたときだけ選択位置を詰め直す(下限で無視された場合は何もしない)
+      if (after < before) selectKeyIndex(Math.min(index, after - 1));
+    };
 
   const ticks: number[] = [];
   for (let t = 0; t <= duration; t += TICK_SECONDS) ticks.push(t);
@@ -158,17 +217,8 @@ export function EditorTimeline({
 
   return (
     <div className="flex size-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-ed-line px-2.5 py-1.5">
-        <span className="text-[0.65rem] tracking-[0.18em] text-ed-dim">
-          SEQUENCE EDITOR
-        </span>
-        <span
-          ref={clockRef}
-          className="font-mono text-[0.68rem] text-ed-dim tabular-nums"
-        >
-          0:00 / 0:00
-        </span>
-      </div>
+      {/* 「SEQUENCE EDITOR」の文字だけの見出しは置かず、再生コントロールが見出しを兼ねる */}
+      <EditorToolbar replyVideoRef={replyVideoRef} />
 
       <div className="flex min-h-0 flex-1">
         {/* 左: 行のラベル */}
@@ -195,6 +245,8 @@ export function EditorTimeline({
           onPointerMove={onTrackPointerMove}
           onPointerUp={onTrackPointerUp}
           onPointerCancel={onTrackPointerUp}
+          onContextMenu={onTrackContextMenu}
+          title={keyframed ? "右クリックでキーフレームを追加" : undefined}
           className="relative min-w-0 flex-1 cursor-col-resize touch-none select-none"
         >
           {/* 目盛り */}
@@ -228,7 +280,7 @@ export function EditorTimeline({
                 ))}
                 {keyframes.map((k, index) => {
                   const active = index === selectedKeyIndex;
-                  const moved = k.t !== DRONE_PATH[index]?.t;
+                  const moved = keyframeIsDirty(keyframes, index);
                   return (
                     <button
                       key={`${field}-${index}`}
@@ -237,7 +289,8 @@ export function EditorTimeline({
                       onPointerMove={onKeyPointerMove(index)}
                       onPointerUp={onKeyPointerUp}
                       onPointerCancel={onKeyPointerUp}
-                      title={`t = ${k.t}s / ${field} = ${k[field]}`}
+                      onContextMenu={onKeyContextMenu(index)}
+                      title={`t = ${k.t}s / ${field} = ${k[field]}(右クリックで削除)`}
                       aria-label={`${field} キーフレーム t=${k.t}`}
                       className={
                         "absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 " +

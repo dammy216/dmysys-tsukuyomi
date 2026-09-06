@@ -35,7 +35,7 @@ feature 側に置く。
 | `scenery/` | 静的な景観（鳥居・水面/海のグロー・灯籠・空背景） |
 | `starfall-sea/` | 「星降る海」演出モード（魚群・専用カメラ・流れ星・鳥居ホログラム・泡・水中エフェクト・専用BGM） |
 | `scene-controls/` | 下部HUDコントロールバー `ControlBar`（DOM） |
-| `editor/` | 編集モード（`L`キー・開発時のみ）のUI一式。Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）+ 再生コントロール（DOM） |
+| `editor/` | 編集モード（`L`キー・開発時のみ）のUI一式。Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）。シーク/再生バー（`EditorToolbar`）は Sequence Editor パネルの見出しを兼ねる。Reply開始/停止・自由視点（`EditorModeBar`）はビューポート直下（DOM） |
 | `character-overlay/` | かぐや・ヤチヨの Rive を3Dに重ねるドラッグ可能パネル `CharacterOverlay`（DOM） |
 | `scene-recording/` | WebGLキャンバス + 音声の webm 録画 |
 | `kaguya/` `yachiyo/` | 各キャラの Rive コンポーネント |
@@ -73,10 +73,13 @@ Studioへ流し込む/エクスポートし直す運用が実運用に見合わ�
 代わりに、キーフレーム配列と定数は**コードが唯一の正**として feature 内に置き、
 曲の再生位置(`songTime`)や経過時間で直接補間する(`useFrame` の中で毎フレーム):
 
-- `features/reply/dronePath.ts` の `DRONE_PATH` 配列 + `sampleDrone()`
-  (11秒以降。曲の再生位置に直接刺すノンループの航路)
-- `features/reply/cameraParams.ts` の `BUILD_ORBIT_DEFAULTS`(0〜11秒の周回)/
-  `CAMERA_FEEL_DEFAULTS`(バンク・揺れ・追従)
+- `features/reply/dronePathData.ts` の `DRONE_PATH` 配列(型・補間関数は
+  `dronePathType.ts` の `sampleDrone()`)。11秒以降。曲の再生位置に直接刺す
+  ノンループの航路
+- `features/reply/buildOrbitDefaults.ts` の `BUILD_ORBIT_DEFAULTS`
+  (0〜11秒の周回。SPECS・store本体は `buildOrbitParams.ts`)
+- `features/reply/cameraFeelDefaults.ts` の `CAMERA_FEEL_DEFAULTS`
+  (バンク・揺れ・追従。SPECS・store本体は `cameraFeelParams.ts`)
 - `features/starfall-sea/StarfallCamera.tsx` の `PATH` 配列 + `samplePath()`
   (`CYCLE_SECONDS` 周期でループする航路)
 
@@ -87,9 +90,32 @@ Studioへ流し込む/エクスポートし直す運用が実運用に見合わ�
 (`useDronePathStore` / `useBuildOrbitStore` / `useCameraFeelStore`)経由で
 書き換え、3D画面に即反映する。ただし**その変更はブラウザ上の下書き**で、
 リロードするとコードの既定値へ戻る。気に入った値は Details パネルの
-「コードとしてコピー」で該当のコード片を書き出し、上のソースへ貼って確定させる
-(GUIとコードを自動同期させない = Theatre.js を外した理由そのものなので、
-この一方通行は意図的な設計)。
+「コードとしてコピー」で書き出す。
+
+Drone Path はキーフレームの追加・削除もできる: Sequence Editor のトラックを
+**ダブルクリック**でその時刻に追加(挿入時点の補間値が初期値になるので
+追加した瞬間は動きが変わらない)、Details パネルの `×` ボタンで選択中の
+キーフレームを削除(航路として成立する最低2点は残す)。
+
+**上の `*Data.ts` / `*Defaults.ts` は「コードとしてコピー」の貼り付け先
+として、値の定義だけを置く専用ファイルにしてある**(SPECS・store・型と
+分離)。コピーした内容はそのファイルの`import`文を含む**完全な内容**なので、
+そのファイルを開いて全選択→貼り付けするだけで確定できる(値の意味を
+説明する `/** ... */` コメントや、Drone Pathの区間コメント`// サビ:...`も
+コピー結果に含めてあるので、丸ごと貼り替えても消えない)。
+GUIとコードを自動同期させない = Theatre.js を外した理由そのものなので、
+この一方通行は意図的な設計。
+
+GUIでの変更は `Ctrl+Z`/`Ctrl+Y`(`Ctrl+Shift+Z`も可)でUndo/Redoできる
+(`features/editor/editorHistory.ts`。Drone Path・Build Orbit・Camera Feel の
+3ストアをまとめて1つの履歴として扱う)。ドラッグのような連続操作は
+`beginGesture()`/`endGesture()` で区間を明示し、指を離すまでの変化を
+Undo1回ぶんにまとめる(時間デバウンスだけだとドラッグが長引いたときに
+指を離す前に確定してしまうため)。
+
+Outline / Details / Sequence Editor の3ペインの大きさは境界線をドラッグして
+変えられる(`features/editor/useResizableEdge.ts`。EditorViewportの3D
+ビューポート箱のリサイズと同じ操作感)。サイズは localStorage に覚える。
 
 `ReplyCamera` はこれらのストアを**購読せず** `getState()` で毎フレーム読む
 (購読すると数千匹の `StarfallSwarm` を含むツリーが毎フレーム再レンダーされる)。

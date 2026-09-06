@@ -30,10 +30,12 @@ type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 180;
 /**
- * 高さの上限を、親(利用可能領域)の高さぴったりではなく少し余裕を持たせる。
- * ぴったりまで伸ばせると余白が全く無くなって窮屈だったため。
+ * 高さの上限に足す余白(親の利用可能領域の高さから引く分)。
+ * 0 = 下端をタイムライン(Sequence Editor パネル)の上端ぴったりまで下げられる。
+ * 一度手でリサイズすると size-full が外れるため、この値が大きいと映像の箱を
+ * タイムライン手前で止められてしまい、下端まで戻せなくなる。
  */
-const MAX_HEIGHT_MARGIN = 80;
+const MAX_HEIGHT_MARGIN = 0;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -206,15 +208,23 @@ export type EditorViewportHandle = {
   applyAspectRatio: (ratioW: number, ratioH: number) => void;
 };
 
+/*
+  z-index は EditorLayout 側のパネル境界ドラッグハンドル(z-20。Outline/Details/
+  Sequence Editor の大きさを変えるためのもの)より必ず高くする。ビューポートの
+  既定サイズ(size=null="size-full")は左右パネルの境界とほぼ同じ画面位置に
+  重なるため、ここの z-index が負けているとビューポート自体のリサイズ操作を
+  パネル境界側に奪われてしまう(実際に発生した不具合: ドラッグしても
+  outline-ed-accent の枠が出ず、代わりに隣のパネル幅が変わっていた)。
+*/
 const RESIZE_HANDLES: { dir: ResizeDir; className: string }[] = [
-  { dir: "n", className: "absolute z-[6] left-4 right-4 top-[-5px] h-2.5 cursor-ns-resize" },
-  { dir: "s", className: "absolute z-[6] left-4 right-4 bottom-[-5px] h-2.5 cursor-ns-resize" },
-  { dir: "e", className: "absolute z-[6] top-4 bottom-4 right-[-5px] w-2.5 cursor-ew-resize" },
-  { dir: "w", className: "absolute z-[6] top-4 bottom-4 left-[-5px] w-2.5 cursor-ew-resize" },
-  { dir: "nw", className: "absolute z-[7] size-4 top-[-6px] left-[-6px] cursor-nwse-resize" },
-  { dir: "ne", className: "absolute z-[7] size-4 top-[-6px] right-[-6px] cursor-nesw-resize" },
-  { dir: "sw", className: "absolute z-[7] size-4 bottom-[-6px] left-[-6px] cursor-nesw-resize" },
-  { dir: "se", className: "absolute z-[7] size-4 bottom-[-6px] right-[-6px] cursor-nwse-resize" },
+  { dir: "n", className: "absolute z-30 left-4 right-4 top-[-5px] h-2.5 cursor-ns-resize" },
+  { dir: "s", className: "absolute z-30 left-4 right-4 bottom-[-5px] h-2.5 cursor-ns-resize" },
+  { dir: "e", className: "absolute z-30 top-4 bottom-4 right-[-5px] w-2.5 cursor-ew-resize" },
+  { dir: "w", className: "absolute z-30 top-4 bottom-4 left-[-5px] w-2.5 cursor-ew-resize" },
+  { dir: "nw", className: "absolute z-40 size-4 top-[-6px] left-[-6px] cursor-nwse-resize" },
+  { dir: "ne", className: "absolute z-40 size-4 top-[-6px] right-[-6px] cursor-nesw-resize" },
+  { dir: "sw", className: "absolute z-40 size-4 bottom-[-6px] left-[-6px] cursor-nesw-resize" },
+  { dir: "se", className: "absolute z-40 size-4 bottom-[-6px] right-[-6px] cursor-nwse-resize" },
 ];
 
 export const EditorViewport = forwardRef<
@@ -236,21 +246,26 @@ export const EditorViewport = forwardRef<
 
   return (
     <div
-      className={
-        active ? "flex size-full items-start justify-center overflow-hidden" : "contents"
-      }
+      className={active ? "flex size-full items-start justify-center" : "contents"}
     >
       <div
         ref={stageRef}
         className={
           active
-            ? "relative max-h-full max-w-full overflow-hidden " +
+            ? "relative max-h-full max-w-full " +
               (size ? "" : "size-full") +
               /*
-                リサイズ中に箱が画面端(親の overflow-hidden の境界)まで
-                届くと、outline は要素の外側に描かれるため親にクリップされて
-                消えてしまっていた。-outline-offset-2 で内側に描かせることで
-                箱がどのサイズでも常に見えるようにする。
+                リサイズ中の枠。この要素にも親(flexの入れ物)にも
+                overflow-hidden を付けていない: 付けると、下のリサイズ
+                ハンドルは掴みやすさのため箱の外側へ少しはみ出す作りに
+                なっているため、はみ出た分がクリップされて実質つかめなくなる
+                (実際に発生した不具合: ドラッグしても枠が出ない代わりに
+                隣のOutline/Detailsパネルの幅が変わってしまっていた=
+                ハンドルの当たり判定がクリップで消え、後ろのパネル境界
+                ハンドルにクリックが素通りしていた)。3D映像自体の見た目の
+                角丸/クリップは EditorLayout 側が children を包む内側の
+                div(overflow-hidden)で別途担っているので、ここで外しても
+                映像がはみ出て見えることはない。
               */
               (resizing ? " outline outline-2 -outline-offset-2 outline-ed-accent/80" : "")
             : "contents"

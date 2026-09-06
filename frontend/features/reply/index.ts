@@ -8,20 +8,27 @@ export { ReplyFireworks } from "./ReplyFireworks";
 export { ToriiGate } from "./ToriiGate";
 export { ReplyCamera } from "./ReplyCamera";
 export { useReplySong } from "./useReplySong";
-export { DRONE_PATH, sampleDrone, type DroneKey } from "./dronePath";
+export { DRONE_PATH } from "./dronePathData";
+export { sampleDrone, type DroneKey } from "./dronePathType";
 export {
   useDronePathStore,
+  keyframeIsDirty,
+  keyframesAreDirty,
   type DroneKeyField,
 } from "./dronePathStore";
+export { BUILD_ORBIT_DEFAULTS } from "./buildOrbitDefaults";
 export {
-  BUILD_ORBIT_DEFAULTS,
   BUILD_ORBIT_SPECS,
-  CAMERA_FEEL_DEFAULTS,
-  CAMERA_FEEL_SPECS,
   useBuildOrbitStore,
+  type BuildOrbitParams,
+} from "./buildOrbitParams";
+export { CAMERA_FEEL_DEFAULTS } from "./cameraFeelDefaults";
+export {
+  CAMERA_FEEL_SPECS,
   useCameraFeelStore,
-  type ParamSpec,
-} from "./cameraParams";
+  type CameraFeelParams,
+} from "./cameraFeelParams";
+export { type ParamSpec } from "./paramStore";
 export {
   REPLY_SECTIONS,
   replyFadeGainAt,

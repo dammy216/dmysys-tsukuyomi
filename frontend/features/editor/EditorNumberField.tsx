@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { beginGesture, endGesture } from "./editorHistory";
 
 /**
  * 編集パネルの数値入力欄1つ。Theatre.js Studio と同じく
@@ -44,23 +45,39 @@ export function EditorNumberField({
   const [draft, setDraft] = useState<string | null>(null);
   const dragRef = useRef<{ startX: number; startValue: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  /**
+   * 直近に自分の onChange 経由で外へ流した値。Undo/Redo・ドラッグ・
+   * 「コードの値に戻す」など**自分以外**の経路で value が変わったときは
+   * これと食い違うので、その場合だけ draft を捨てて value 側の表示に戻す。
+   * 自分がタイプ中に発生する再レンダーではここが一致するので draft
+   * (入力途中の生文字列)を保ったままにできる。
+   */
+  const lastEmittedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (lastEmittedRef.current !== value) setDraft(null);
+  }, [value]);
 
   const onLabelPointerDown = (e: PointerEvent<HTMLSpanElement>) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { startX: e.clientX, startValue: value };
     setDragging(true);
+    // ドラッグ全体を Undo 1回ぶんにまとめる(editorHistory.ts のコメント参照)
+    beginGesture();
   };
   const onLabelPointerMove = (e: PointerEvent<HTMLSpanElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
-    onChange(roundToStep(drag.startValue + (e.clientX - drag.startX) * step, step));
+    const next = roundToStep(drag.startValue + (e.clientX - drag.startX) * step, step);
+    lastEmittedRef.current = next;
+    onChange(next);
   };
   const endDrag = (e: PointerEvent<HTMLSpanElement>) => {
     if (!dragRef.current) return;
     e.currentTarget.releasePointerCapture(e.pointerId);
     dragRef.current = null;
     setDragging(false);
+    endGesture();
   };
 
   return (
@@ -87,6 +104,7 @@ export function EditorNumberField({
           const parsed = Number(e.target.value);
           // 空・途中入力("-" や "1." など)のときは書き込まない
           if (e.target.value.trim() !== "" && Number.isFinite(parsed)) {
+            lastEmittedRef.current = parsed;
             onChange(parsed);
           }
         }}

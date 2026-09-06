@@ -13,7 +13,8 @@ export function EditorOutlinePanel() {
 
   return (
     <div className="flex size-full flex-col overflow-hidden">
-      <div className="shrink-0 border-b border-ed-line px-2.5 py-1.5 text-[0.65rem] tracking-[0.18em] text-ed-dim">
+      {/* 高さは EditorLayout の TOP_HEIGHT(30)= VIEWPORT ヘッダーと揃える */}
+      <div className="flex h-[30px] shrink-0 items-center border-b border-ed-line px-2.5 text-[0.65rem] tracking-[0.18em] text-ed-dim">
         OUTLINE
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto py-1.5">

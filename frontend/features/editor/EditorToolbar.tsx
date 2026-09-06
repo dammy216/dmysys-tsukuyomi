@@ -9,26 +9,26 @@ import {
   type RefObject,
 } from "react";
 import {
-  PiArrowsOutCardinalBold,
-  PiEnvelopeBold,
   PiFastForwardFill,
   PiPauseFill,
   PiPlayFill,
   PiRewindFill,
   PiSkipBackFill,
   PiSkipForwardFill,
-  PiVideoCameraBold,
 } from "react-icons/pi";
 import { useSceneStore } from "@/features/root/store";
 
 /**
- * 編集モード(useSceneStore.editorMode)の下部ツールバー(再生コントロール)。
+ * 編集モード(useSceneStore.editorMode)の再生コントロール。
+ * EditorTimeline(Sequence Editor パネル)の**見出しを兼ねて**一番上に置く
+ * (「SEQUENCE EDITOR」という文字だけの見出しは廃止し、このバー自体が
+ * 見出し行になっている)。
  *
- * 通常時の ControlBar は編集モード中は隠す方針なので、演出の開始/停止
- * (Reply トグル)・自由視点(freeCam)・映像の再生コントロールをここにまとめる。
- * 自由視点は単純なトグルで、再生/一時停止とは連動させない
- * (自由視点中もアニメーション・再生は止まらない)。
- * 編集モード終了ボタンは EditorLayout 側(画面比率テンプレの隣)にある。
+ * 「映像(<video>)に紐づく部品」ではなく「タイムラインに紐づく部品」という
+ * 位置づけにしてある(シーク位置・再生ヘッドの現在地はどのみちタイムライン
+ * 側の概念のため)。Reply の開始/停止・自由視点トグルは
+ * EditorModeBar(ビューポート直下)側にあり、ここには置かない。
+ *
  * 再生位置の真実は常に <video> 側にあり、ReplyCamera は songTime
  * (= video.currentTime)を毎フレーム読んで航路を直接補間する。
  */
@@ -61,13 +61,9 @@ export function EditorToolbar({
   /** Reply の映像。再生コントロールの操作対象 */
   replyVideoRef: RefObject<HTMLVideoElement | null>;
 }) {
-  const reply = useSceneStore((s) => s.reply);
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
-  const toggleReply = useSceneStore((s) => s.toggleReply);
   const editorPaused = useSceneStore((s) => s.editorPaused);
   const setEditorPaused = useSceneStore((s) => s.setEditorPaused);
-  const freeCam = useSceneStore((s) => s.freeCam);
-  const toggleFreeCam = useSceneStore((s) => s.toggleFreeCam);
 
   /*
     再生位置の表示だけは毎フレーム変わるので、ここだけ rAF で state を回す。
@@ -162,25 +158,7 @@ export function EditorToolbar({
   const disabled = !replyPlaying;
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-3 border-t border-ed-line bg-ed-panel px-3">
-      <button
-        type="button"
-        onClick={toggleReply}
-        aria-pressed={reply}
-        className={
-          "inline-flex items-center gap-1.5 rounded-sm border border-ed-line bg-ed-row px-3 py-1.5 " +
-          "text-[0.72rem] text-ed-text transition duration-150 cursor-pointer " +
-          "hover:border-ed-accent/60 hover:text-white " +
-          "aria-pressed:border-ed-accent aria-pressed:bg-ed-accent/15 " +
-          "aria-pressed:text-ed-accent"
-        }
-      >
-        <PiEnvelopeBold aria-hidden="true" />
-        Reply
-      </button>
-
-      <div className="h-6 w-px bg-ed-line" />
-
+    <div className="flex h-11 shrink-0 items-center gap-3 border-b border-ed-line bg-ed-panel px-3">
       <div className="flex items-center gap-1">
         <button
           type="button"
@@ -257,28 +235,6 @@ export function EditorToolbar({
       <span className="shrink-0 font-mono text-[0.72rem] text-ed-dim tabular-nums">
         {formatTime(time)} / {formatTime(duration)}
       </span>
-
-      <button
-        type="button"
-        onClick={toggleFreeCam}
-        disabled={!replyPlaying}
-        aria-pressed={freeCam}
-        title={freeCam ? "アニメーションに戻す" : "アニメーションを止めて自由視点で見る"}
-        className={
-          "inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-ed-line bg-ed-row px-3 py-1.5 " +
-          "text-[0.72rem] text-ed-text transition duration-150 cursor-pointer " +
-          "hover:border-ed-accent/60 hover:text-white " +
-          "aria-pressed:border-ed-accent aria-pressed:text-ed-accent " +
-          "disabled:opacity-30 disabled:cursor-not-allowed"
-        }
-      >
-        {freeCam ? (
-          <PiArrowsOutCardinalBold aria-hidden="true" />
-        ) : (
-          <PiVideoCameraBold aria-hidden="true" />
-        )}
-        {freeCam ? "自由視点" : "アニメーション"}
-      </button>
     </div>
   );
 }
