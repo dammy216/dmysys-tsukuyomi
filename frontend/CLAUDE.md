@@ -35,6 +35,7 @@ feature 側に置く。
 | `scenery/` | 静的な景観（鳥居・水面/海のグロー・灯籠・空背景） |
 | `starfall-sea/` | 「星降る海」演出モード（魚群・専用カメラ・流れ星・鳥居ホログラム・泡・水中エフェクト・専用BGM） |
 | `scene-controls/` | 下部HUDコントロールバー `ControlBar`（DOM） |
+| `editor/` | 編集モード（`L`キー・開発時のみ）のUI一式。Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）+ 再生コントロール（DOM） |
 | `character-overlay/` | かぐや・ヤチヨの Rive を3Dに重ねるドラッグ可能パネル `CharacterOverlay`（DOM） |
 | `scene-recording/` | WebGLキャンバス + 音声の webm 録画 |
 | `kaguya/` `yachiyo/` | 各キャラの Rive コンポーネント |
@@ -69,14 +70,26 @@ feature 間は `index.ts` バレル経由で `@/features/<name>` から import �
 コード側と自動で同期しないため、AIが下書きしたキーフレームを都度手動で
 Studioへ流し込む/エクスポートし直す運用が実運用に見合わず、外した経緯がある。
 
-代わりに、各featureのカメラコンポーネント内にキーフレーム配列を直書きし、
-曲の再生位置(`songTime`)や経過時間で直接補間するコードだけで完結させる
-(`useFrame` の中で毎フレーム呼ぶ):
+代わりに、キーフレーム配列と定数は**コードが唯一の正**として feature 内に置き、
+曲の再生位置(`songTime`)や経過時間で直接補間する(`useFrame` の中で毎フレーム):
 
-- `features/reply/ReplyCamera.tsx` の `DRONE_PATH` 配列 + `sampleDrone()`
-  (曲の再生位置に直接刺すノンループの航路)
+- `features/reply/dronePath.ts` の `DRONE_PATH` 配列 + `sampleDrone()`
+  (11秒以降。曲の再生位置に直接刺すノンループの航路)
+- `features/reply/cameraParams.ts` の `BUILD_ORBIT_DEFAULTS`(0〜11秒の周回)/
+  `CAMERA_FEEL_DEFAULTS`(バンク・揺れ・追従)
 - `features/starfall-sea/StarfallCamera.tsx` の `PATH` 配列 + `samplePath()`
   (`CYCLE_SECONDS` 周期でループする航路)
 
-キーフレームの調整はエディタでコードの数値配列を直接書き換えるだけでよく、
-保存すれば Fast Refresh でそのまま反映される。GUIでの視覚的な調整はできない。
+コードの数値を書き換えて保存すれば Fast Refresh でそのまま反映される。
+
+**編集モード(`L`キー・開発時のみ)では GUI からも触れる**。`features/editor/` の
+3ペインUI(Outline / Details / Sequence Editor)が上記の値を実行時ストア
+(`useDronePathStore` / `useBuildOrbitStore` / `useCameraFeelStore`)経由で
+書き換え、3D画面に即反映する。ただし**その変更はブラウザ上の下書き**で、
+リロードするとコードの既定値へ戻る。気に入った値は Details パネルの
+「コードとしてコピー」で該当のコード片を書き出し、上のソースへ貼って確定させる
+(GUIとコードを自動同期させない = Theatre.js を外した理由そのものなので、
+この一方通行は意図的な設計)。
+
+`ReplyCamera` はこれらのストアを**購読せず** `getState()` で毎フレーム読む
+(購読すると数千匹の `StarfallSwarm` を含むツリーが毎フレーム再レンダーされる)。

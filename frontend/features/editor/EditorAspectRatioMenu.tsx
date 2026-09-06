@@ -43,13 +43,13 @@ export function EditorAspectRatioMenu({
         onSelect(preset.label);
       }}
       aria-label={PLACEHOLDER}
-      className="rounded-md border border-white/12 bg-white/6 px-2 py-1 text-[0.75rem] text-white/70 cursor-pointer hover:border-white/25 hover:text-white"
+      className="cursor-pointer rounded-sm border border-ed-line bg-ed-row px-2 py-1 text-[0.7rem] text-ed-text hover:border-ed-accent/60 hover:text-white"
     >
       <option value="" disabled>
         {PLACEHOLDER}
       </option>
       {PRESETS.map((p) => (
-        <option key={p.label} value={p.label} className="bg-[#12161c] text-white">
+        <option key={p.label} value={p.label} className="bg-ed-panel text-ed-text">
           {p.label}
         </option>
       ))}

@@ -26,6 +26,23 @@
   }
 }
 
+/*
+ * 編集モード(features/editor/)専用のトークン。サイト本体のHUD(--color-hud 系の
+ * 水色ネオン)とは意図的に別系統で、Theatre.js Studio に寄せたダークグレー＋
+ * ティールの「編集ツール」の見た目にする。
+ */
+@theme {
+  --color-ed-bg: #17181a; /* 一番奥の地(パネルの隙間) */
+  --color-ed-panel: #232527; /* パネル面 */
+  --color-ed-row: #2b2e31; /* パネル内の一段明るい行/入力欄 */
+  --color-ed-line: #3a3e42; /* 境界線 */
+  --color-ed-text: #c2c7cc; /* 本文 */
+  --color-ed-dim: #797f85; /* 補助文字・目盛り */
+  --color-ed-accent: #45b5a8; /* 選択中・アクセント(ティール) */
+  --color-ed-key: #e4e8ec; /* キーフレームの菱形 */
+  --color-ed-playhead: #f2c14e; /* 再生ヘッド */
+}
+
 :root {
   --header-height: 3.75rem;
   --header-offset: 1.25rem;

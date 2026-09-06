@@ -219,37 +219,53 @@ const RESIZE_HANDLES: { dir: ResizeDir; className: string }[] = [
 
 export const EditorViewport = forwardRef<
   EditorViewportHandle,
-  { children: ReactNode; onManualResize?: () => void }
->(function EditorViewport({ children, onManualResize }, ref) {
+  {
+    children: ReactNode;
+    /**
+     * 編集モード中か。false のときは入れ物を display:contents にして
+     * 素通しにする(children を別の場所へ描き替えないので、3Dキャンバスが
+     * 再マウントされない。EditorLayout のコメント参照)。
+     */
+    active: boolean;
+    onManualResize?: () => void;
+  }
+>(function EditorViewport({ children, active, onManualResize }, ref) {
   const { stageRef, size, resizing, onResizePointerDown, applyAspectRatio } =
     useResizableStage(onManualResize);
   useImperativeHandle(ref, () => ({ applyAspectRatio }), [applyAspectRatio]);
 
   return (
-    <div className="flex size-full items-start justify-center overflow-hidden">
+    <div
+      className={
+        active ? "flex size-full items-start justify-center overflow-hidden" : "contents"
+      }
+    >
       <div
         ref={stageRef}
         className={
-          "relative max-h-full max-w-full overflow-hidden " +
-          (size ? "" : "size-full") +
-          /*
-            リサイズ中に箱が画面端(親の overflow-hidden の境界)まで
-            届くと、outline は要素の外側に描かれるため親にクリップされて
-            消えてしまっていた。-outline-offset-2 で内側に描かせることで
-            箱がどのサイズでも常に見えるようにする。
-          */
-          (resizing ? " outline outline-2 -outline-offset-2 outline-hud/70" : "")
+          active
+            ? "relative max-h-full max-w-full overflow-hidden " +
+              (size ? "" : "size-full") +
+              /*
+                リサイズ中に箱が画面端(親の overflow-hidden の境界)まで
+                届くと、outline は要素の外側に描かれるため親にクリップされて
+                消えてしまっていた。-outline-offset-2 で内側に描かせることで
+                箱がどのサイズでも常に見えるようにする。
+              */
+              (resizing ? " outline outline-2 -outline-offset-2 outline-ed-accent/80" : "")
+            : "contents"
         }
-        style={size ? { width: size.width, height: size.height } : undefined}
+        style={active && size ? { width: size.width, height: size.height } : undefined}
       >
         {children}
-        {RESIZE_HANDLES.map(({ dir, className }) => (
-          <div
-            key={dir}
-            className={`${className} touch-none`}
-            onPointerDown={onResizePointerDown(dir)}
-          />
-        ))}
+        {active &&
+          RESIZE_HANDLES.map(({ dir, className }) => (
+            <div
+              key={dir}
+              className={`${className} touch-none`}
+              onPointerDown={onResizePointerDown(dir)}
+            />
+          ))}
       </div>
     </div>
   );

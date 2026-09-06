@@ -6,7 +6,7 @@ import { ControlBar } from "@/features/scene-controls";
 import { useStarfallSong } from "@/features/starfall-sea";
 import { useReplySong } from "@/features/reply";
 import { useSceneRecorder } from "@/features/scene-recording";
-import { EditorLayout } from "./EditorLayout";
+import { EditorLayout } from "@/features/editor";
 import { RootCanvas } from "./RootCanvas";
 import { useSceneStore } from "./store";
 
@@ -113,22 +113,30 @@ export function RootScene() {
     />
   );
 
-  if (editorMode) {
-    return <EditorLayout replyVideoRef={replyVideoRef}>{canvas}</EditorLayout>;
-  }
-
+  /*
+    EditorLayout は編集モードでなくても**必ず**同じ位置で描く(枠を出すか
+    どうかは active で切り替える)。以前は編集モードのときだけ包んでいたため、
+    `L` を押すたびに <Canvas> がアンマウント→再マウントされ、WebGLコンテキストと
+    モデルの読み込みからやり直しになっていた。詳細は EditorLayout のコメント。
+  */
   return (
     <>
-      {canvas}
-      <CharacterOverlay
-        getStarfallAmplitude={getStarfallAmplitude}
-        getReplyAmplitude={getReplyAmplitude}
-      />
-      <ControlBar
-        recorderSupported={recorder.supported}
-        isRecording={recorder.isRecording}
-        onToggleRecord={recorder.toggle}
-      />
+      <EditorLayout active={editorMode} replyVideoRef={replyVideoRef}>
+        {canvas}
+      </EditorLayout>
+      {!editorMode && (
+        <>
+          <CharacterOverlay
+            getStarfallAmplitude={getStarfallAmplitude}
+            getReplyAmplitude={getReplyAmplitude}
+          />
+          <ControlBar
+            recorderSupported={recorder.supported}
+            isRecording={recorder.isRecording}
+            onToggleRecord={recorder.toggle}
+          />
+        </>
+      )}
     </>
   );
 }

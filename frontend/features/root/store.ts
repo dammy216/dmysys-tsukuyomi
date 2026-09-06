@@ -103,6 +103,12 @@ export const useSceneStore = create<SceneState>((set) => ({
   /*
     Reply の ON/OFF。星降る海と対になる協調更新。
     こちらはかぐやが歌うので、自動で表示するのはかぐや。
+
+    editorPaused も必ず落とす。編集モードで一時停止したまま Reply を
+    入れ直すと、useReplySong は映像を頭から再生し直すのに editorPaused が
+    true のまま残り、「映像は鳴っているのにボーカルステムだけ止まる
+    (=かぐやの口パクが死ぬ)」「ツールバーが▶表示のまま」という
+    食い違いが起きていた。
   */
   toggleReply: () =>
     set((s) => {
@@ -115,6 +121,7 @@ export const useSceneStore = create<SceneState>((set) => ({
         starfallPlaying: false,
         showKaguya: next ? true : s.showKaguya,
         freeCam: false,
+        editorPaused: false,
       };
     }),
 

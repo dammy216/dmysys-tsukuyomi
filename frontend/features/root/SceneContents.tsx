@@ -161,12 +161,13 @@ export function SceneContents({
     if (process.env.NODE_ENV !== "development") return;
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.key !== "l" && e.key !== "L") return;
-      // 入力欄にフォーカスがあるときは文字入力を邪魔しない
+      // 入力欄にフォーカスがあるときは文字入力/キー操作を邪魔しない
       const target = e.target as HTMLElement | null;
       if (
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable)
       ) {
         return;

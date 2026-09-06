@@ -19,7 +19,7 @@ import {
   PiSkipForwardFill,
   PiVideoCameraBold,
 } from "react-icons/pi";
-import { useSceneStore } from "./store";
+import { useSceneStore } from "@/features/root/store";
 
 /**
  * 編集モード(useSceneStore.editorMode)の下部ツールバー(再生コントロール)。
@@ -41,11 +41,11 @@ import { useSceneStore } from "./store";
 const SEEK_HOLD_RATE = 4;
 
 const BUTTON =
-  "inline-flex items-center justify-center rounded-md border border-white/12 " +
-  "bg-white/6 text-white/80 transition duration-150 cursor-pointer " +
-  "hover:bg-white/14 hover:text-white hover:border-white/25 " +
-  "disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white/6 " +
-  "disabled:hover:text-white/80 disabled:hover:border-white/12";
+  "inline-flex items-center justify-center rounded-sm border border-ed-line " +
+  "bg-ed-row text-ed-text transition duration-150 cursor-pointer " +
+  "hover:border-ed-accent/60 hover:text-white " +
+  "disabled:opacity-30 disabled:cursor-not-allowed " +
+  "disabled:hover:text-ed-text disabled:hover:border-ed-line";
 
 /** 秒数を 0:00.0 形式にする */
 function formatTime(seconds: number) {
@@ -162,25 +162,24 @@ export function EditorToolbar({
   const disabled = !replyPlaying;
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-3 border-t border-white/10 bg-[#12161c] px-3">
+    <div className="flex h-11 shrink-0 items-center gap-3 border-t border-ed-line bg-ed-panel px-3">
       <button
         type="button"
         onClick={toggleReply}
         aria-pressed={reply}
         className={
-          "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 " +
-          "text-[0.78rem] font-bold transition duration-150 cursor-pointer " +
-          "text-[#ffbedc]/85 bg-hud-pink/8 border-hud-pink/35 " +
-          "hover:bg-hud-pink/18 hover:border-hud-pink/70 hover:text-white " +
-          "aria-pressed:bg-hud-pink/22 aria-pressed:border-hud-pink " +
-          "aria-pressed:text-[#ff8fc4]"
+          "inline-flex items-center gap-1.5 rounded-sm border border-ed-line bg-ed-row px-3 py-1.5 " +
+          "text-[0.72rem] text-ed-text transition duration-150 cursor-pointer " +
+          "hover:border-ed-accent/60 hover:text-white " +
+          "aria-pressed:border-ed-accent aria-pressed:bg-ed-accent/15 " +
+          "aria-pressed:text-ed-accent"
         }
       >
         <PiEnvelopeBold aria-hidden="true" />
         Reply
       </button>
 
-      <div className="h-6 w-px bg-white/10" />
+      <div className="h-6 w-px bg-ed-line" />
 
       <div className="flex items-center gap-1">
         <button
@@ -252,10 +251,10 @@ export function EditorToolbar({
         onChange={(e) => seekTo(Number(e.target.value))}
         disabled={disabled || duration <= 0}
         aria-label="再生位置"
-        className="h-1 min-w-0 flex-1 cursor-pointer accent-hud disabled:cursor-not-allowed disabled:opacity-30"
+        className="h-1 min-w-0 flex-1 cursor-pointer accent-ed-playhead disabled:cursor-not-allowed disabled:opacity-30"
       />
 
-      <span className="shrink-0 font-mono text-[0.75rem] text-white/70 tabular-nums">
+      <span className="shrink-0 font-mono text-[0.72rem] text-ed-dim tabular-nums">
         {formatTime(time)} / {formatTime(duration)}
       </span>
 
@@ -266,10 +265,10 @@ export function EditorToolbar({
         aria-pressed={freeCam}
         title={freeCam ? "アニメーションに戻す" : "アニメーションを止めて自由視点で見る"}
         className={
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/12 px-3 py-1.5 " +
-          "text-[0.78rem] font-bold text-white/80 transition duration-150 cursor-pointer " +
-          "hover:bg-white/14 hover:text-white hover:border-white/25 " +
-          "aria-pressed:bg-hud/18 aria-pressed:border-hud aria-pressed:text-hud " +
+          "inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-ed-line bg-ed-row px-3 py-1.5 " +
+          "text-[0.72rem] text-ed-text transition duration-150 cursor-pointer " +
+          "hover:border-ed-accent/60 hover:text-white " +
+          "aria-pressed:border-ed-accent aria-pressed:text-ed-accent " +
           "disabled:opacity-30 disabled:cursor-not-allowed"
         }
       >
