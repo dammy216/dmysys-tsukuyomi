@@ -5,22 +5,21 @@ import { EditorAspectRatioMenu } from "./EditorAspectRatioMenu";
 import { EditorFpsBadge } from "./EditorFpsBadge";
 import { EditorToolbar } from "./EditorToolbar";
 import { EditorViewport, type EditorViewportHandle } from "./EditorViewport";
-import { toggleEditorModeAndStudio } from "./theatre";
+import { useSceneStore } from "./store";
 
 /**
  * 編集モード(useSceneStore.editorMode)の画面枠。Blender のように
  * 「3Dビューポート」と「パネル置き場」を重ねずに分ける。
  *
- * Theatre.js の Studio は `#theatrejs-studio-root`(position:fixed で画面全体)
- * の中に独自のパネルを浮かせる作りで、こちらからドッキング先を指定できない。
- * そのため**パネル側を動かすのではなく、3Dキャンバスの側を中央へ縮める**。
- * Theatre のパネルは既定で画面の端(左上=Outline / 右上=Details / 下=Sequence
- * Editor)へ寄るので、下の GUTTER で空けた余白にちょうど収まる。
- * パネルの位置と大きさは Theatre 側が localStorage に覚えるので、
- * 一度合わせれば次回以降もそのまま。
+ * この余白(GUTTER)はもともと Theatre.js Studio のパネル(Outline/Details/
+ * Sequence Editor)を左右・下に浮かせるためのドッキング領域として設計した
+ * ものだが、Theatre.js自体は撤去済み(カメラのキーフレームは各featureの
+ * コード配列を直接補間する方式に戻した)。このレイアウト自体(3Dビュー
+ * ポートを中央へ縮めて再生コントロールに専念する編集モード)は引き続き
+ * 有用なので、余白の区切りとラベルはそのまま残してある。
  *
  * 再生コントロール(EditorToolbar)は画面全体の下端ではなく、**3Dビューポート
- * の直下**(Sequence Editor 用の下余白の上)に置く。GUTTER で空けた領域の中に
+ * の直下**(下余白の上)に置く。GUTTER で空けた領域の中に
  * 「ビューポート+ツールバー」をひとまとめにした箱を置き、
  * その箱自体を EditorViewport でユーザーがリサイズできるようにしてある
  * (ビューポート単体ではなく、ツールバーを含めた箱ごと縮尺を変える)。
@@ -32,8 +31,7 @@ import { toggleEditorModeAndStudio } from "./theatre";
  * 上の余白(GUTTER.top)の右端には「編集モード終了」ボタンと
  * EditorAspectRatioMenu(画面比率のテンプレ)を並べて置く。
  *
- * 編集モード終了ボタンは `L`キーと同じ toggleEditorModeAndStudio を呼ぶ
- * (Studioパネルの表示も一緒に切り替わる)。
+ * 編集モード終了ボタンは `L`キーと同じ useSceneStore.toggleEditorMode を呼ぶ。
  *
  * EditorAspectRatioMenu で選ぶと EditorViewport.applyAspectRatio
  * (ref経由)で、**ユーザーが今リサイズしている高さ**のまま幅だけを
@@ -43,11 +41,8 @@ import { toggleEditorModeAndStudio } from "./theatre";
  */
 
 /**
- * Theatre の各パネル用に空ける余白(px)。
- *
- * top は Outline/Details パネルとは別に、画面の絶対上端に浮く
- * Theatre のグローバルツールバー(通知ベル・設定・パネル切替アイコン等)の
- * 分。これが無いと3D映像の真上にアイコンが重なって表示される。
+ * 各パネル用に空ける余白(px)。元はTheatre.js Studioのパネル用の区画
+ * (下のヘッダーコメント参照)。
  */
 const GUTTER = {
   /** 上: グローバルツールバーのアイコン */
@@ -56,12 +51,7 @@ const GUTTER = {
   left: 200,
   /** 右: Details パネル */
   right: 300,
-  /**
-   * 下: Sequence Editor。デフォルトの表示に必要な高さより広めに空けていたら
-   * ビューポートを下へ伸ばせる余地が少なすぎたため詰めてある。ここを更に
-   * 狭くしたい場合は下げてよい(Sequence Editor 自体はTheatre側で
-   * ユーザーがドラッグして広げ直せる)。
-   */
+  /** 下: Sequence Editor */
   bottom: 180,
 };
 
@@ -84,12 +74,7 @@ export function EditorLayout({
 
   return (
     <div className="relative h-dvh w-full bg-[#0d1013]">
-      {/*
-        上の余白(GUTTER.top)。Theatre のグローバルツールバーは両端の
-        アイコンとして浮くだけなので、右端(=Detailsパネル寄りだが
-        top側なのでまだ被らない)に編集モード終了ボタンと画面比率の
-        テンプレを置く。
-      */}
+      {/* 上の余白(GUTTER.top)の右端に編集モード終了ボタンと画面比率のテンプレを置く。 */}
       <div
         className="absolute flex items-center justify-end gap-2"
         style={{ top: 0, height: GUTTER.top, left: GUTTER.left, right: GUTTER.right }}
@@ -101,7 +86,7 @@ export function EditorLayout({
         />
         <button
           type="button"
-          onClick={toggleEditorModeAndStudio}
+          onClick={() => useSceneStore.getState().toggleEditorMode()}
           className="rounded-md border border-white/12 bg-white/6 px-2 py-1 text-[0.75rem] text-white/70 cursor-pointer hover:border-white/25 hover:text-white"
         >
           編集モード終了
@@ -109,7 +94,7 @@ export function EditorLayout({
       </div>
 
       {/*
-        Theatre のパネル置き場(左右と下の余白)を除いた領域。この中に
+        GUTTER(左右と下の余白)を除いた領域。この中に
         「ビューポート+ツールバー」の箱を中央寄せで置き、EditorViewport が
         その箱自体をリサイズできるようにする。
       */}
@@ -134,9 +119,8 @@ export function EditorLayout({
       </div>
 
       {/*
-        余白そのものは Theatre のパネルが乗るだけの場所なので、
-        パネルを動かす前でも「ここに置く」と分かるようラベルを敷いておく。
-        パネルが乗れば隠れる。
+        余白がどの区画かを示すだけのラベル(Theatre.js Studio用に区切って
+        いた名残)。今は何も乗らないので常に表示されたままになる。
       */}
       <GutterLabel
         style={{ top: GUTTER.top, left: 0, bottom: GUTTER.bottom, width: GUTTER.left }}
@@ -155,7 +139,7 @@ export function EditorLayout({
   );
 }
 
-/** 余白の置き場所を示すだけのラベル。Theatre のパネルが乗れば見えなくなる */
+/** 余白の置き場所を示すだけのラベル */
 function GutterLabel({
   style,
   children,

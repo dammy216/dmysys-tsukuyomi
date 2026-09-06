@@ -78,7 +78,7 @@ function saveStoredSize(size: Size) {
 /**
  * サイズを live ref に持ち、ドラッグ中は rAF で DOM へ直接書き込む
  * (CharacterOverlay の usePanelTransform と同じ狙い。毎フレームの
- * 再レンダーで 3D シーンや Theatre のパネルがちらつくのを避ける)。
+ * 再レンダーで 3D シーンがちらつくのを避ける)。
  */
 function useResizableStage(onManualResize?: () => void) {
   const stageRef = useRef<HTMLDivElement | null>(null);

@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 
 /**
  * 編集モード(EditorLayout)の3Dビューポート右上に置くFPS表示。
- * SceneStats(stats.js)は右上固定パネルで、Theatre のパネルは画面の
- * 絶対位置に浮くだけで実際の占有範囲を予測できず、CSSでの位置合わせでは
- * 重なりを避けきれなかったため編集モード中は隠している(SceneContents側)。
- * 代わりにビューポート内(=Theatreのパネルと重ならない場所)へ、
- * rAFの間隔から単純計算する独立した実装で出す(stats.jsとは連動しない)。
+ * SceneStats(stats.js)は右上固定パネルで、編集モード中はビューポートが
+ * 中央へ縮むため位置がズレる。編集モード中は隠している(SceneContents側)。
+ * 代わりにビューポート内へ、rAFの間隔から単純計算する独立した実装で出す
+ * (stats.jsとは連動しない)。
  */
 function useFps() {
   const [fps, setFps] = useState(0);

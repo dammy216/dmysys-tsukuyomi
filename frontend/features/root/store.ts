@@ -38,17 +38,15 @@ type SceneState = {
   freeCam: boolean;
 
   /**
-   * Theatre.js の編集モード(開発時のみ。`L`キーで切り替え)。
+   * 編集モード(開発時のみ。`L`キーで切り替え)。
    * true の間はサイトのHUD(ヘッダー/ControlBar/かぐやパネル/FPS/クレジット)を
-   * すべて隠し、3Dキャンバスを中央のビューポートへ縮めて、まわりに
-   * Theatre のパネル(左=Outline / 右=Details / 下=Sequence Editor)用の
-   * 余白を空ける。操作系は EditorToolbar に集約する。
+   * すべて隠し、3Dキャンバスを中央のビューポートへ縮める。操作系は
+   * EditorToolbar に集約する。
    */
   editorMode: boolean;
   /**
-   * 編集モードの再生/一時停止。true で Reply の映像・音を止め、
-   * ReplyCamera 側は songTime による Theatre シーケンス位置の上書きをやめる
-   * (= タイムライン上のバーが動かなくなり、その位置の画を見続けられる)。
+   * 編集モードの再生/一時停止。true で Reply の映像・音を止める
+   * (= ReplyCamera は songTime が進まなくなるのでその位置の画を見続けられる)。
    */
   editorPaused: boolean;
 

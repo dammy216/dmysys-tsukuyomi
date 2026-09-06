@@ -63,11 +63,20 @@ feature 間は `index.ts` バレル経由で `@/features/<name>` から import �
 
 `.agents/skills/react-three-fiber/` `threejs-animation/` `threejs-shaders/` `vertical-slice-architecture/`。
 
-タイムライン/キーフレームアニメーション(カメラワーク等)を実装・修正するときは
-`.agents/skills/theatre-js/` を読む。**ただしこのプロジェクトは `@theatre/r3f` を使わない**
-(`@react-three/fiber ^8` 固定で2022年から開発停止しており、このプロジェクトの `^9` と非互換)。
-代わりに `@theatre/core` + `@theatre/studio` を直接使い、共有初期化は
-`features/root/theatre.ts` の `sceneProject`(`getProject("Scene")`)/`getStudio()`/
-`exposeDevSeed()` 経由。命名規則は project="Scene" → sheet=feature名 → object=対象名
-(例: `features/reply/ReplyCamera.tsx` の `sceneProject.sheet("Reply").object("Drone Path", ...)`)。
-Studio パネルは開発時のみ・`L` キーでトグル表示。
+### タイムライン/キーフレームアニメーション(カメラワーク等)
+
+**Theatre.js は使わない**(過去に導入したが撤去済み)。GUIエディタでの調整が
+コード側と自動で同期しないため、AIが下書きしたキーフレームを都度手動で
+Studioへ流し込む/エクスポートし直す運用が実運用に見合わず、外した経緯がある。
+
+代わりに、各featureのカメラコンポーネント内にキーフレーム配列を直書きし、
+曲の再生位置(`songTime`)や経過時間で直接補間するコードだけで完結させる
+(`useFrame` の中で毎フレーム呼ぶ):
+
+- `features/reply/ReplyCamera.tsx` の `DRONE_PATH` 配列 + `sampleDrone()`
+  (曲の再生位置に直接刺すノンループの航路)
+- `features/starfall-sea/StarfallCamera.tsx` の `PATH` 配列 + `samplePath()`
+  (`CYCLE_SECONDS` 周期でループする航路)
+
+キーフレームの調整はエディタでコードの数値配列を直接書き換えるだけでよく、
+保存すれば Fast Refresh でそのまま反映される。GUIでの視覚的な調整はできない。

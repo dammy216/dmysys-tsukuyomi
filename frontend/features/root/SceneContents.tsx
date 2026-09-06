@@ -67,7 +67,6 @@ import {
   STAGE_Y,
 } from "@/features/reply";
 import { Water } from "./Water";
-import { initTheatreStudio } from "./theatre";
 import {
   ABERRATION_OFFSET,
   HEAVY_EFFECTS_DELAY_SECONDS,
@@ -154,13 +153,28 @@ export function SceneContents({
   const editorMode = useSceneStore((s) => s.editorMode);
 
   /*
-    Theatre.js の Studio パネル起動は SceneContents から1箇所だけ呼ぶ
-    (ReplyCamera / StarfallCamera など各演出カメラは呼ばない)。
-    実体は features/root/theatre.ts の initTheatreStudio。開発時のみ・
-    一度きりに絞ってあるので、ここでの呼び出しは常に安全。
+    編集モード(useSceneStore.editorMode)の `L`キートグル。開発時のみ
+    (公開サイトでは編集ツールを出さない)。SceneContents から1箇所だけ
+    登録する(ReplyCamera / StarfallCamera など各演出カメラは呼ばない)。
   */
   useEffect(() => {
-    initTheatreStudio();
+    if (process.env.NODE_ENV !== "development") return;
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.key !== "l" && e.key !== "L") return;
+      // 入力欄にフォーカスがあるときは文字入力を邪魔しない
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      useSceneStore.getState().toggleEditorMode();
+    };
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
   }, []);
 
   /*
@@ -1000,7 +1014,6 @@ export function SceneContents({
         pullbackRef={replyPullbackRef}
         energyRef={replyEnergyRef}
         songTimeRef={replySongTimeRef}
-        videoRef={replyVideoRef}
       />
 
       {/*

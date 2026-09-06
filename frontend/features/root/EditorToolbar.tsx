@@ -29,9 +29,8 @@ import { useSceneStore } from "./store";
  * 自由視点は単純なトグルで、再生/一時停止とは連動させない
  * (自由視点中もアニメーション・再生は止まらない)。
  * 編集モード終了ボタンは EditorLayout 側(画面比率テンプレの隣)にある。
- * 再生位置の真実は常に <video> 側にあり、Theatre のシーケンス位置は
- * ReplyCamera が毎フレームそこへ同期させる(逆にタイムラインを手で
- * スクラブしたときは ReplyCamera が映像側をシークし返す)。
+ * 再生位置の真実は常に <video> 側にあり、ReplyCamera は songTime
+ * (= video.currentTime)を毎フレーム読んで航路を直接補間する。
  */
 
 /**
@@ -94,8 +93,8 @@ export function EditorToolbar({
 
   /*
     シーク/再生/停止はすべて <video> を直接操作する。ReplyCamera 側は
-    songTime(= video.currentTime)を毎フレーム読んで Theatre のシーケンス
-    位置へ同期させるので、ここで映像を動かせばタイムラインのバーも追従する。
+    songTime(= video.currentTime)を毎フレーム読んで航路を直接補間するので、
+    ここで映像を動かせばカメラもそのまま追従する。
   */
   const seekTo = useCallback(
     (seconds: number) => {

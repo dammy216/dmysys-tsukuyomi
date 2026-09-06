@@ -5,9 +5,9 @@ import { useSceneStore } from "@/features/root/store";
 /** サイト共通ヘッダー。DMYSYSのロゴ+ワードマークを表示する（下部ControlBarと同じ近未来HUDデザイン） */
 export function Header() {
   /*
-    Theatre.js の編集モード中は隠す。編集モードでは画面をビューポートと
-    パネル置き場に分けるので、画面左上へ固定されるこのヘッダーが
-    Outline パネルの上に重なってしまうため。
+    編集モード中は隠す。編集モードでは画面をビューポートと
+    パネル置き場(EditorLayout の GUTTER)に分けるので、画面左上へ固定
+    されるこのヘッダーが左の余白と重なってしまうため。
   */
   const editorMode = useSceneStore((s) => s.editorMode);
   if (editorMode) return null;
