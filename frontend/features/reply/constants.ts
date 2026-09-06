@@ -83,19 +83,17 @@ export const CASTLE_HALF_DEPTH = 0.2203 * CASTLE_SCALE;
 export const REPLY_BUILD_END_SECONDS = 11;
 /**
  * 天守**本体**の飛来ブロックが組み上がりきる再生位置(秒)。指定で天守だけ
- * 0.8秒早く終わらせる(隅櫓・カメラの引き・照明点灯などは従来どおり
+ * 0.8秒早く終わらせる(隅櫓・照明点灯などは従来どおり
  * REPLY_BUILD_END_SECONDS(11秒)のまま=「周りは今のまま」)。
  */
 export const REPLY_CASTLE_BUILD_END_SECONDS = REPLY_BUILD_END_SECONDS;
-/** 11秒を過ぎてから、周回カメラが PATH(引きの全景)へ移りきるまでの秒数 */
-export const REPLY_PULLBACK_SECONDS = 0.8;
 /**
  * 11秒でステージ照明(投影光・ビーム・ステージ・鳥居・ホログラム)が
- * 点きあがるまでの秒数。カメラの引き(REPLY_PULLBACK_SECONDS)とは分ける。
+ * 点きあがるまでの秒数。
  *
  * 組み上げ中の光る帯は build=1(=ちょうど11秒)で消えるので、照明を
- * カメラと同じ 2.2 秒かけて上げると、その間だけ天守が真っ黒に沈む
- * "暗転バグ" になる。照明は帯が消えるのに合わせてパッと点ける。
+ * ゆっくり上げるとその間だけ天守が真っ黒に沈む "暗転バグ" になる。
+ * 照明は帯が消えるのに合わせてパッと点ける。
  */
 export const REPLY_LIGHTS_FADE_SECONDS = 0.45;
 /**

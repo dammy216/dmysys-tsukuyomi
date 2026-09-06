@@ -16,12 +16,6 @@ export {
   keyframesAreDirty,
   type DroneKeyField,
 } from "./dronePathStore";
-export { BUILD_ORBIT_DEFAULTS } from "./buildOrbitDefaults";
-export {
-  BUILD_ORBIT_SPECS,
-  useBuildOrbitStore,
-  type BuildOrbitParams,
-} from "./buildOrbitParams";
 export { CAMERA_FEEL_DEFAULTS } from "./cameraFeelDefaults";
 export {
   CAMERA_FEEL_SPECS,
@@ -48,7 +42,6 @@ export {
   REPLY_FLASH_EXPOSURE,
   REPLY_FLASH_SECONDS,
   REPLY_LIGHTS_FADE_SECONDS,
-  REPLY_PULLBACK_SECONDS,
   REPLY_FADE_SECONDS,
   REPLY_FOCUS,
   REPLY_HOLOGRAM_Y,

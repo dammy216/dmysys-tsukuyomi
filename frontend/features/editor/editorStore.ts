@@ -17,13 +17,7 @@ export const EDITOR_OBJECTS = [
     label: "Drone Path",
     /** 曲の再生位置にキーフレームを持つ(=タイムラインに並ぶ) */
     keyframed: true,
-    hint: "11秒以降のドローン航路",
-  },
-  {
-    id: "build-orbit",
-    label: "Build Orbit",
-    keyframed: false,
-    hint: "0〜11秒の組み上げ周回",
+    hint: "曲の頭から最後まで1本の航路(0〜11秒の組み上げ周回も含む)",
   },
   {
     id: "camera-feel",

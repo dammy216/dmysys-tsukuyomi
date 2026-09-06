@@ -2,13 +2,10 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import {
-  BUILD_ORBIT_DEFAULTS,
-  BUILD_ORBIT_SPECS,
   CAMERA_FEEL_DEFAULTS,
   CAMERA_FEEL_SPECS,
   keyframesAreDirty,
   sampleDrone,
-  useBuildOrbitStore,
   useCameraFeelStore,
   useDronePathStore,
   type DroneKeyField,
@@ -377,7 +374,6 @@ export function EditorDetailsPanel({
   replyVideoRef: RefObject<HTMLVideoElement | null>;
 }) {
   const selectedObject = useEditorStore((s) => s.selectedObject);
-  const buildOrbit = useBuildOrbitStore((s) => s.values);
   const cameraFeel = useCameraFeelStore((s) => s.values);
   const label =
     EDITOR_OBJECTS.find((o) => o.id === selectedObject)?.label ?? "";
@@ -394,20 +390,6 @@ export function EditorDetailsPanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {selectedObject === "drone-path" && (
           <DronePathDetails videoRef={replyVideoRef} />
-        )}
-        {selectedObject === "build-orbit" && (
-          <ParamDetails
-            values={buildOrbit}
-            defaults={BUILD_ORBIT_DEFAULTS}
-            specs={BUILD_ORBIT_SPECS}
-            codeName="BUILD_ORBIT_DEFAULTS"
-            codePath="features/reply/buildOrbitDefaults.ts"
-            fileImports={'import { STAGE_Y } from "./constants";\n\n'}
-            onChange={(key, value) =>
-              useBuildOrbitStore.getState().setValue(key, value)
-            }
-            onReset={() => useBuildOrbitStore.getState().reset()}
-          />
         )}
         {selectedObject === "camera-feel" && (
           <ParamDetails

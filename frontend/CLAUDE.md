@@ -74,10 +74,10 @@ Studioへ流し込む/エクスポートし直す運用が実運用に見合わ�
 曲の再生位置(`songTime`)や経過時間で直接補間する(`useFrame` の中で毎フレーム):
 
 - `features/reply/dronePathData.ts` の `DRONE_PATH` 配列(型・補間関数は
-  `dronePathType.ts` の `sampleDrone()`)。11秒以降。曲の再生位置に直接刺す
-  ノンループの航路
-- `features/reply/buildOrbitDefaults.ts` の `BUILD_ORBIT_DEFAULTS`
-  (0〜11秒の周回。SPECS・store本体は `buildOrbitParams.ts`)
+  `dronePathType.ts` の `sampleDrone()`)。**曲の頭(0秒)から最後まで1本**の
+  ノンループ航路を、曲の再生位置に直接刺す。0〜11秒の組み上げ周回も
+  このキーフレームに含まれる(旧 `BUILD_ORBIT_DEFAULTS` の parametric 周回を
+  標本化したもの。`turn` は 0〜11秒で1周まわるぶん 11秒以降が +1.0 されている)
 - `features/reply/cameraFeelDefaults.ts` の `CAMERA_FEEL_DEFAULTS`
   (バンク・揺れ・追従。SPECS・store本体は `cameraFeelParams.ts`)
 - `features/starfall-sea/StarfallCamera.tsx` の `PATH` 配列 + `samplePath()`
@@ -87,18 +87,27 @@ Studioへ流し込む/エクスポートし直す運用が実運用に見合わ�
 
 **編集モード(`L`キー・開発時のみ)では GUI からも触れる**。`features/editor/` の
 3ペインUI(Outline / Details / Sequence Editor)が上記の値を実行時ストア
-(`useDronePathStore` / `useBuildOrbitStore` / `useCameraFeelStore`)経由で
+(`useDronePathStore` / `useCameraFeelStore`)経由で
 書き換え、3D画面に即反映する。ただし**その変更はブラウザ上の下書き**で、
 リロードするとコードの既定値へ戻る。気に入った値は Details パネルの
 「コードとしてコピー」で書き出す。
 
 Drone Path はキーフレームの追加・削除もできる: Sequence Editor のトラックを
-**ダブルクリック**でその時刻に追加(挿入時点の補間値が初期値になるので
-追加した瞬間は動きが変わらない)、Details パネルの `×` ボタンで選択中の
-キーフレームを削除(航路として成立する最低2点は残す)。
+**右クリック**でその時刻に追加(挿入時点の補間値が初期値になるので
+追加した瞬間もカメラの位置は変わらない)、Details パネルの `×` ボタンで
+選択中のキーフレームを削除(航路として成立する最低2点は残す)。
 
-**上の `*Data.ts` / `*Defaults.ts` は「コードとしてコピー」の貼り付け先
-として、値の定義だけを置く専用ファイルにしてある**(SPECS・store・型と
+**キーフレーム間の補間は単調3次エルミート(PCHIP)**(`dronePathType.ts` の
+`sampleDrone()`)。区間ごとに `smoothstep` を掛ける実装にしてはいけない
+— smoothstep は両端の微分が0なので、**キーを通過するたびにカメラが一瞬
+止まる**(実際そうなっていた)。各キーの接線を前後のキーから決めて左右で
+共有することで速度を繋いである(Theatre.js / Blender の「自動」タンジェントと
+同じ考え方)。単純な Catmull-Rom ではなく PCHIP なのは、山/谷になっている
+キーでカーブが元の値を飛び越して膨らむのを防ぐため(例: 11秒の引きは
+radius が 11.5 → 53 → 45 と折り返す)。
+
+**上の `dronePathData.ts` / `cameraFeelDefaults.ts` は「コードとしてコピー」の
+貼り付け先として、値の定義だけを置く専用ファイルにしてある**(SPECS・store・型と
 分離)。コピーした内容はそのファイルの`import`文を含む**完全な内容**なので、
 そのファイルを開いて全選択→貼り付けするだけで確定できる(値の意味を
 説明する `/** ... */` コメントや、Drone Pathの区間コメント`// サビ:...`も
@@ -107,8 +116,8 @@ GUIとコードを自動同期させない = Theatre.js を外した理由その
 この一方通行は意図的な設計。
 
 GUIでの変更は `Ctrl+Z`/`Ctrl+Y`(`Ctrl+Shift+Z`も可)でUndo/Redoできる
-(`features/editor/editorHistory.ts`。Drone Path・Build Orbit・Camera Feel の
-3ストアをまとめて1つの履歴として扱う)。ドラッグのような連続操作は
+(`features/editor/editorHistory.ts`。Drone Path・Camera Feel の
+2ストアをまとめて1つの履歴として扱う)。ドラッグのような連続操作は
 `beginGesture()`/`endGesture()` で区間を明示し、指を離すまでの変化を
 Undo1回ぶんにまとめる(時間デバウンスだけだとドラッグが長引いたときに
 指を離す前に確定してしまうため)。

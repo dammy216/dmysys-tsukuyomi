@@ -1,17 +1,15 @@
 "use client";
 
 import {
-  useBuildOrbitStore,
   useCameraFeelStore,
   useDronePathStore,
-  type BuildOrbitParams,
   type CameraFeelParams,
   type DroneKey,
 } from "@/features/reply";
 import { useSceneStore } from "@/features/root/store";
 
 /**
- * 編集モードのUndo/Redo。DronePath・BuildOrbit・CameraFeel の3ストアを
+ * 編集モードのUndo/Redo。DronePath・CameraFeel の2ストアを
  * ひとまとまりの「ドキュメント」として、Ctrl+Z(戻す)/Ctrl+Y または
  * Ctrl+Shift+Z(進める)でまとめて操作できるようにする。
  *
@@ -36,7 +34,6 @@ import { useSceneStore } from "@/features/root/store";
 
 type Snapshot = {
   dronePath: DroneKey[];
-  buildOrbit: BuildOrbitParams;
   cameraFeel: CameraFeelParams;
 };
 
@@ -63,7 +60,6 @@ let gestureDepth = 0;
 function cloneSnapshot(): Snapshot {
   return {
     dronePath: useDronePathStore.getState().keyframes.map((k) => ({ ...k })),
-    buildOrbit: { ...useBuildOrbitStore.getState().values },
     cameraFeel: { ...useCameraFeelStore.getState().values },
   };
 }
@@ -75,7 +71,6 @@ function snapshotsEqual(a: Snapshot, b: Snapshot) {
 function applySnapshot(snap: Snapshot) {
   applying = true;
   useDronePathStore.getState().setKeyframes(snap.dronePath.map((k) => ({ ...k })));
-  useBuildOrbitStore.getState().setValues({ ...snap.buildOrbit });
   useCameraFeelStore.getState().setValues({ ...snap.cameraFeel });
   applying = false;
 }
@@ -167,7 +162,6 @@ export function initEditorHistory() {
 
   present = cloneSnapshot();
   useDronePathStore.subscribe(scheduleCommit);
-  useBuildOrbitStore.subscribe(scheduleCommit);
   useCameraFeelStore.subscribe(scheduleCommit);
   window.addEventListener("keydown", onKeyDown);
 }

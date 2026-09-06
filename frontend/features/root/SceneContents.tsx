@@ -53,7 +53,6 @@ import {
   REPLY_FLASH_EXPOSURE,
   REPLY_FLASH_SECONDS,
   REPLY_LIGHTS_FADE_SECONDS,
-  REPLY_PULLBACK_SECONDS,
   REPLY_FOCUS,
   REPLY_HOLOGRAM_Y,
   REPLY_OUTRO_FADE_SECONDS,
@@ -306,11 +305,6 @@ export function SceneContents({
   const replyStageGroupRef = useRef<Group>(null);
   const replyBeamsGroupRef = useRef<Group>(null);
   /*
-    11秒を過ぎてからの「カメラの引き」具合(0〜1)。ReplyCamera はこれで
-    周回から PATH(引きの全景)へ移る。REPLY_PULLBACK_SECONDS かけてゆっくり。
-  */
-  const replyPullbackRef = useRef(0);
-  /*
     11秒でのステージ照明の点灯具合(0〜1)。投影光・ビーム・ステージ・鳥居・
     ホログラムをこれで一斉に点ける。カメラの引きと違い REPLY_LIGHTS_FADE_SECONDS
     で素早く上げる(組み上げ中の光る帯が消えるのと入れ違いにするため。
@@ -554,7 +548,7 @@ export function SceneContents({
     /*
       再生位置は必ず有限値に正規化してから使う。
 
-      ここが NaN になると build / pullback / lights が芋づるで NaN になり、
+      ここが NaN になると build / lights / 航路の標本 が芋づるで NaN になり、
       ReplyCamera が camera.position を NaN にしてビュー行列が壊れる。
       そうなると frustumCulled=false のもの(ビーム・飛来ブロック)以外は
       全部カリングされ、「真っ黒な画面にビームのリングだけ」という状態になる。
@@ -590,12 +584,14 @@ export function SceneContents({
     const replyNext = replyActivationRef.current;
 
     /*
-      天守の組み上げ・カメラの引き・ステージ照明。どれも**曲の再生位置**で
-      決める(ボタンを押してからの経過ではない)。曲が REPLY_BUILD_END_SECONDS
-      (11秒)に達するまで組み上げ＋天守まわりの周回カメラ。11秒を過ぎたら
-        - カメラ: REPLY_PULLBACK_SECONDS かけてゆっくり引く
-        - 照明: REPLY_LIGHTS_FADE_SECONDS でパッと点ける(組み上げの光る帯が
-          消えるのと入れ違いにする。ここを遅らせると暗転バグになる)
+      天守の組み上げ・ステージ照明。どちらも**曲の再生位置**で決める
+      (ボタンを押してからの経過ではない)。曲が REPLY_BUILD_END_SECONDS
+      (11秒)に達するまで組み上げ。11秒を過ぎたら照明を
+      REPLY_LIGHTS_FADE_SECONDS でパッと点ける(組み上げの光る帯が消えるのと
+      入れ違いにする。ここを遅らせると暗転バグになる)。
+
+      カメラは 0秒から曲の再生位置に刺した1本の航路(DRONE_PATH)を辿るだけで、
+      ここでは何も計算しない(ReplyCamera が songTime から直接引く)。
     */
     if (replyPlaying) {
       replyBuildRef.current = Math.min(
@@ -608,10 +604,6 @@ export function SceneContents({
         1,
       );
       const sinceEnd = replyTime - REPLY_BUILD_END_SECONDS;
-      replyPullbackRef.current = Math.min(
-        Math.max(sinceEnd / REPLY_PULLBACK_SECONDS, 0),
-        1,
-      );
       replyLightsRef.current = Math.min(
         Math.max(sinceEnd / REPLY_LIGHTS_FADE_SECONDS, 0),
         1,
@@ -619,7 +611,6 @@ export function SceneContents({
     } else {
       replyBuildRef.current = 0;
       replyCastleBuildRef.current = 0;
-      replyPullbackRef.current = 0;
       replyLightsRef.current = 0;
     }
 
@@ -1005,14 +996,13 @@ export function SceneContents({
         videoRef={hologramVideoRef}
       />
       {/*
-        Reply の演出カメラ。塔の高さを見せるため上下に大きく振りながら旋回する
-        (星降る海と同じく、押した位置から PATH へ滑らかに寄せるだけ)。
+        Reply の演出カメラ。0秒から曲の再生位置に刺した1本の航路(DRONE_PATH)を
+        辿る。塔の高さを見せるため上下に大きく振りながら旋回する
+        (星降る海と同じく、押した位置から航路へ滑らかに寄せるだけ)。
       */}
       <ReplyCamera
         active={replyPlaying && !freeCam}
         activationRef={replyActivationRef}
-        buildRef={replyBuildRef}
-        pullbackRef={replyPullbackRef}
         energyRef={replyEnergyRef}
         songTimeRef={replySongTimeRef}
       />

@@ -10,7 +10,7 @@ import { create } from "zustand";
  * コピー」で書き出し、貼り付け先のファイルへ丸ごと貼り替えて確定させる)。
  *
  * パラメータの値そのもの(*_DEFAULTS)は、この用途ごとに分けた別ファイル
- * (buildOrbitDefaults.ts / cameraFeelDefaults.ts)に置く。「コードとして
+ * (cameraFeelDefaults.ts)に置く。「コードとして
  * コピー」の出力がそのファイル1つを丸ごと置き換えられるようにするため、
  * この共通インフラ(型・ストア工場・SPECS・store本体)とは分離してある。
  */
