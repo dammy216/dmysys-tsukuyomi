@@ -38,6 +38,7 @@ import {
   CastleAssembly,
   ConcertStage,
   CornerTowers,
+  EaveBeams,
   EdoCastle,
   ReplyCamera,
   ReplyFireworks,
@@ -874,6 +875,17 @@ export function SceneContents({
             <CornerTowers
               position={REPLY_BASE_POSITION}
               buildRef={replyBuildRef}
+              activationRef={replyActivationRef}
+              lightsRef={replyLightsRef}
+            />
+            {/*
+              天守・隅櫓それぞれの屋根の四隅、軒下から客席側(+Z)へ伸びる
+              トラス照明の見立て。EdoCastleの投影光と同じ activation*lights の
+              掛け算でフェードインするだけなので、CornerTowers と同じ2つの
+              refをそのまま渡す(出し入れの group.visible は不要)。
+            */}
+            <EaveBeams
+              position={REPLY_BASE_POSITION}
               activationRef={replyActivationRef}
               lightsRef={replyLightsRef}
             />

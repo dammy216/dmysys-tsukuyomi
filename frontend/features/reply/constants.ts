@@ -69,6 +69,44 @@ export const CASTLE_TOP_Y = CASTLE_MODEL_HEIGHT * CASTLE_SCALE;
 export const CASTLE_HALF_WIDTH = 0.2475 * CASTLE_SCALE;
 export const CASTLE_HALF_DEPTH = 0.2203 * CASTLE_SCALE;
 
+/**
+ * 天守の屋根の層(軒)。天守は1枚屋根の単純な箱ではなく、上へ行くほど幅が
+ * 狭くなる屋根が5段重なった層塔型(五重天守)。EaveBeams.tsx が「軒下」に
+ * ビームを立てるには、建物全体の外周(CASTLE_HALF_WIDTH/DEPTH)や頂点の
+ * 比率近似ではなく、層ごとの軒の実測位置・幅・奥行きが要る。
+ *
+ * 計測方法: scene.gltf の全メッシュ頂点をノード行列でワールド変換した後、
+ * モデルローカルのYを500分割し、各スライスで |x| / |z| の最大値
+ * (=その高さでの半幅・半奥行き)を取る。「半幅がYに対してどう変わるか」の
+ * 山(局所ピーク)を、平滑化(移動平均)した上で位相幾何学的プロミネンス
+ * (両隣で自分より高い地点に達するまでの谷の深さ)でランキングし、上位から
+ * 実際に軒として画に現れる5箇所を採用した(ピークの数だけ機械的に採らず、
+ * 候補位置に実際の断面図をレンダリングして目視でも確認済み)。
+ *
+ * 実測(ローカル、CASTLE_MODEL_HEIGHT=0.5992 と同じ単位):
+ *   層1(最下・最大) y=0.215112  x∈±0.229175  z∈±0.202275
+ *   層2            y=0.303793  x∈±0.195720  z∈±0.169024
+ *   層3            y=0.380491  x∈±0.168156  z∈±0.141398
+ *   層4            y=0.453593  x∈±0.149387  z∈±0.121705
+ *   層5(最上)      y=0.512314  x∈±0.120728  z∈±0.093906
+ * (この上、y=0.5992=CASTLE_TOP_Y まではシャチホコ等の飾りが続く屋根なし区間)
+ */
+export const CASTLE_ROOF_TIERS: readonly {
+  y: number;
+  halfWidth: number;
+  halfDepth: number;
+}[] = [
+  { y: 0.215112, halfWidth: 0.229175, halfDepth: 0.202275 },
+  { y: 0.303793, halfWidth: 0.19572, halfDepth: 0.169024 },
+  { y: 0.380491, halfWidth: 0.168156, halfDepth: 0.141398 },
+  { y: 0.453593, halfWidth: 0.149387, halfDepth: 0.121705 },
+  { y: 0.512314, halfWidth: 0.120728, halfDepth: 0.093906 },
+].map(({ y, halfWidth, halfDepth }) => ({
+  y: y * CASTLE_SCALE,
+  halfWidth: halfWidth * CASTLE_SCALE,
+  halfDepth: halfDepth * CASTLE_SCALE,
+}));
+
 /* ------------------------------------------------------------------ *
  * 組み上げアニメーション。Reply を押すと、無数の直方体ブロックが四方から
  * 飛来して収束し、天守が下から積み上がって現れる

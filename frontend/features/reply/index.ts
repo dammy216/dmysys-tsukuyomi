@@ -3,6 +3,7 @@ export { CastleAssembly } from "./CastleAssembly";
 export { CornerTowers } from "./CornerTowers";
 export { ConcertStage } from "./ConcertStage";
 export { StageBeams } from "./StageBeams";
+export { EaveBeams } from "./EaveBeams";
 export { ReplyHologram } from "./ReplyHologram";
 export { ReplyFireworks } from "./ReplyFireworks";
 export { ToriiGate } from "./ToriiGate";

@@ -28,6 +28,33 @@ export const TOWER_HALF_WIDTH = MODEL_LOCAL_HALF_WIDTH * TOWER_SCALE;
 export const TOWER_HALF_DEPTH = MODEL_LOCAL_HALF_DEPTH * TOWER_SCALE;
 
 /**
+ * 隅櫓の屋根の層(軒)。天守と同じく1段の箱ではなく、屋根が3段重なった塔状
+ * (ユーザーの目視どおり「屋根が3個」)。計測方法は constants.ts の
+ * CASTLE_ROOF_TIERS と同じ(Yを400分割し |x|/|z| の最大値の山を平滑化 +
+ * 位相幾何学的プロミネンスでランキング、断面図レンダリングで目視確認済み)。
+ *
+ * 実測(ローカル、MODEL_LOCAL_HEIGHT=0.03747 と同じ単位):
+ *   層1(最下・最大) y=0.020749  x∈±0.012280  z∈±0.012783
+ *   層2            y=0.027212  x∈±0.009646  z∈±0.009701
+ *   層3(最上)      y=0.032270  x∈±0.008873  z∈±0.007915
+ * (層1の下 y=0.0169 付近にもう一段小さな張り出しがあるが、断面図で見ると
+ * 層1の屋根に付いた破風飾りの一部で独立した屋根ではないため採用していない)
+ */
+export const TOWER_ROOF_TIERS: readonly {
+  y: number;
+  halfWidth: number;
+  halfDepth: number;
+}[] = [
+  { y: 0.020749, halfWidth: 0.01228, halfDepth: 0.012783 },
+  { y: 0.027212, halfWidth: 0.009646, halfDepth: 0.009701 },
+  { y: 0.03227, halfWidth: 0.008873, halfDepth: 0.007915 },
+].map(({ y, halfWidth, halfDepth }) => ({
+  y: y * TOWER_SCALE,
+  halfWidth: halfWidth * TOWER_SCALE,
+  halfDepth: halfDepth * TOWER_SCALE,
+}));
+
+/**
  * 四隅の (x, z)。EdoCastle と同じ基準点(REPLY_BASE_POSITION)からの相対で、
  * 城の軸に揃える(回転なし)。隅櫓は角の石垣に取り付くものなので、内側が
  * 少しだけ天守に重なる位置に置く。CORNER_OVERLAP=0 で内側の面が石垣に
