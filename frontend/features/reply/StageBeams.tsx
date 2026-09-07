@@ -26,15 +26,22 @@ import {
   replySectionIndexAt,
   type ReplySectionName,
 } from "./songStructure";
+import {
+  CORNER_TOWER_XZ,
+  TOWER_HALF_DEPTH,
+  TOWER_HALF_WIDTH,
+} from "./towerLayout";
 
 /**
- * 本数。**必ず偶数**にすること。i と (BEAM_COUNT-1-i) が X=0 の面で
- * ちょうど鏡像になるよう配置角を取ってあり(下の angle の +0.5 参照)、
- * 扇の開き具合もこのペア単位で左右対称に決まる。参照映像(Reply.mp4)の
- * 照明は左右がぴったり対称に動いていて、それが「会場に組んだリグ」に
- * 見える理由になっている。
+ * 本数。**必ず偶数**にすること。天守の四辺(前後左右)それぞれの外側、
+ * 隅櫓と隅櫓の隙間の位置に2点ずつ(4辺×2点=8)+ 隅櫓4棟それぞれの外側の角
+ * (天守から一番遠い、外周のコーナー)に1点ずつ(4点)=計12。並び順(下の
+ * BEAM_POINTS)は i と (BEAM_COUNT-1-i) が X=0 の面でちょうど鏡像の
+ * ペアになるよう組んであり、扇の開き具合もこのペア単位で左右対称に決まる。
+ * 参照映像(Reply.mp4)の照明は左右がぴったり対称に動いていて、それが
+ * 「会場に組んだリグ」に見える理由になっている。
  */
-const BEAM_COUNT = 16;
+const BEAM_COUNT = 12;
 const BEAM_HALF = BEAM_COUNT / 2;
 
 /**
@@ -54,15 +61,24 @@ const BEAM_RADIUS = 9;
 /** 光源の高さ。水面のすぐ上から放つ */
 const BEAM_ORIGIN_Y = 2.5;
 /**
- * 光源を天守の中心からどれだけ外へ出すか。
+ * 光源を天守の辺の外へどれだけ出すか(その辺と垂直な方向、前後辺なら
+ * CASTLE_HALF_DEPTH・左右辺なら CASTLE_HALF_WIDTH に掛ける係数)。
  *
  * **天守の外周より外に出すこと。** 固定値(7)にしていたころは、
  * CASTLE_SCALE を上げて天守が大きくなった結果、光源が天守の内側に埋まり、
  * ビームが石垣の途中から生えているように見えていた。天守の底面の広がり
- * (実測で半径約19.7)に追従させて、常に外側から放つようにする。
+ * (実測で半径約19.7)に追従させて、常に外側から放つようにする(旧
+ * BEAM_ORIGIN_RADIUS と同じ係数)。
  */
-const BEAM_ORIGIN_RADIUS =
-  Math.max(CASTLE_HALF_WIDTH, CASTLE_HALF_DEPTH) * 1.4;
+const BEAM_EDGE_OUTSET = 1.4;
+/**
+ * 辺に沿った方向へ中心からどれだけ離すか(前後辺なら CASTLE_HALF_WIDTH・
+ * 左右辺なら CASTLE_HALF_DEPTH に掛ける係数)。0だと辺の中央(隅櫓から
+ * 一番遠い1点)に重なってしまうので、中心と隅櫓のだいたい中間に来る値を
+ * 目視で選んである。大きすぎると隅櫓に近づきすぎて埋もれる。
+ * (0.55だと各辺の2本が離れすぎて見えたため、少し中心寄りに詰めてある)
+ */
+const BEAM_EDGE_SPREAD = 0.35;
 
 /* ------------------------------------------------------------------ *
  * 動き。土台は**参照映像(reply.mp4)から実測した1小節周期の開閉スイープ**で、
@@ -102,13 +118,6 @@ const TILT_OPEN_OUTER = 1.02;
  * 0にすると小節頭ちょうどで開ききる。参照はわずかに食い気味。
  */
 const SWEEP_LEAD_BEATS = 0.41;
-
-/**
- * リグ全体が1周するのにかける小節数。カメラが止まっていても絵が完全に
- * 同じにならないよう、ごくゆっくり流す。これ自体も小節の倍数なので
- * 「規則から外れた動き」にはならない。
- */
-const SPIN_BARS = 64;
 
 /** 小節頭にだけ足すアクセント */
 const BAR_ACCENT = 0.16;
@@ -397,15 +406,108 @@ const BEAM_FRAGMENT = /* glsl */ `
 `;
 
 type Beam = {
-  /** 円周上の配置角(ラジアン) */
+  /** 天守の中心からのローカル座標(X, Z)。固定12点(天守の辺8点+隅櫓4点)のひとつ */
+  x: number;
+  z: number;
+  /**
+   * 外向きの方角(ラジアン)。front=0 / right=π/2 / back=π / left=-π/2、
+   * 隅櫓の4点はその中間の45°刻み。ヘッドの首振り(mesh側の傾き軸)を
+   * この方角へ向けるのに使う。
+   */
   angle: number;
-  /** 円周に沿った通し番号(0〜BEAM_COUNT-1)。チェイスの順番になる */
+  /** リング状に並べたときの通し番号(0〜BEAM_COUNT-1)。チェイスの順番になる */
   order: number;
   /** 鏡像ペアの通し番号(0〜BEAM_HALF-1)。ペアには同じ値が入る */
   half: number;
   /** 扇の内(0)から外(1)への位置。鏡像ペアには同じ値が入る */
   u: number;
 };
+
+/**
+ * 隅櫓4棟、それぞれの外側の角(天守から一番遠い、城全体の外周のコーナー)。
+ * towerLayout.ts の CORNER_TOWER_XZ(隅櫓の中心)に、隅櫓自身の半幅/半奥行き
+ * を外向きに足した位置 ―― EaveBeams.tsx で「外側の1隅」として使っているのと
+ * 同じ角。ここに天守の足元と同じサーチライトを1本ずつ追加する。
+ */
+const [TOP_RIGHT_TOWER, TOP_LEFT_TOWER, BOTTOM_LEFT_TOWER, BOTTOM_RIGHT_TOWER] =
+  CORNER_TOWER_XZ.map(([cx, cz]): [number, number] => [
+    cx + Math.sign(cx) * TOWER_HALF_WIDTH,
+    cz + Math.sign(cz) * TOWER_HALF_DEPTH,
+  ]);
+
+/**
+ * 固定12点の座標と外向きの方角。天守の四辺(前後左右)それぞれの外側、
+ * 隅櫓と隅櫓の隙間にあたる位置に2点ずつ(8点)+ 隅櫓4棟の外側の角に1点ずつ
+ * (4点)。並び順は時計回りに一周する並び(front-right → 隅櫓(右上) →
+ * right(前寄り) → right(後寄り) → 隅櫓(右下) → back-right → back-left →
+ * 隅櫓(左下) → left(後寄り) → left(前寄り) → 隅櫓(左上) → front-left)に
+ * してあり、chase パターンで「光が会場をぐるりと回る」動きとして意味が通る。
+ * 隅櫓は天守の辺と辺の間の対角線上に来るので、外向きの方角(angle)は
+ * 隣り合う2辺のちょうど中間(45°刻み)にしてある。
+ *
+ * i と (BEAM_COUNT-1-i) が X=0 の面でちょうど鏡像のペアになっていることを
+ * 確認済み: (front-right, front-left) / (隅櫓右上, 隅櫓左上) /
+ * (right前寄り, left前寄り) / (right後寄り, left後寄り) /
+ * (隅櫓右下, 隅櫓左下) / (back-right, back-left)。
+ */
+const BEAM_POINTS: readonly { x: number; z: number; angle: number }[] = [
+  // front-right: 前辺、中心から右寄り
+  {
+    x: CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
+    z: CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
+    angle: 0,
+  },
+  // 隅櫓(右上): 前辺と右辺のちょうど中間の対角線上
+  { x: TOP_RIGHT_TOWER[0], z: TOP_RIGHT_TOWER[1], angle: Math.PI / 4 },
+  // right辺、前寄りの1点
+  {
+    x: CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
+    z: CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
+    angle: Math.PI / 2,
+  },
+  // right辺、後ろ寄りの1点
+  {
+    x: CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
+    z: -CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
+    angle: Math.PI / 2,
+  },
+  // 隅櫓(右下): 右辺と後辺のちょうど中間の対角線上
+  { x: BOTTOM_RIGHT_TOWER[0], z: BOTTOM_RIGHT_TOWER[1], angle: (3 * Math.PI) / 4 },
+  // back-right: 後辺、中心から右寄り
+  {
+    x: CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
+    z: -CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
+    angle: Math.PI,
+  },
+  // back-left: 後辺、中心から左寄り
+  {
+    x: -CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
+    z: -CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
+    angle: Math.PI,
+  },
+  // 隅櫓(左下): 後辺と左辺のちょうど中間の対角線上
+  { x: BOTTOM_LEFT_TOWER[0], z: BOTTOM_LEFT_TOWER[1], angle: (-3 * Math.PI) / 4 },
+  // left辺、後ろ寄りの1点
+  {
+    x: -CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
+    z: -CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
+    angle: -Math.PI / 2,
+  },
+  // left辺、前寄りの1点
+  {
+    x: -CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
+    z: CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
+    angle: -Math.PI / 2,
+  },
+  // 隅櫓(左上): 左辺と前辺のちょうど中間の対角線上
+  { x: TOP_LEFT_TOWER[0], z: TOP_LEFT_TOWER[1], angle: -Math.PI / 4 },
+  // front-left: 前辺、中心から左寄り
+  {
+    x: -CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
+    z: CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
+    angle: 0,
+  },
+];
 
 /** なめらかな加減速。キューのクロスフェードに使う */
 function smoothstep(x: number) {
@@ -455,11 +557,12 @@ type StageBeamsProps = {
 };
 
 /**
- * 天守の背後から放射状に伸びるサーチライト。
+ * 天守の四辺の外側・隅櫓の隙間(8点)+ 隅櫓4棟の外側の角(4点)に立つ、
+ * 固定12点のサーチライト。
  *
  * 曲が11秒に達した瞬間に点灯する(SceneContents 側で activationRef を
  * 立ち上げる)。実際のボリュームライトは重いので、加算合成のコーン+根元の
- * フレアで見立てている。16本 × 三角形数十枚なので描画コストは無視できる。
+ * フレアで見立てている。12本 × 三角形数十枚なので描画コストは無視できる。
  *
  * **動きは reply.mp4 から実測した1本の規則しか持たない。**
  * 1小節(4拍=1.412秒)周期の正弦で、全灯が同位相・左右対称に
@@ -467,7 +570,9 @@ type StageBeamsProps = {
  * 乱数も、拍ごとの抽選も、本ごとの位相ずらしも入れないこと — どれも
  * 「規則が読めない動き」になって、実機で見るとかなり気持ち悪い。
  * 変化を足したいときは、周期を小節の倍数に取ったレイヤーを重ねる
- * (色替えの COLOR_BARS、リグの回転の SPIN_BARS がその例)。
+ * (色替えの COLOR_BARS がその例)。**リグ自体は固定位置で回転させない**
+ * (以前はゆっくり1周させていたが、天守の周りを回っているように見えて
+ * 不自然なので廃止した)。
  */
 export function StageBeams({
   position = [0, 0, 0],
@@ -479,19 +584,17 @@ export function StageBeams({
   const flaresRef = useRef<(SpriteMaterial | null)[]>([]);
 
   const beams = useMemo<Beam[]>(() => {
-    const list: Beam[] = [];
-    for (let i = 0; i < BEAM_COUNT; i++) {
-      /*
-        +0.5 を足すのが肝。こうすると angle_i + angle_(N-1-i) = 2π となり、
-        X=0 の面でちょうど鏡像のペアになる(sin が反転、cos は同じ)。
-        オフセットなしだと i=0 が sin=0 に乗ってしまい、左右どちらでもない
-        ビームが1本できて対称が崩れる。
-      */
-      const angle = ((i + 0.5) / BEAM_COUNT) * Math.PI * 2;
+    return BEAM_POINTS.map((p, i) => {
       const half = Math.min(i, BEAM_COUNT - 1 - i);
-      list.push({ angle, order: i, half, u: half / (BEAM_HALF - 1) });
-    }
-    return list;
+      return {
+        x: p.x,
+        z: p.z,
+        angle: p.angle,
+        order: i,
+        half,
+        u: half / (BEAM_HALF - 1),
+      };
+    });
   }, []);
 
   /*
@@ -669,8 +772,6 @@ export function StageBeams({
 
     const group = groupRef.current;
     if (group) {
-      // リグ全体はSPIN_BARS小節でちょうど1周。動きの主役は上の開閉スイープ
-      group.rotation.y = (barPos / SPIN_BARS) * Math.PI * 2;
       group.children.forEach((child, i) => {
         const beam = beams[i];
         /*
@@ -737,12 +838,8 @@ export function StageBeams({
           傾きは毎フレーム useFrame から書き換えるのでここは初期値。
         */
         <group
-          key={beam.angle}
-          position={[
-            Math.sin(beam.angle) * BEAM_ORIGIN_RADIUS,
-            BEAM_ORIGIN_Y,
-            Math.cos(beam.angle) * BEAM_ORIGIN_RADIUS,
-          ]}
+          key={beam.order}
+          position={[beam.x, BEAM_ORIGIN_Y, beam.z]}
           rotation={[0, beam.angle, 0]}
         >
           <mesh

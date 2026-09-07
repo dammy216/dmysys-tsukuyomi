@@ -281,12 +281,13 @@ export const REPLY_GLOW_COLOR = "#ff3d1a";
 export const PROJECTION_COLOR_A = "#ffab3d";
 export const PROJECTION_COLOR_B = "#ff3d86";
 /**
- * 背後から放射状に伸びるビームの色。参照映像(Reply.mp4 0:05〜0:08)で
- * 実際に出ている4色。**小節ごとにこの中から2色を選んで会場ごと総入れ替え**
- * する(StageBeams の COLOR_BEATS)。本ごとに固定の色を割り振ると、
+ * 背後から放射状に伸びるビームの色。指定によりピンク(#ff4fa3)と
+ * 緑(#6effb0)を外し、紫(#8b6cff)2枠とオレンジ(#ffa93d)1枠にしてある。
+ * **小節ごとにこの中から2色を選んで会場ごと総入れ替え**する
+ * (StageBeams の COLOR_BEATS)。本ごとに固定の色を割り振ると、
  * 何が起きても色の並びが変わらないので照明卓が動いていないように見える。
  */
-export const BEAM_COLORS = ["#6effb0", "#ff4fa3", "#ffa93d", "#8b6cff"];
+export const BEAM_COLORS = ["#8b6cff", "#8b6cff", "#ffa93d"];
 
 /*
  * ------------------------------------------------------------------

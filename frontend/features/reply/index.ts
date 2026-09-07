@@ -4,6 +4,7 @@ export { CornerTowers } from "./CornerTowers";
 export { ConcertStage } from "./ConcertStage";
 export { StageBeams } from "./StageBeams";
 export { EaveBeams } from "./EaveBeams";
+export { GableBeams } from "./GableBeams";
 export { ReplyHologram } from "./ReplyHologram";
 export { ReplyFireworks } from "./ReplyFireworks";
 export { ToriiGate } from "./ToriiGate";
@@ -24,6 +25,19 @@ export {
   type CameraFeelParams,
 } from "./cameraFeelParams";
 export { type ParamSpec } from "./paramStore";
+export {
+  CASTLE_BEAM_CUES,
+  CASTLE_BEAM_PALETTE,
+  CASTLE_BEAM_WARM,
+  castleBeamPhase,
+  castleRigHeightNorm,
+  createCastleRigSample,
+  heightGate,
+  sampleCastleRig,
+  type CastleBeamCue,
+  type CastleBeamPattern,
+  type CastleRigSample,
+} from "./castleBeamRig";
 export {
   REPLY_SECTIONS,
   replyFadeGainAt,

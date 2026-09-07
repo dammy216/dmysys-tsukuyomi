@@ -4,12 +4,29 @@ import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
   AdditiveBlending,
+  CircleGeometry,
   Color,
   ConeGeometry,
   DoubleSide,
+  DynamicDrawUsage,
+  Euler,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Matrix4,
+  Quaternion,
   ShaderMaterial,
+  Vector3,
 } from "three";
 import { CASTLE_ROOF_TIERS } from "./constants";
+import {
+  CASTLE_BEAM_PALETTE,
+  CASTLE_BEAM_WARM,
+  castleBeamPhase,
+  castleRigHeightNorm,
+  createCastleRigSample,
+  heightGate,
+  sampleCastleRig,
+} from "./castleBeamRig";
 import { CORNER_TOWER_XZ, TOWER_ROOF_TIERS } from "./towerLayout";
 
 /*
@@ -26,6 +43,10 @@ import { CORNER_TOWER_XZ, TOWER_ROOF_TIERS } from "./towerLayout";
   天守は四隅とも正味のL字(4隅×2本=8本/層)。隅櫓は天守の四隅に重なって
   立つ配置なので、天守側(内側)を向く成分は城の中を貫通してしまうため
   間引く(4隅×2本→4本/層。詳細は EAVE_BEAM_SPOTS のコメント参照)。
+
+  **動き・色・本数は castleBeamRig.ts が受け持つ。** このファイルは
+  「どこに何本あるか」と描画だけで、演出の判断は一切持たない
+  (破風のビーム GableBeams.tsx も同じリグを共有するので、2つが揃って動く)。
 */
 
 type EaveTierAtBuilding = {
@@ -42,9 +63,13 @@ type EaveTierAtBuilding = {
  * モデルなので同じ層データを使い回すが、中心(cx, cz)だけは
  * CORNER_TOWER_XZ の各棟のものを使う(天守全体の四隅ではなく、
  * 各棟ローカルな四隅にするのがポイント)。
+ *
+ * 天守は指示により一番下の屋根(CASTLE_ROOF_TIERS[0]、最下・最大の層)だけ
+ * ビームを消す。石垣に近く、他の層より目立ちすぎていたための間引き
+ * (CASTLE_ROOF_TIERS 自体は実測値なので手を付けず、ここで slice する)。
  */
 const EAVE_TIERS: EaveTierAtBuilding[] = [
-  ...CASTLE_ROOF_TIERS.map((t) => ({ cx: 0, cz: 0, ...t })),
+  ...CASTLE_ROOF_TIERS.slice(1).map((t) => ({ cx: 0, cz: 0, ...t })),
   ...CORNER_TOWER_XZ.flatMap(([cx, cz]) =>
     TOWER_ROOF_TIERS.map((t) => ({ cx, cz, ...t })),
   ),
@@ -62,6 +87,13 @@ type EaveBeamSpot = {
   position: [number, number, number];
   /** ジオメトリは既定でローカル+Zへ伸びる。Y回転でX/Z軸4方向のどれかへ向ける */
   rotationY: number;
+  /**
+   * 取り付け高さ 0(リグ下端=隅櫓の最下層)〜1(上端=天守の最上層)。
+   * **点灯フロント(何本灯すか)と縦に走る波の唯一の入力。**
+   */
+  heightNorm: number;
+  /** 城の中心から見た方位 0〜1(1周)。チェイスが城を回る順番になる */
+  azimuth: number;
 };
 
 /**
@@ -82,23 +114,40 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
   const qx = Math.sign(t.cx);
   const qz = Math.sign(t.cz);
   return CORNER_SIGNS.flatMap(([signX, signZ]): EaveBeamSpot[] => {
-    const position: [number, number, number] = [
-      t.cx + signX * t.halfWidth,
-      t.y,
-      t.cz + signZ * t.halfDepth,
-    ];
+    const x = t.cx + signX * t.halfWidth;
+    const z = t.cz + signZ * t.halfDepth;
+    const position: [number, number, number] = [x, t.y, z];
+    /*
+      方位・高さは「その灯が城のどこに付いているか」そのもの。配列の添字では
+      なく実座標から取るので、EAVE_TIERS の並び順を変えても演出は壊れない。
+    */
+    const heightNorm = castleRigHeightNorm(t.y);
+    const azimuth = (Math.atan2(x, z) / (Math.PI * 2) + 1) % 1;
     const spots: EaveBeamSpot[] = [];
     if (qx === 0 || signX === qx) {
       // X方向の辺を外へ延長(+Xならrotation.yが+90°で+Zジオメトリが+X向きになる)
-      spots.push({ position, rotationY: signX > 0 ? Math.PI / 2 : -Math.PI / 2 });
+      spots.push({
+        position,
+        rotationY: signX > 0 ? Math.PI / 2 : -Math.PI / 2,
+        heightNorm,
+        azimuth,
+      });
     }
     if (qz === 0 || signZ === qz) {
       // Z方向の辺を外へ延長(+Zはジオメトリそのまま、-Zは180°反転)
-      spots.push({ position, rotationY: signZ > 0 ? 0 : Math.PI });
+      spots.push({
+        position,
+        rotationY: signZ > 0 ? 0 : Math.PI,
+        heightNorm,
+        azimuth,
+      });
     }
     return spots;
   });
 });
+
+/** 灯の数。天守4層×8本 + 隅櫓4棟×3層×4本 = 80本 */
+const BEAM_COUNT = EAVE_BEAM_SPOTS.length;
 
 /** ビームの長さ。水面(半径400。scenery/SeaGlow.tsx参照)の内側に十分収まる長さ */
 const BEAM_LENGTH = 150;
@@ -110,24 +159,62 @@ const BEAM_RADIUS = 1.2;
 /** 円周方向の分割数。太いStageBeamsの18分割ほどの解像度は要らないので絞る */
 const BEAM_SEGMENTS = 12;
 
-/**
- * 光の色。暖色の白。以前あった足元アップライトの赤(REPLY_GLOW_COLOR)は
- * ユーザーの判断で撤去した経緯があるため避け、EdoCastle の裏縁取り
- * (#ffd8b0)に寄せた、赤みの少ない暖色にしてある。
- */
-const EAVE_BEAM_COLOR = "#ffe9c7";
-
 /** ビーム本体の最大の濃さ。StageBeams の BEAM_OPACITY_MAX と同程度 */
 const EAVE_BEAM_OPACITY_MAX = 0.55;
 
+/**
+ * 根元に置くフレアの半径(ワールド単位)。細いビームなので
+ * StageBeams(旧FLARE_SIZE=11相当)より小さくしてある。これが無いと、ただの
+ * 三角形が壁から生えているだけに見え、光源だと分かりにくい。
+ *
+ * **ビルボード(sprite)にしないこと。** sprite は常にカメラの方を向くので、
+ * どの角度から見ても真円の光る球体に見えてしまい、「スポットライトの
+ * 出口」ではなく「浮いてる発光体」に見える。ビームと同じ向き(法線=
+ * ビームの進行方向)を向いた円盤にして、正面(ビームが出ている方向)から
+ * 見たときだけ光り、横や後ろからは見えないようにする(FLARE_FRAGMENT参照)。
+ */
+const FLARE_RADIUS = 1.6;
+/** フレアの最大の濃さ。ビーム本体(EAVE_BEAM_OPACITY_MAX)より少し明るく */
+const FLARE_OPACITY_MAX = 0.9;
+/**
+ * 正面から外れたときの減衰の鋭さ。大きいほど真正面付近だけに絞られ、
+ * 少し角度がつくだけで急に消える。円盤の縁でのブツ切れ感を抑えつつ
+ * 「正面からしか見えない」を成立させる値を目視で選んである。
+ */
+const FLARE_FRESNEL_POWER = 1.8;
+
+/**
+ * 灯ごとの明るさ・色を持たせるため、80本を **1つの InstancedMesh** で描く。
+ *
+ * 以前は本数ぶんの `<mesh>` が1つのマテリアルを共有していた(全灯が同じ色・
+ * 同じ明るさだったので足りていた)。演出で灯ごとに色と明るさを変えるように
+ * なったのでマテリアルの共有が崩れるが、本数ぶんマテリアルを作ると
+ * 80回のユニフォーム更新 + 80ドローコールになる。インスタンス属性
+ * (aColor / aLevel)に逃がせば、ドローコールはビーム1・フレア1の**計2回**で
+ * 済む(破風の GableBeams.tsx も同じ作りにしてある)。
+ */
 const BEAM_VERTEX = /* glsl */ `
+  /*
+    instanceMatrix は three.js が USE_INSTANCING のときに自動で宣言する
+    (ShaderMaterial の場合。RawShaderMaterial には付かないので注意)。
+  */
+  attribute vec3 aColor;
+  attribute float aLevel;
   varying vec2 vUv;
   varying vec3 vNormalView;
   varying vec3 vViewDir;
+  varying vec3 vColor;
+  varying float vLevel;
   void main() {
     vUv = uv;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    vNormalView = normalize(normalMatrix * normal);
+    vColor = aColor;
+    vLevel = aLevel;
+    vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+    /*
+      instanceMatrix は回転+平行移動だけ(スケールを入れていない)ので、
+      法線は mat3 をそのまま掛けてよい(逆転置を取る必要がない)。
+    */
+    vNormalView = normalize(normalMatrix * mat3(instanceMatrix) * normal);
     vViewDir = normalize(-mv.xyz);
     gl_Position = projectionMatrix * mv;
   }
@@ -137,13 +224,17 @@ const BEAM_VERTEX = /* glsl */ `
   StageBeams.tsx の BEAM_FRAGMENT と同じ考え方(ConeGeometry の断面は
   「芯が明るい」・先端は smoothstep で完全に減衰)をそのまま流用する。
   詳しい理屈のコメントは StageBeams.tsx 側を参照。
+
+  違いは色と明るさをインスタンス属性から取るところだけ。uOpacity は
+  「リグ全体の最大の濃さ × 点灯具合」で、灯ごとの差は vLevel が持つ。
 */
 const BEAM_FRAGMENT = /* glsl */ `
-  uniform vec3 uColor;
   uniform float uOpacity;
   varying vec2 vUv;
   varying vec3 vNormalView;
   varying vec3 vViewDir;
+  varying vec3 vColor;
+  varying float vLevel;
 
   void main() {
     float y = clamp(vUv.y, 0.0, 1.0);
@@ -161,11 +252,56 @@ const BEAM_FRAGMENT = /* glsl */ `
     float haze = pow(max(1.0 - facing, 0.0), 3.0);
 
     float a = clamp(
-      along * (body * 0.45 + core * 0.9 + haze * 0.1) * uOpacity,
+      along * (body * 0.45 + core * 0.9 + haze * 0.1) * uOpacity * vLevel,
       0.0,
       1.0
     );
-    gl_FragColor = vec4(uColor * a, a);
+    gl_FragColor = vec4(vColor * a, a);
+  }
+`;
+
+/*
+  根元のフレア用フラグメントシェーダー。頂点シェーダーは BEAM_VERTEX を
+  そのまま使い回す(uv・法線・視線方向の計算は円盤でもコーンでも同じ)。
+
+  円盤の法線はビームの進行方向(local +Z)を向くように置く(CircleGeometry
+  の既定の法線がそのまま +Z なので、コーンと同じ回転を掛けるだけでよい)。
+  正面(法線とほぼ同じ方向)から見たときだけ facing が1に近づき明るくなり、
+  横や後ろから見ると0に落ちて消える ―― 「スポットライトの出口」の見え方。
+
+  **参照映像(BUTTERFLY 3:06〜)の光源は、芯が完全に飽和して白く抜け、
+  そのまわりに色の付いたにじみが出る。** 単に色を薄く塗ったのではなく
+  「明るすぎて白飛びしている」見え方なので、中心へ行くほど白へ寄せる
+  (uCore)。これが無いと光源が「色の付いた丸いシール」に見える。
+*/
+const FLARE_FRAGMENT = /* glsl */ `
+  uniform float uOpacity;
+  varying vec2 vUv;
+  varying vec3 vNormalView;
+  varying vec3 vViewDir;
+  varying vec3 vColor;
+  varying float vLevel;
+
+  void main() {
+    // 中心からの距離で丸く落とす(円盤の縁をなだらかに消して境界を隠す)
+    float d = length(vUv - vec2(0.5));
+    float radial = smoothstep(0.5, 0.15, d);
+
+    // 正面から見ているときだけ明るい。裏側はマテリアル側のFrontSideで描画自体しない
+    vec3 n = normalize(vNormalView);
+    vec3 v = normalize(vViewDir);
+    float facing = max(dot(n, v), 0.0);
+
+    float a = radial * pow(facing, ${FLARE_FRESNEL_POWER.toFixed(1)}) * uOpacity * vLevel;
+
+    /*
+      芯の白飛び。中心(d≈0)ほど、かつ灯が明るいときほど白へ寄せる。
+      加算合成なので、白へ寄せたぶんだけ実際に「飛んで」見える。
+    */
+    float core = smoothstep(0.34, 0.0, d) * clamp(vLevel, 0.0, 1.0);
+    vec3 tinted = mix(vColor, vec3(1.0), core * 0.85);
+
+    gl_FragColor = vec4(tinted * a, a);
   }
 `;
 
@@ -183,6 +319,14 @@ type EaveBeamsProps = {
    * 同じ掛け算パターンで、ステージ照明が点くのと同時にフェードインさせる。
    */
   lightsRef?: RefObject<number>;
+  /**
+   * 曲(=ホログラム映像)の再生位置(秒)を持つ ref。本数・首振り・チェイス・
+   * 色替えのグリッドをここから取る。**clock.elapsedTime ではなく曲の時計を
+   * 使うこと。** 小節グリッド(REPLY_BAR_ORIGIN)は曲の頭を基準にした実測値
+   * なので、シーンの経過時間で回すと小節線がまるごとずれる。
+   * 渡さなければ演出は動かず、従来どおり全灯が点きっぱなしになる。
+   */
+  songTimeRef?: RefObject<number>;
 };
 
 /**
@@ -190,19 +334,30 @@ type EaveBeamsProps = {
  * (コンサート会場のトラス照明の見立て)。上から見て、その隅に集まる
  * 屋根の2辺をそのまま外へ延長するL字の2方向へ1本ずつ伸ばす。
  *
- * StageBeams と違って首振り・チェイス・色替えのような凝った動きは持たない。
- * lightsRef(と activationRef)にそのまま連動してフェードインするだけ。
+ * **演出は castleBeamRig.ts のキュー表が決める。** 本数(点灯フロント)・
+ * 首振り・チェイス・色は全部あちら側で、ここはその結果をインスタンス属性へ
+ * 書き込むだけ。破風の GableBeams.tsx と同じリグを共有しているので、
+ * 2つのビーム群は必ず揃って動く。
  */
 export function EaveBeams({
   position = [0, 0, 0],
   activationRef,
   lightsRef,
+  songTimeRef,
 }: EaveBeamsProps) {
+  const beamMeshRef = useRef<InstancedMesh>(null);
+  const flareMeshRef = useRef<InstancedMesh>(null);
   /*
     useFrame 内で useMemo の戻り値を直接書き換えると react-hooks/immutability に
     引っかかるため、ref へコピーしてそちら経由で触る(EdoCastle と同じ手当て)。
   */
   const materialRef = useRef<ShaderMaterial | null>(null);
+  const flareMaterialRef = useRef<ShaderMaterial | null>(null);
+  const attributesRef = useRef<{
+    colors: InstancedBufferAttribute;
+    levels: InstancedBufferAttribute;
+  } | null>(null);
+  const scratchRef = useRef<typeof scratchValue | null>(null);
 
   /*
     コーンは既定で頂点が+h/2・底面が-h/2(+Y方向)。rotateX(-90°)で
@@ -218,18 +373,45 @@ export function EaveBeams({
   }, []);
 
   /*
-    EAVE_BEAM_SPOTS.length 本(天守5層×4隅×2方向=40本 + 隅櫓3層×4棟×
-    間引き後4本/層=48本、計88本)すべて同じ色・同じ明るさで動くので、
-    マテリアルは1個を共有する(StageBeams は本ごとに色を変えるので
-    本数ぶん必要だったが、ここは不要)。
+    根元に置くフレアの円盤。コーンと同じくローカル+Zが法線(=ビームの
+    進行方向)になるよう、CircleGeometryの既定の向き(+Z法線、XY平面)を
+    そのまま使う。
   */
+  const flareGeometry = useMemo(() => new CircleGeometry(FLARE_RADIUS, 24), []);
+
+  /*
+    灯ごとの色と明るさ。**ビームとフレアで同じバッファを共有する**
+    (同じ灯なので必ず同じ値。2本持つと片方の更新漏れがバグになる)。
+    three.js は attribute オブジェクト単位でGPUバッファを持つので、
+    共有すると更新も1回で済む。
+  */
+  const attributes = useMemo(() => {
+    const colors = new InstancedBufferAttribute(
+      new Float32Array(BEAM_COUNT * 3),
+      3,
+    );
+    const levels = new InstancedBufferAttribute(
+      new Float32Array(BEAM_COUNT),
+      1,
+    );
+    // 毎フレーム書き換えるので、three 側にも動的バッファだと伝えておく
+    colors.setUsage(DynamicDrawUsage);
+    levels.setUsage(DynamicDrawUsage);
+    return { colors, levels };
+  }, []);
+
+  useEffect(() => {
+    attributesRef.current = attributes;
+    geometry.setAttribute("aColor", attributes.colors);
+    geometry.setAttribute("aLevel", attributes.levels);
+    flareGeometry.setAttribute("aColor", attributes.colors);
+    flareGeometry.setAttribute("aLevel", attributes.levels);
+  }, [geometry, flareGeometry, attributes]);
+
   const material = useMemo(
     () =>
       new ShaderMaterial({
-        uniforms: {
-          uColor: { value: new Color(EAVE_BEAM_COLOR) },
-          uOpacity: { value: 0 },
-        },
+        uniforms: { uOpacity: { value: 0 } },
         vertexShader: BEAM_VERTEX,
         fragmentShader: BEAM_FRAGMENT,
         transparent: true,
@@ -241,39 +423,187 @@ export function EaveBeams({
     [],
   );
 
+  /*
+    side は既定の FrontSide のまま(裏側は描画自体しない = 横や後ろからは
+    完全に見えない。正面内での角度落ちは FLARE_FRAGMENT の facing 項)。
+  */
+  const flareMaterial = useMemo(
+    () =>
+      new ShaderMaterial({
+        uniforms: { uOpacity: { value: 0 } },
+        vertexShader: BEAM_VERTEX,
+        fragmentShader: FLARE_FRAGMENT,
+        transparent: true,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        toneMapped: false,
+      }),
+    [],
+  );
+
   useEffect(() => {
     materialRef.current = material;
+    flareMaterialRef.current = flareMaterial;
     // GPU資源なので外れるときに解放する
     return () => {
       material.dispose();
       geometry.dispose();
+      flareMaterial.dispose();
+      flareGeometry.dispose();
     };
-  }, [material, geometry]);
+  }, [material, geometry, flareMaterial, flareGeometry]);
 
-  useFrame(() => {
+  /*
+    useFrame の中で new しないための使い回し(R3F のパフォーマンス規約。
+    @react-three/eslint-plugin が弾く)。
+  */
+  const scratchValue = useMemo(
+    () => ({
+      sample: createCastleRigSample(),
+      euler: new Euler(0, 0, 0, "YXZ"),
+      quat: new Quaternion(),
+      matrix: new Matrix4(),
+      pos: new Vector3(),
+      one: new Vector3(1, 1, 1),
+      color: new Color(),
+      warm: new Color(CASTLE_BEAM_WARM),
+      palette: CASTLE_BEAM_PALETTE.map((hex) => new Color(hex)),
+      /** 灯ごとの現在の首の向き。目標へなまして追従させる(下のコメント参照) */
+      lift: new Float32Array(BEAM_COUNT),
+      yaw: new Float32Array(BEAM_COUNT),
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    scratchRef.current = scratchValue;
+  }, [scratchValue]);
+
+  useFrame(({ clock }, delta) => {
+    const beamMesh = beamMeshRef.current;
+    const flareMesh = flareMeshRef.current;
+    const mat = materialRef.current;
+    const flareMat = flareMaterialRef.current;
+    const attrs = attributesRef.current;
+    const scratch = scratchRef.current;
+    if (!beamMesh || !flareMesh || !mat || !flareMat || !attrs || !scratch) {
+      return;
+    }
+
     // 出具合はref経由(数値propだと親ごと毎フレーム再レンダー)
     const activation = activationRef?.current ?? 0;
     // 渡されなければ従来どおり常時点灯とみなす(EdoCastleのlightsRefと同じ既定)
     const lights = lightsRef?.current ?? 1;
-    const mat = materialRef.current;
-    if (mat) {
-      mat.uniforms.uOpacity.value = activation * lights * EAVE_BEAM_OPACITY_MAX;
+    const lit = activation * lights;
+
+    mat.uniforms.uOpacity.value = lit * EAVE_BEAM_OPACITY_MAX;
+    flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
+
+    /*
+      グリッドは**曲の再生位置**で取る。シーンの経過時間で回すと、
+      REPLY_BAR_ORIGIN(曲の頭からの実測値)を基準にした小節線がずれる。
+    */
+    const raw = songTimeRef?.current ?? clock.elapsedTime;
+    const s = sampleCastleRig(raw, scratch.sample);
+
+    const follow = 1 - Math.exp(-s.slew * delta);
+    const colors = attrs.colors.array as Float32Array;
+    const levels = attrs.levels.array as Float32Array;
+
+    for (let i = 0; i < BEAM_COUNT; i++) {
+      const spot = EAVE_BEAM_SPOTS[i];
+
+      /*
+        灯ごとの位相。取り付け高さと方位から決まるので、光の走る順番が
+        空間として読み取れる(乱数は使わない。castleBeamRig.ts のコメント参照)。
+      */
+      const phase = castleBeamPhase(
+        s.pattern,
+        s.waveSpread,
+        spot.heightNorm,
+        spot.azimuth,
+      );
+
+      /* --- 1. 本数。点灯フロントより高い灯だけが灯る --- */
+      const gate = heightGate(spot.heightNorm, s.density);
+
+      /* --- 3. チェイス。位相を引くと決まった順に光が渡っていく --- */
+      const wave = 0.5 + 0.5 * Math.cos(Math.PI * 2 * (s.chasePos - phase));
+      const chase = 1 - s.chaseDepth + s.chaseDepth * Math.pow(wave, 3);
+      const level = Math.max(s.base * gate * chase, 0);
+      levels[i] = level;
+
+      /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */
+      const swing = Math.PI * 2 * (s.swingPos + phase);
+      /*
+        **基準の仰角(s.lift)を中心に振る。** 水平を中心にすると、引きの画で
+        ビームが画面を横切るただの細い線になってしまう(参照映像のビームは
+        常に斜め上を向いて夜空に扇を作っている。castleBeamRig.ts の lift の
+        コメント参照)。
+      */
+      const targetLift = s.lift + s.liftSwing * Math.cos(swing);
+      const targetYaw = s.yaw * Math.sin(swing);
+
+      /*
+        実機のムービングヘッドは首の回る速さに限りがあるので、目標へ
+        瞬間移動させると作り物に見える。ここで一段なまらせることで、
+        キューが切り替わって位相が飛んでも「ヘッドが向きを変えた」動きとして
+        繋がる(StageBeams の tiltRef と同じ手当て)。
+      */
+      const nextLift = scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
+      const nextYaw = scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;
+      scratch.lift[i] = nextLift;
+      scratch.yaw[i] = nextYaw;
+
+      /*
+        Euler の順序は "YXZ"(パン→チルトの順)。既定の "XYZ" だと、左右へ
+        振ったあとの上下がねじれた軸まわりに掛かってしまう。
+        ジオメトリは+Zへ伸びるので、X をマイナスに振ると上を向く。
+      */
+      scratch.euler.set(-nextLift, spot.rotationY + nextYaw, 0);
+      scratch.quat.setFromEuler(scratch.euler);
+      scratch.pos.set(spot.position[0], spot.position[1], spot.position[2]);
+      scratch.matrix.compose(scratch.pos, scratch.quat, scratch.one);
+      beamMesh.setMatrixAt(i, scratch.matrix);
+      flareMesh.setMatrixAt(i, scratch.matrix);
+
+      /* --- 4. 色。パレットをリグの高さ方向へ配り、暖色から寄せる --- */
+      const slot = s.colorSlot + spot.heightNorm * s.colorSpread * scratch.palette.length;
+      /*
+        剰余は必ず正に丸める。曲頭(barPos<0)では colorSlot が負になり、
+        JS の % は負を返すので、そのまま添字にすると undefined になる。
+      */
+      const n = scratch.palette.length;
+      const idx = ((Math.floor(slot) % n) + n) % n;
+      scratch.color.copy(scratch.warm).lerp(scratch.palette[idx], s.tint);
+      colors[i * 3] = scratch.color.r;
+      colors[i * 3 + 1] = scratch.color.g;
+      colors[i * 3 + 2] = scratch.color.b;
     }
+
+    beamMesh.instanceMatrix.needsUpdate = true;
+    flareMesh.instanceMatrix.needsUpdate = true;
+    attrs.colors.needsUpdate = true;
+    attrs.levels.needsUpdate = true;
   });
 
   return (
     <group position={position}>
-      {EAVE_BEAM_SPOTS.map((spot, i) => (
-        <mesh
-          key={i}
-          geometry={geometry}
-          material={material}
-          position={spot.position}
-          rotation={[0, spot.rotationY, 0]}
-          // 遠くまで長く伸びるので、建物のbboxではカリングされてしまう
-          frustumCulled={false}
-        />
-      ))}
+      {/*
+        遠くまで長く伸びるので、建物のbboxではカリングされてしまう
+        (frustumCulled={false})。行列は毎フレーム useFrame が書く。
+      */}
+      <instancedMesh
+        ref={beamMeshRef}
+        args={[geometry, material, BEAM_COUNT]}
+        frustumCulled={false}
+      />
+      {/* 光源そのもののフレア。正面(ビームの出ている方向)からしか見えない */}
+      <instancedMesh
+        ref={flareMeshRef}
+        args={[flareGeometry, flareMaterial, BEAM_COUNT]}
+        frustumCulled={false}
+      />
     </group>
   );
 }

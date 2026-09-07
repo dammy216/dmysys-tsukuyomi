@@ -40,6 +40,7 @@ import {
   CornerTowers,
   EaveBeams,
   EdoCastle,
+  GableBeams,
   ReplyCamera,
   ReplyFireworks,
   ReplyHologram,
@@ -113,23 +114,19 @@ const LANTERN_GATHER_RELEASE_SECONDS = 3;
 /**
  * 灯籠の総数。Lanterns.tsx 側のデフォルト(900)より増やす指定なので、
  * root(この SceneContents.tsx)側で明示的に渡す(Lanterns 自体のデフォルト
- * は変えない)。
+ * は変えない)。箱2つ・2ドローコールなので、この程度の増加は描画コストに
+ * 影響しない。
  */
-const LANTERN_COUNT = 1200;
+const LANTERN_COUNT = 2000;
 
 /**
- * 灯籠が Reply 中に集まる位置(塔を取り囲む、上に大きく広がった散らばり)。
- * 11秒かけてここへ集まりきる。以前は 11秒で「天守まわりの小さい輪」に集めて
- * から引きに合わせてさらに外へ広げていたが、その「広がる」動きはやめて、
- * 最初から広がった位置へ 11秒かけて集める指定に変えた。
+ * 灯籠が Reply 中に昇る高さ。天守のまわりへ寄せ集めるのはやめて、
+ * 元の(x, z)位置に立ったまま 11秒かけてこの高さまで昇りきる指定に変えた
+ * (詳細は Lanterns.tsx 冒頭のコメント参照)。
  *
- * 半径の下限は0(=塔のすぐ際まで、輪ではなく塗りつぶした円に近い分布)。
- * 近すぎて塔の中に来た分は不透明メッシュに隠れるだけなので問題にならない。
- * 高さの下限は水面すれすれ(0.5)。上げるほどその高さより下が空白になる。
+ * 下限は水面すれすれ(0.5)。上げるほどその高さより下が空白になる。
  * 上限は PATH(引きの全景)で画面いっぱいに灯籠が残る広さに合わせてある。
  */
-const LANTERN_GATHER_RADIUS_MIN = 0;
-const LANTERN_GATHER_RADIUS_MAX = 60;
 const LANTERN_GATHER_HEIGHT_MIN = 0.5;
 const LANTERN_GATHER_HEIGHT_MAX = REPLY_HOLOGRAM_Y + 40;
 
@@ -879,15 +876,29 @@ export function SceneContents({
               lightsRef={replyLightsRef}
             />
             {/*
-              天守・隅櫓それぞれの屋根の四隅、軒下から客席側(+Z)へ伸びる
-              トラス照明の見立て。EdoCastleの投影光と同じ activation*lights の
-              掛け算でフェードインするだけなので、CornerTowers と同じ2つの
-              refをそのまま渡す(出し入れの group.visible は不要)。
+              天守・隅櫓それぞれの屋根の四隅、軒下から外向きへ伸びる
+              トラス照明の見立て(80本)。EdoCastleの投影光と同じ
+              activation*lights でフェードインしたうえで、本数・首振り・色は
+              曲に合わせて動く(features/reply/castleBeamRig.ts の照明卓)。
+              そのため songTimeRef も渡す。出し入れは activation で足りるので
+              group.visible は不要。
             */}
             <EaveBeams
               position={REPLY_BASE_POSITION}
               activationRef={replyActivationRef}
               lightsRef={replyLightsRef}
+              songTimeRef={replySongTimeRef}
+            />
+            {/*
+              天守四面(前後左右)の破風から外向きへ伸びる、EaveBeamsより
+              太いビーム(16本)。上の軒下ビームと**同じ照明卓**
+              (castleBeamRig.ts)で動くので、2つのビーム群は揃って動く。
+            */}
+            <GableBeams
+              position={REPLY_BASE_POSITION}
+              activationRef={replyActivationRef}
+              lightsRef={replyLightsRef}
+              songTimeRef={replySongTimeRef}
             />
             {/*
               曲が11秒に達した瞬間、背後から放射状に伸びるサーチライトが点く。
@@ -979,17 +990,14 @@ export function SceneContents({
         )}
         {/*
           灯ろうは星降る海の間は魚の渦と喧嘩するので隠す。Reply中は隠さず、
-          gatherRef(lanternGatherRef)で11秒かけて、最初から広がった散らばり位置
-          (LANTERN_GATHER_* 定数)へ集める。11秒後に外へ広げる演出はやめたので
-          expandRef は渡さない。
+          gatherRef(lanternGatherRef)で11秒かけて、元の(x, z)位置に立った
+          まま LANTERN_GATHER_HEIGHT_* の高さへ昇りきる(寄せ集めない)。
+          11秒後に外へ広げる演出はやめたので expandRef は渡さない。
         */}
         {!starfallVisible && (
           <Lanterns
             count={LANTERN_COUNT}
             gatherRef={lanternGatherRef}
-            gatherCenter={[REPLY_BASE_POSITION[0], REPLY_BASE_POSITION[2]]}
-            gatherRadiusMin={LANTERN_GATHER_RADIUS_MIN}
-            gatherRadiusMax={LANTERN_GATHER_RADIUS_MAX}
             gatherHeightMin={LANTERN_GATHER_HEIGHT_MIN}
             gatherHeightMax={LANTERN_GATHER_HEIGHT_MAX}
           />
