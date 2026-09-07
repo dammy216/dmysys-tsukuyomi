@@ -5,7 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import { Mesh, MeshStandardMaterial } from "three";
 import type { Group, Material, PointLight } from "three";
-import { CASTLE_SCALE, CASTLE_TOP_Y, REPLY_GLOW_COLOR } from "./constants";
+import { CASTLE_SCALE, CASTLE_TOP_Y } from "./constants";
 import {
   applyCastleBuildShader,
   BUILD_TOP_Y,
@@ -26,8 +26,6 @@ const MODEL_PATH = "/3DModel/944e48f240cc449abb5ecc969051b155/scene.gltf";
 /** 地の色。ほぼ黒。形を作るのは投影光とポイントライトだけ */
 const BODY_COLOR = "#0a0708";
 
-/** 足元から天守を舐め上げる赤いライト。輪郭を夜空から浮かせる */
-const UPLIGHT_INTENSITY_MAX = 420;
 /** 裏からの縁取り。屋根の稜線を夜空から切り出す */
 const RIMLIGHT_INTENSITY_MAX = 260;
 
@@ -162,7 +160,6 @@ export function EdoCastle({
   */
   const materialsRef = useRef<MeshStandardMaterial[]>([]);
   const uniformsRef = useRef<BuildUniforms | null>(null);
-  const uplightRef = useRef<PointLight>(null);
   const rimlightRef = useRef<PointLight>(null);
 
   useEffect(() => {
@@ -207,9 +204,6 @@ export function EdoCastle({
       煌々と照らしていると、何も無い空間が光って見えてしまう。
     */
     const lightGain = activation * build;
-    if (uplightRef.current) {
-      uplightRef.current.intensity = lightGain * UPLIGHT_INTENSITY_MAX;
-    }
     if (rimlightRef.current) {
       rimlightRef.current.intensity = lightGain * RIMLIGHT_INTENSITY_MAX;
     }
@@ -218,15 +212,6 @@ export function EdoCastle({
   return (
     <group position={position}>
       <primitive object={scene} scale={CASTLE_SCALE} />
-      {/* 石垣のあたりから天守を舐め上げる赤いライト */}
-      <pointLight
-        ref={uplightRef}
-        position={[0, 1.5, 6]}
-        color={REPLY_GLOW_COLOR}
-        distance={44}
-        decay={1.6}
-        intensity={0}
-      />
       {/* 裏手からの縁取り。屋根の稜線を夜空から浮かせる */}
       <pointLight
         ref={rimlightRef}
