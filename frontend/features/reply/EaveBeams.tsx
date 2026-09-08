@@ -123,9 +123,9 @@ const CORNER_SIGNS: readonly [1 | -1, 1 | -1][] = [
 type EaveBeamSpot = {
   /**
    * ビームの根元(光源側)のワールド座標。**軒の実測座標そのものではない。**
-   * 軒の隅から屋根の斜面を ROOF_CLIMB ぶん登り、さらに壁の内側へ
-   * BEAM_EMBED_DEPTH(天守/隅櫓別)ぶん埋め込んだ後の座標が入っている
-   * (EAVE_BEAM_SPOTS 参照)。
+   * 軒の隅から屋根の斜面を ROOF_CLIMB ぶん登り、対角方向へ CORNER_INSET ぶん
+   * 中心へ寄せ、さらに壁の内側へ BEAM_EMBED_DEPTH(天守/隅櫓別)ぶん
+   * 埋め込んだ後の座標が入っている(EAVE_BEAM_SPOTS 参照)。
    */
   position: [number, number, number];
   /** ジオメトリは既定でローカル+Zへ伸びる。Y回転でX/Z軸4方向のどれかへ向ける */
@@ -177,7 +177,7 @@ const BEAM_ROOT_RADIUS = BEAM_RADIUS * 0.4;
  * 1つのジオメトリを共有するため、ジオメトリ側に焼き込むと全本一律にしか
  * できない。位置オフセットならインスタンスごとに変えられる)。
  */
-const TOWER_BEAM_EMBED_DEPTH = BEAM_ROOT_RADIUS * 2.5;
+const TOWER_BEAM_EMBED_DEPTH = BEAM_ROOT_RADIUS * 0;
 /**
  * 天守用の埋め込み深さ。**天守は隅櫓よりモデル全体が大きい縮尺で
  * 建っているため、隅櫓と同じ絶対値の埋め込みでは軒の張り出しに対して
@@ -199,6 +199,17 @@ const CASTLE_BEAM_EMBED_DEPTH = TOWER_BEAM_EMBED_DEPTH * 0;
  * 引き続きその段の屋根の2辺を外へ延長する向きに走る。
  */
 const ROOF_CLIMB = 0;
+
+/**
+ * L字の交点(2本のビームの根元)を、そこからさらに**対角方向＝建物の中心へ**
+ * どれだけ寄せるか(その段の半幅/半奥行きに対する割合)。
+ *
+ * ROOF_CLIMB が屋根の斜面を「登る」ぶんなら、こちらは水平に「内へ」寄せるぶん。
+ * ビームの向き(rotationY)は変えないので、L字の形はそのまま、交点だけが
+ * 隅から中心へスライドする。0で寄せない。大きくすると屋根の内側寄りから
+ * 2本が出る(参照スケッチの赤い矢印の向き)。
+ */
+const CORNER_INSET = 0.08;
 
 /**
  * 層ごとの屋根の四隅(±半幅, ±半奥行き)それぞれに、そこへ集まる2辺を
@@ -237,8 +248,15 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
     const baseZ = t.cz + signZ * t.halfDepth;
     const upperX = t.cx + signX * t.upperHalfWidth;
     const upperZ = t.cz + signZ * t.upperHalfDepth;
-    const rootX = baseX + (upperX - baseX) * ROOF_CLIMB;
-    const rootZ = baseZ + (upperZ - baseZ) * ROOF_CLIMB;
+    /*
+      さらに対角方向＝建物の中心へ CORNER_INSET ぶん(その段の半幅/半奥行きに
+      対する割合)押し込む。ビームの向き(下の rotationY)は変えないので、
+      L字の形はそのまま交点だけが隅から中心へスライドする。
+    */
+    const rootX =
+      baseX + (upperX - baseX) * ROOF_CLIMB - signX * t.halfWidth * CORNER_INSET;
+    const rootZ =
+      baseZ + (upperZ - baseZ) * ROOF_CLIMB - signZ * t.halfDepth * CORNER_INSET;
     const rootY = t.y + (t.upperY - t.y) * ROOF_CLIMB;
     /*
       方位・高さは埋め込み前の根元座標で計算する(埋め込みオフセットを
