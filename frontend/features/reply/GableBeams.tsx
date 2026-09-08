@@ -230,6 +230,8 @@ const BEAM_VERTEX = /* glsl */ `
   varying vec3 vViewDir;
   varying vec3 vColor;
   varying float vLevel;
+  /* ビームの進行方向(ローカル+Z=根元→先端)をビュー空間で。真正面判定に使う */
+  varying vec3 vAxisView;
   void main() {
     vUv = uv;
     vColor = aColor;
@@ -238,6 +240,7 @@ const BEAM_VERTEX = /* glsl */ `
     // instanceMatrix は回転+平行移動だけなので mat3 をそのまま掛けてよい
     vNormalView = normalize(normalMatrix * mat3(instanceMatrix) * normal);
     vViewDir = normalize(-mv.xyz);
+    vAxisView = normalize((modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -253,6 +256,7 @@ const BEAM_FRAGMENT = /* glsl */ `
   varying vec3 vViewDir;
   varying vec3 vColor;
   varying float vLevel;
+  varying vec3 vAxisView;
 
   void main() {
     float y = clamp(vUv.y, 0.0, 1.0);
@@ -276,12 +280,19 @@ const BEAM_FRAGMENT = /* glsl */ `
     // pow の底は必ず 0 以上に丸める(負の底はGLSLで未定義=NaNになる。詳細はStageBeams.tsx参照)
     float haze = pow(max(1.0 - facing, 0.0), 3.0);
 
-    float a = clamp(
-      along * (body * 0.45 + core * 0.9 + haze * 0.1) * uOpacity * vLevel,
-      0.0,
-      1.0
-    );
-    gl_FragColor = vec4(vColor * a, a);
+    float shell = along * (body * 0.45 + core * 0.9 + haze * 0.1);
+
+    /*
+      真正面のまぶしさ。円筒シェルは軸方向から見ると壁の法線が視線と直交し
+      facing≈0 で何も描かれず、光の真正面にいるのに光が消えていた
+      (ユーザー指摘)。理屈は EaveBeams.tsx の同じ箇所のコメント参照。
+    */
+    float headOn = clamp(dot(normalize(vAxisView), normalize(vViewDir)), 0.0, 1.0);
+    float glare = pow(headOn, 2.0);
+
+    float a = clamp((shell + glare * 1.1) * uOpacity * vLevel, 0.0, 1.0);
+    vec3 rgb = mix(vColor, vec3(1.0), glare * 0.5);
+    gl_FragColor = vec4(rgb * a, a);
   }
 `;
 
