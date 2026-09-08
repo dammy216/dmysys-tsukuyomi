@@ -23,8 +23,8 @@ const MODEL_PATH = "/3DModel/japanese_tower/scene.gltf";
  * by florenciocristan77 (https://sketchfab.com/florenciocristan77)
  */
 
-/** 地の色。天守(EdoCastle の BODY_COLOR)と同じほぼ黒 */
-const BODY_COLOR = "#0a0708";
+/** 地の色。天守(EdoCastle の BODY_COLOR)と同じ、わずかに青灰へ持ち上げたほぼ黒 */
+const BODY_COLOR = "#0c0f14";
 
 type PreparedTowers = {
   towers: Group[];

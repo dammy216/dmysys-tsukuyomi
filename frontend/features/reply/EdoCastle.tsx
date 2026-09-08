@@ -23,8 +23,12 @@ const MODEL_PATH = "/3DModel/944e48f240cc449abb5ecc969051b155/scene.gltf";
   そこだけ写真が浮いてしまうため。組み上げ + 投影光のシェーダーは隅櫓
   (CornerTowers)と共有で castleBuildShader.ts にある。
 */
-/** 地の色。ほぼ黒。形を作るのは投影光とポイントライトだけ */
-const BODY_COLOR = "#0a0708";
+/**
+ * 地の色。ほぼ黒だが**わずかに青灰へ持ち上げてある** ―― 完全な黒(#0a0708)だと
+ * 投影光/ライトが当たらない面が真っ暗な穴になり形が消えるため。月明かり
+ * (ReplyMoon)を足したのに合わせて、当たらない面もうっすら稜線が見える程度に。
+ */
+const BODY_COLOR = "#0c0f14";
 
 /** 裏からの縁取り。屋根の稜線を夜空から切り出す */
 const RIMLIGHT_INTENSITY_MAX = 260;
