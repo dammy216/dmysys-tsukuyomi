@@ -1034,6 +1034,20 @@ export function SceneContents({
       <OrbitControls
         makeDefault
         enableDamping
+        /*
+          **zoomToCursor**: ホイールでカーソル位置へ寄る(既定は target へ寄る)。
+          target がホログラム(塔の上/空中)に固定されているため、天守の屋根を
+          覗こうとすると「遠くの target へ向かって」ズームすることになり、
+          寄りが効かない・target に近づくほど pan/回転の移動量が距離比例で
+          小さくなる、という手応えの悪さが出ていた。カーソルへ寄せると
+          target も一緒に手前へ動くので、近距離でも pan/回転が鈍らない。
+          minDistance で target に張り付く(全操作が停止する)ゼロ距離帯も塞ぐ。
+        */
+        zoomToCursor
+        zoomSpeed={1.4}
+        panSpeed={1.2}
+        minDistance={1.5}
+        maxDistance={400}
         enabled={(!starfallPlaying && !replyPlaying) || freeCam}
         /*
           演出モード中はそれぞれのホログラム画面を中心に回す。通常時は鳥居の中ほど。
