@@ -38,8 +38,8 @@ type SceneState = {
   freeCam: boolean;
 
   /**
-   * 編集モード(開発時のみ。`L`キーで切り替え)。
-   * true の間はサイトのHUD(ヘッダー/ControlBar/かぐやパネル/FPS/クレジット)を
+   * 編集モード(本番でも使える。ControlBar の「編集」ボタン、または `L`キー)。
+   * true の間はサイトのHUD(ControlBar/かぐやパネル/FPS/方位/クレジット)を
    * すべて隠し、3Dキャンバスを中央のビューポートへ縮める。操作系は
    * EditorToolbar に集約する。
    */

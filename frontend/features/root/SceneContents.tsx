@@ -154,12 +154,11 @@ export function SceneContents({
   const editorMode = useSceneStore((s) => s.editorMode);
 
   /*
-    編集モード(useSceneStore.editorMode)の `L`キートグル。開発時のみ
-    (公開サイトでは編集ツールを出さない)。SceneContents から1箇所だけ
-    登録する(ReplyCamera / StarfallCamera など各演出カメラは呼ばない)。
+    編集モード(useSceneStore.editorMode)の `L`キートグル。本番でも使える
+    (下部の ControlBar「編集」ボタン、または `L` キー)。SceneContents から
+    1箇所だけ登録する(ReplyCamera / StarfallCamera など各演出カメラは呼ばない)。
   */
   useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.key !== "l" && e.key !== "L") return;
       // 入力欄にフォーカスがあるときは文字入力/キー操作を邪魔しない

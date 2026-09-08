@@ -8,6 +8,7 @@ import {
   PiMoonStarsBold,
   PiRecordFill,
   PiShootingStarBold,
+  PiSlidersHorizontalBold,
   PiStopFill,
   PiSunHorizonBold,
   PiVideoCameraBold,
@@ -124,6 +125,7 @@ export function ControlBar({
   const onToggleStarfallSea = useSceneStore((s) => s.toggleStarfallSea);
   const onToggleReply = useSceneStore((s) => s.toggleReply);
   const onToggleFreeCam = useSceneStore((s) => s.toggleFreeCam);
+  const onToggleEditor = useSceneStore((s) => s.toggleEditorMode);
 
   // カメラ切替は演出モード(星降る海 / Reply)中だけ意味を持つ
   const inSceneMode = starfallSea || reply;
@@ -241,6 +243,26 @@ export function ControlBar({
           >
             {isRecording ? <PiStopFill size={16} /> : <PiRecordFill size={16} />}
             {isRecording ? <RecordingTime /> : "録画"}
+          </button>
+        </div>
+
+        <div className={DIVIDER} />
+
+        <div className={GROUP}>
+          <span className={GROUP_LABEL}>EDIT</span>
+          {/*
+            キーフレーム/パラメータの編集モードへ。`L` キーでも切り替わる。
+            編集モード中は ControlBar ごと隠れる(戻るのは編集画面の
+            「編集モード終了」ボタン or `L`)。
+          */}
+          <button
+            type="button"
+            className={PILL_CYAN}
+            onClick={onToggleEditor}
+            title="カメラ航路などの編集モードへ(L キーでも切替)"
+          >
+            <PiSlidersHorizontalBold size={16} />
+            編集
           </button>
         </div>
       </div>

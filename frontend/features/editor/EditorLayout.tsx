@@ -99,7 +99,7 @@ export function EditorLayout({
     axis: "y",
   });
 
-  // Undo/Redo(Ctrl+Z / Ctrl+Y)は開発時のみ・一度だけ配線する
+  // Undo/Redo(Ctrl+Z / Ctrl+Y)を一度だけ配線する
   useEffect(() => {
     initEditorHistory();
   }, []);

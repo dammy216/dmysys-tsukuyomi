@@ -65,6 +65,19 @@ const LEAD_MAX = 0.14;
 /** 着地間際で縮んで消え始める割合。1.0が着地の瞬間 */
 const SHRINK_START = 0.82;
 
+/**
+ * 天守: 飛来ブロックが**ふっと減る**組み上げ進行度(0〜1)。
+ * ここまではブロックが高さ一様に飛来し(=空中の数がほぼ一定)、ここを越えると
+ * 細い上部ぶんの薄いトリクルだけになる。build は再生位置/11秒なので
+ * 0.7 ≒ 再生 7.7 秒。「なだらかに減る」ではなく「ある所でガクッと減る」画にする指定。
+ */
+const CASTLE_ARRIVE_CUTOFF = 0.94;
+/**
+ * 天守: cutoff 以降(細い上部)へ回すブロックの割合。
+ * 0 で cutoff の瞬間に飛来が止まる。少しだけ残すと上部も石で埋まる。
+ */
+const CASTLE_ARRIVE_TAIL = 0;
+
 /** 飛来中の回転速度(ラジアン/進行度)。着地に向けて減衰させる */
 const SPIN_MAX = 9;
 
@@ -140,6 +153,16 @@ type Zone = {
   taperAmount: number;
   /** この箱へ飛ばすブロック数 */
   count: number;
+  /**
+   * 着地高さ(= 着地タイミング)を「cutoff まで一様 + それ以降は薄いトリクル」の
+   * 2段にする。**なだらかに減らすのではなく、ある高さ(=あるタイミング)で
+   * 飛来数をガクッと落とす**ための形(ユーザー指摘)。
+   *   cutoff: 一様に飛来する高さの割合(0〜1)。1 で従来の高さ一様
+   *   tail:   cutoff より上へ回すブロックの割合。0 で cutoff の瞬間に飛来が止まる
+   * 天守は CASTLE_ARRIVE_CUTOFF / CASTLE_ARRIVE_TAIL、櫓は cutoff=1(一様)。
+   */
+  arriveCutoff: number;
+  arriveTail: number;
   /** 乱数列の起点。箱ごとに重ならない値にする */
   seed: number;
   /** 隅櫓の箱なら true(Block.isTower へそのまま渡す) */
@@ -157,8 +180,21 @@ function pushZoneBlocks(zone: Zone, list: Block[]) {
   for (let i = 0; i < zone.count; i++) {
     // 1ブロックにつき16個の種を確保して、用途ごとに別の乱数列にする
     const s = zone.seed + i * 16;
-    const ty = rand(s + 1) * zone.topY;
-    const taper = 1 - (ty / zone.topY) * zone.taperAmount;
+    /*
+      着地高さ(=タイミング)。rand の [0, 1-tail) を高さ [0, cutoff] へ一様に、
+      残り [1-tail, 1] を [cutoff, 1] へ一様に写す。cutoff まではブロックが
+      絶え間なく飛来し、cutoff を越えると tail ぶんの薄い流れだけになる
+      (= あるタイミングでガクッと減る。zone.arriveCutoff のコメント参照)。
+    */
+    const u = rand(s + 1);
+    const heightNorm =
+      u < 1 - zone.arriveTail
+        ? (u / (1 - zone.arriveTail)) * zone.arriveCutoff
+        : zone.arriveCutoff +
+          ((u - (1 - zone.arriveTail)) / zone.arriveTail) *
+            (1 - zone.arriveCutoff);
+    const ty = heightNorm * zone.topY;
+    const taper = 1 - heightNorm * zone.taperAmount;
     const target = new Vector3(
       zone.cx + (rand(s + 2) * 2 - 1) * zone.halfW * taper,
       ty,
@@ -253,6 +289,9 @@ export function CastleAssembly({
         topY: BUILD_TOP_Y,
         taperAmount: 0.55,
         count: BLOCK_COUNT,
+        // cutoff まで一様に飛来 → 越えると tail ぶんだけ。ガクッと減る
+        arriveCutoff: CASTLE_ARRIVE_CUTOFF,
+        arriveTail: CASTLE_ARRIVE_TAIL,
         seed: 0,
         isTower: false,
       },
@@ -273,6 +312,9 @@ export function CastleAssembly({
           topY: TOWER_HEIGHT,
           taperAmount: 0.12,
           count: TOWER_BLOCK_COUNT,
+          // 櫓はほぼ箱・前半で建ちきるので高さ一様のまま(cutoff なし)
+          arriveCutoff: 1,
+          arriveTail: 0,
           seed: 20000 + k * 5000,
           isTower: true,
         },

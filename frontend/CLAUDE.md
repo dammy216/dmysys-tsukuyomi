@@ -33,8 +33,8 @@ Next.js 16 (App Router)。ルート("/")は3Dサンドボックス（Three.js / 
 | `root/` | ページ本体。副作用フックの配線・R3F `<Canvas>`・`useFrame` 演出ロジック・演出定数(`timings.ts`)・UI状態ストア(`store.ts`) |
 | `scenery/` | 静的な景観（鳥居・水面/海のグロー・灯籠・空背景） |
 | `starfall-sea/` | 「星降る海」演出モード（魚群・専用カメラ・流れ星・鳥居ホログラム・泡・水中エフェクト・専用BGM） |
-| `scene-controls/` | 下部HUDコントロールバー `ControlBar`（DOM） |
-| `editor/` | 編集モード（`L`キー・開発時のみ）のUI一式。Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）。シーク/再生バー（`EditorToolbar`）は Sequence Editor パネルの見出しを兼ねる。Reply開始/停止・自由視点（`EditorModeBar`）はビューポート直下（DOM） |
+| `scene-controls/` | 下部HUDコントロールバー `ControlBar`（DOM）＋左上の方位計 `Compass` |
+| `editor/` | 編集モード（`ControlBar` の「編集」ボタン or `L`キー。本番でも使える）のUI一式。Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）。シーク/再生バー（`EditorToolbar`）は Sequence Editor パネルの見出しを兼ねる。Reply開始/停止・自由視点（`EditorModeBar`）はビューポート直下（DOM）。抜けるのは編集画面ヘッダーの「編集モード終了」or `L` |
 | `character-overlay/` | かぐや・ヤチヨの Rive を3Dに重ねるドラッグ可能パネル `CharacterOverlay`（DOM） |
 | `scene-recording/` | WebGLキャンバス + 音声の webm 録画 |
 | `kaguya/` `yachiyo/` | 各キャラの Rive コンポーネント |
@@ -84,7 +84,7 @@ Studioへ流し込む/エクスポートし直す運用が実運用に見合わ�
 
 コードの数値を書き換えて保存すれば Fast Refresh でそのまま反映される。
 
-**編集モード(`L`キー・開発時のみ)では GUI からも触れる**。`features/editor/` の
+**編集モード(`ControlBar` の「編集」ボタン or `L`キー。本番でも使える)では GUI からも触れる**。`features/editor/` の
 3ペインUI(Outline / Details / Sequence Editor)が上記の値を実行時ストア
 (`useDronePathStore` / `useCameraFeelStore`)経由で
 書き換え、3D画面に即反映する。ただし**その変更はブラウザ上の下書き**で、

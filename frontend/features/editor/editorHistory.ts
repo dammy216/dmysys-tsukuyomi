@@ -138,7 +138,7 @@ function redo() {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  // 編集モード中のみ(公開サイトでは`L`キー自体が開発時のみなので実質常にtrue)
+  // 編集モード中のみ
   if (!useSceneStore.getState().editorMode) return;
   if (!(e.ctrlKey || e.metaKey)) return;
   const key = e.key.toLowerCase();
@@ -152,11 +152,10 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 /**
- * 開発時のみ、一度だけ初期化する。EditorLayout の useEffect から呼ぶ想定
+ * 一度だけ初期化する。EditorLayout の useEffect から呼ぶ想定
  * (StrictMode等で複数回呼ばれても initialized フラグで二重登録を防ぐ)。
  */
 export function initEditorHistory() {
-  if (process.env.NODE_ENV !== "development") return;
   if (initialized) return;
   initialized = true;
 
