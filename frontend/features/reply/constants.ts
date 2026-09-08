@@ -134,6 +134,27 @@ export const REPLY_CASTLE_BUILD_END_SECONDS = REPLY_BUILD_END_SECONDS;
  * 照明は帯が消えるのに合わせてパッと点ける。
  */
 export const REPLY_LIGHTS_FADE_SECONDS = 0.45;
+
+/* ------------------------------------------------------------------ *
+ * Reply の満月。**9月・21時・満月**の指定。
+ *
+ * 満月は太陽の正反対にあるので、秋分ごろは日没(≒18時)に東から昇り、21時には
+ * 南東の空・高度およそ35°まで昇っている(中緯度)。方位は North=-Z / East=+X
+ * (Compass と同じ)。
+ *
+ * 月は「星空と同じレイヤー」= reply の夜空テクスチャ(SkyBackground の
+ * useReplySkyTexture)に描き込む。月明かり(directionalLight)は ReplyMoon が
+ * 同じ向きから当てる。位置はここ1箇所で共有する。
+ * ------------------------------------------------------------------ */
+/** 満月の高度(ラジアン。水平=0、真上=π/2) */
+export const REPLY_MOON_ALTITUDE = (35 * Math.PI) / 180;
+/** 満月の方位(ラジアン。北=0、東=π/2、南東=3π/4) */
+export const REPLY_MOON_AZIMUTH = (135 * Math.PI) / 180;
+/**
+ * 夜空テクスチャに描く月の見かけの直径(テクスチャ高さに対する割合)。
+ * テクスチャ高さ=180°なので 0.04 ≒ 見かけ7°(実際の満月0.5°よりは大きめ)。
+ */
+export const REPLY_MOON_SIZE = 0.04;
 /**
  * 11秒の点灯の瞬間だけ焚く白い閃光の長さ(秒)。
  * 星降る海の転調(SURGE_FLASH_SECONDS)と同じ役割で、

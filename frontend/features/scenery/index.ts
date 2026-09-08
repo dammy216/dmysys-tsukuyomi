@@ -3,4 +3,8 @@ export { WaterGlow } from "./WaterGlow";
 export { SeaGlow } from "./SeaGlow";
 export { Lanterns } from "./Lanterns";
 export { MountainRing } from "./MountainRing";
-export { SkyBackground, type SkyVariant } from "./SkyBackground";
+export {
+  SkyBackground,
+  type SkyVariant,
+  type ReplyMoonConfig,
+} from "./SkyBackground";

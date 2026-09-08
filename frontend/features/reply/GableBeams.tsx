@@ -194,6 +194,16 @@ const BEAM_SEGMENTS = 12;
 const GABLE_BEAM_OPACITY_MAX = 0.55;
 
 /**
+ * 破風ビームの横(yaw)の首振りをどれだけ強めるか。EaveBeams の
+ * *_YAW_GAIN / *_YAW_MIN と同じ趣旨 ―― cue.yaw は全リグ共通で ±1〜9° しかなく
+ * 破風の光もほぼ横に動かないので、ここで倍率を掛けて左右へ扇状に振らせる。
+ * 上下(liftSwing)には手を付けないので、ヘッドは横長の楕円を描く。
+ * GABLE_YAW_MIN は静かな区間でも最低これだけは横に振る下限(ラジアン)。
+ */
+const GABLE_YAW_GAIN = 5;
+const GABLE_YAW_MIN = 0.35;
+
+/**
  * 根元に置くフレアの半径(ワールド単位)。EaveBeamsよりビーム自体が太いので、
  * フレアも一回り大きくしてある。
  *
@@ -538,7 +548,9 @@ export function GableBeams({
       const swing = Math.PI * 2 * (s.swingPos + phase);
       // 基準の仰角を中心に振る(理由は EaveBeams.tsx の同じ箇所のコメント参照)
       const targetLift = s.lift + s.liftSwing * Math.cos(swing);
-      const targetYaw = s.yaw * Math.sin(swing);
+      // 横は cue.yaw を増幅して扇状に振らせる(GABLE_YAW_* のコメント参照)
+      const yawAmp = Math.max(s.yaw * GABLE_YAW_GAIN, GABLE_YAW_MIN);
+      const targetYaw = yawAmp * Math.sin(swing);
 
       // 首の回る速さの上限。理屈は EaveBeams.tsx / StageBeams.tsx を参照
       const nextLift = scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;

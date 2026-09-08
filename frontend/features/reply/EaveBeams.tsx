@@ -47,9 +47,9 @@ import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
   **動き・色・本数は castleBeamRig.ts が受け持つ。** このファイルは
   「どこに何本あるか」と描画だけで、演出の判断は一切持たない
   (破風のビーム GableBeams.tsx も同じリグを共有するので、2つが揃って動く)。
-  例外として、**軒ビームの横振り(yaw)だけ**このファイルで増幅する
-  ―― cue.yaw が全リグ共通で小さく軒の光が横に動かないため
-  (天守・隅櫓で別ゲイン。*_YAW_GAIN / *_YAW_MIN 参照)。
+  例外として、**横振り(yaw)だけ**は cue.yaw が全リグ共通で小さすぎて光が
+  横に動かないため、各ファイルで増幅する(ここは軒。天守・隅櫓で別ゲイン。
+  *_YAW_GAIN / *_YAW_MIN 参照。破風は GableBeams.tsx の GABLE_YAW_*)。
 */
 
 type RoofRow = { y: number; halfWidth: number; halfDepth: number };
@@ -225,7 +225,7 @@ const CORNER_INSET = 0.08;
  * castleBeamRig の cue.yaw は全リグ共通で ±1〜9°ほどしかなく、軒の光は
  * ほぼ横に動かない(ユーザー指摘)。軒ビームに限ってこの倍率を掛け、上下の
  * 振り(liftSwing)はそのままに左右へ扇状に大きく振らせる。上下と 90° 位相が
- * ずれているので、ヘッドは横長の楕円を描く。破風(GableBeams)は cue.yaw のまま。
+ * ずれているので、ヘッドは横長の楕円を描く。破風は GableBeams.tsx 側で同じ増幅。
  *
  * *_YAW_MIN … 静かな区間でも最低これだけは横に振る下限(ラジアン。0.35≒20°)。
  * *_YAW_GAIN を上げすぎると扇の端で隣の隅櫓・天守面へビームがかぶる。

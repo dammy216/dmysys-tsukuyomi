@@ -46,6 +46,7 @@ import {
   ReplyCamera,
   ReplyFireworks,
   ReplyHologram,
+  ReplyMoon,
   StageBeams,
   ToriiGate,
   replyFadeGainAt,
@@ -57,6 +58,9 @@ import {
   REPLY_FLASH_EXPOSURE,
   REPLY_FLASH_SECONDS,
   REPLY_LIGHTS_FADE_SECONDS,
+  REPLY_MOON_ALTITUDE,
+  REPLY_MOON_AZIMUTH,
+  REPLY_MOON_SIZE,
   REPLY_FOCUS,
   REPLY_HOLOGRAM_Y,
   REPLY_OUTRO_FADE_SECONDS,
@@ -104,6 +108,17 @@ const FOCUS_TARGET: [number, number, number] = [0, 3, -2];
 const SCREEN_FOCUS: [number, number, number] = [0, 14, -2];
 /** 通常モード(星降る海OFF)でのOrbitControlsの注視点。鳥居の中ほど */
 const NORMAL_ORBIT_TARGET: [number, number, number] = [0, 2, -2];
+
+/**
+ * Reply の夜空に描く満月(SkyBackground へ渡す)。位置は reply/constants.ts の
+ * REPLY_MOON_*(9月・21時・満月)。**安定した参照**にするためモジュール定数
+ * (毎レンダー新オブジェクトを渡すと夜空テクスチャが再生成される)。
+ */
+const REPLY_MOON = {
+  altitude: REPLY_MOON_ALTITUDE,
+  azimuth: REPLY_MOON_AZIMUTH,
+  size: REPLY_MOON_SIZE,
+};
 
 /**
  * Replyが終わったとき、天守のまわりに集まった灯籠が水面へ戻るのにかける秒数。
@@ -792,11 +807,12 @@ export function SceneContents({
         {/*
           演出モード(星降る海 / Reply)の間は、夕暮れを選んでいても夜空に
           切り替える。Reply だけは画像をやめて、Canvas で描いた
-          「縦グラデーション + まばらな星」の夜空にする専用の "reply"
-          バリアント(SkyBackground.tsx 参照)。
+          「縦グラデーション + まばらな星 + 満月」の夜空にする専用の "reply"
+          バリアント(SkyBackground.tsx 参照)。月明かりの光は下の ReplyMoon。
         */}
         <SkyBackground
           variant={replyPlaying ? "reply" : starfallPlaying ? "night" : skyVariant}
+          replyMoon={REPLY_MOON}
         />
         {/*
           映像の鳥居は根本が橙色、上に行くほど赤みが強い発光をしている。
@@ -880,6 +896,16 @@ export function SceneContents({
         */}
         {replyVisible && (
           <>
+            {/*
+              月明かり。月の絵は上の SkyBackground(夜空テクスチャに星と同じ
+              レイヤーで描画)。ここは同じ向き(南東・高度35°)から当てる寒色の
+              directionalLight だけ ―― 天守や鳥居の黒い面に冷たいリムを乗せる。
+              出し入れは activation のフェード(features/reply/ReplyMoon.tsx)。
+            */}
+            <ReplyMoon
+              position={REPLY_BASE_POSITION}
+              activationRef={replyActivationRef}
+            />
             <EdoCastle
               position={REPLY_BASE_POSITION}
               activationRef={replyActivationRef}

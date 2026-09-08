@@ -7,6 +7,7 @@ export { EaveBeams } from "./EaveBeams";
 export { GableBeams } from "./GableBeams";
 export { ReplyHologram } from "./ReplyHologram";
 export { ReplyFireworks } from "./ReplyFireworks";
+export { ReplyMoon } from "./ReplyMoon";
 export { ToriiGate } from "./ToriiGate";
 export { ReplyCamera } from "./ReplyCamera";
 export { useReplySong } from "./useReplySong";
@@ -57,6 +58,9 @@ export {
   REPLY_FLASH_EXPOSURE,
   REPLY_FLASH_SECONDS,
   REPLY_LIGHTS_FADE_SECONDS,
+  REPLY_MOON_ALTITUDE,
+  REPLY_MOON_AZIMUTH,
+  REPLY_MOON_SIZE,
   REPLY_FADE_SECONDS,
   REPLY_FOCUS,
   REPLY_HOLOGRAM_Y,
