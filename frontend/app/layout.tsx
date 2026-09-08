@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
-import { Header } from "@/shared/layout";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -16,7 +15,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // ノッチ端末で env(safe-area-inset-*) を効かせる（Header / ControlBar が参照）
+  // ノッチ端末で env(safe-area-inset-*) を効かせる（ControlBar / Compass 等が参照）
   viewportFit: "cover",
   themeColor: "#0f172a",
 };
@@ -33,10 +32,7 @@ export default function RootLayout({
         属性を差し込むため、その1点だけ hydration 差分の警告を黙らせる。
         中身(children)の hydration チェックには影響しない。
       */}
-      <body suppressHydrationWarning>
-        <Header />
-        {children}
-      </body>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

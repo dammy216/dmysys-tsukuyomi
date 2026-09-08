@@ -4,7 +4,7 @@
   --font-sans: var(--font-geist-sans);
 }
 
-/* 近未来HUDの共通トークン（Header / ControlBar / CharacterOverlay で共有） */
+/* 近未来HUDの共通トークン（ControlBar / CharacterOverlay / Compass で共有） */
 @theme {
   --color-hud: #5de3e6; /* 水色アクセント */
   --color-hud-glass: #060c18eb; /* パネル/バーの濃紺ガラス地 = rgb(6 12 24 / 0.92) */

@@ -16,15 +16,17 @@ import type {
   DepthOfFieldEffect,
   VignetteEffect,
 } from "postprocessing";
-import { Vector2 } from "three";
+import { Vector2, Vector3 } from "three";
 import type { Group } from "three";
 import {
   MiyajimaTorii,
   WaterGlow,
   SeaGlow,
   Lanterns,
+  MountainRing,
   SkyBackground,
 } from "@/features/scenery";
+import { cameraHeading } from "@/features/scene-controls";
 import {
   ShootingStars,
   StarfallSwarm,
@@ -107,9 +109,11 @@ const NORMAL_ORBIT_TARGET: [number, number, number] = [0, 2, -2];
  * Replyが終わったとき、天守のまわりに集まった灯籠が水面へ戻るのにかける秒数。
  * replyBuildRef は reply を止めた瞬間に0へ飛ぶ(天守の組み上げ演出はそれで
  * 問題ないが、灯籠がワープして見えると目立つ)ので、戻すときだけこの秒数で
- * ゆっくり追従させる(下の lanternGatherRef 参照)。
+ * ゆっくり追従させる(下の lanternGatherRef 参照)。曲の終わり(replyInOutro)で
+ * 城と一緒に静かに水面へ降ろすので、outro の長さ(REPLY_OUTRO_LEAD_SECONDS=6)
+ * にほぼ合わせてある。
  */
-const LANTERN_GATHER_RELEASE_SECONDS = 3;
+const LANTERN_GATHER_RELEASE_SECONDS = 8;
 
 /**
  * 灯籠の総数。Lanterns.tsx 側のデフォルト(900)より増やす指定なので、
@@ -344,6 +348,18 @@ export function SceneContents({
     replyActivation が 0.01 を跨いだときだけ切り替えるので state でよい。
   */
   const [replyVisible, setReplyVisible] = useState(false);
+
+  /*
+    画面左上の方位計(Compass)用。カメラの向きから方位(度)を出して
+    共有オブジェクトへ書くだけ。0=北=ワールド -Z、時計回り(cameraHeading.ts)。
+    Compass 側は rAF でこれを読んで DOM を直接いじる(再レンダーしない)。
+  */
+  const headingVecRef = useRef(new Vector3());
+  useFrame(({ camera }) => {
+    const dir = camera.getWorldDirection(headingVecRef.current);
+    const deg = (Math.atan2(dir.x, -dir.z) * 180) / Math.PI;
+    cameraHeading.deg = ((deg % 360) + 360) % 360;
+  });
 
   useFrame(({ clock, gl }, delta) => {
     /*
@@ -613,16 +629,20 @@ export function SceneContents({
     }
 
     /*
-      灯籠の集合(Lanterns.tsx の gatherRef)。上がるときは replyBuildRef と
-      まったく同じ値(=11秒に向けてリアルタイムに追従)。下がるとき(reply終了)
-      だけ LANTERN_GATHER_RELEASE_SECONDS で緩めて、replyBuildRef の瞬断を隠す。
+      灯籠の集合(Lanterns.tsx の gatherRef)。上がるときは replyBuildRef に
+      即追従(11秒に向けてリアルタイム)。下がるとき ―― reply 終了、または
+      **曲の終わりで城がフェードアウトする(replyInOutro)とき** ―― は
+      LANTERN_GATHER_RELEASE_SECONDS で緩めて水面へ戻す。城が消えたのに
+      灯籠だけ空に浮いたままにしない。
     */
-    if (replyBuildRef.current >= lanternGatherRef.current) {
-      lanternGatherRef.current = replyBuildRef.current;
+    const lanternUp =
+      replyPlaying && !replyInOutro ? replyBuildRef.current : 0;
+    if (lanternUp >= lanternGatherRef.current) {
+      lanternGatherRef.current = lanternUp;
     } else {
       lanternGatherRef.current = Math.max(
         lanternGatherRef.current - delta / LANTERN_GATHER_RELEASE_SECONDS,
-        replyBuildRef.current,
+        lanternUp,
       );
     }
 
@@ -751,6 +771,17 @@ export function SceneContents({
       <directionalLight position={[9, 14, 5]} intensity={2} color="#bcd3ff" />
 
       {/*
+        シーンの外周を囲む山のシルエット。水面の縁・のっぺりした水平線が
+        見えないようにする目隠し(全モード共通)。色は空(SkyBackground)と
+        同じ variant で切り替える ―― 大気遠近で空の色に寄せるため
+        (features/scenery/MountainRing.tsx)。空の読み込みには依存しないので
+        Suspense の外に置く。
+      */}
+      <MountainRing
+        variant={replyPlaying ? "reply" : starfallPlaying ? "night" : skyVariant}
+      />
+
+      {/*
         空の読み込み中だけ出す下地。**Suspense の fallback に置くのが要点**で、
         ここを外に出して常設すると SkyBackground(`attach="background"` /
         `attach="environment"`) と同じ scene.background を奪い合う。
@@ -761,9 +792,9 @@ export function SceneContents({
       <Suspense fallback={<color attach="background" args={["#1c2540"]} />}>
         {/*
           演出モード(星降る海 / Reply)の間は、夕暮れを選んでいても夜空に
-          切り替える。Reply だけはオーロラ(aurora-vertical)ではなく
-          nightsky-vertical(下半分は黒画像)を使う専用の "reply" バリアント
-          (SkyBackground.tsx 参照)。
+          切り替える。Reply だけは画像をやめて、Canvas で描いた
+          「縦グラデーション + まばらな星」の夜空にする専用の "reply"
+          バリアント(SkyBackground.tsx 参照)。
         */}
         <SkyBackground
           variant={replyPlaying ? "reply" : starfallPlaying ? "night" : skyVariant}

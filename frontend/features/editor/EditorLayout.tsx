@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useSceneStore } from "@/features/root/store";
+import { Compass } from "@/features/scene-controls";
 import { EditorDetailsPanel } from "./EditorDetailsPanel";
 import { initEditorHistory } from "./editorHistory";
 import { EditorFpsBadge } from "./EditorFpsBadge";
@@ -156,6 +157,7 @@ export function EditorLayout({
             <div className={active ? "relative min-h-0 flex-1" : "contents"}>
               {children}
               {active && <EditorFpsBadge />}
+              {active && <Compass placement="editor" />}
             </div>
             {active && (
               <EditorModeBar

@@ -7,9 +7,8 @@ Next.js 16 (App Router)。ルート("/")は3Dサンドボックス（Three.js / 
 
 ## shared/（画面共通）
 
-どの画面でも使う横断的なもの。現状は `shared/layout/`（`Header` のみ。全ページで `app/layout.tsx`
-から表示）。汎用UIパーツが増えたら `shared/ui/` を作る。特定 feature でしか使わないものは
-feature 側に置く。
+どの画面でも使う横断的なもの。現状は空（旧 `shared/layout/Header` は撤去）。
+汎用UIパーツが増えたら `shared/ui/` を作る。特定 feature でしか使わないものは feature 側に置く。
 
 ## スタイル（Tailwind v4）
 

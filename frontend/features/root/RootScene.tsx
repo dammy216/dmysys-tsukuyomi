@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { CharacterOverlay } from "@/features/character-overlay";
-import { ControlBar } from "@/features/scene-controls";
+import { Compass, ControlBar } from "@/features/scene-controls";
 import { useStarfallSong } from "@/features/starfall-sea";
 import { useReplySong } from "@/features/reply";
 import { useSceneRecorder } from "@/features/scene-recording";
@@ -126,6 +126,7 @@ export function RootScene() {
       </EditorLayout>
       {!editorMode && (
         <>
+          <Compass />
           <CharacterOverlay
             getStarfallAmplitude={getStarfallAmplitude}
             getReplyAmplitude={getReplyAmplitude}

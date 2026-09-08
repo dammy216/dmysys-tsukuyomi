@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { RootScene } from "@/features/root";
 
 export const metadata: Metadata = {
-  title: "DMYSYS - ツクヨミ",
+  title: "ツクヨミ",
   description:
     "Three.js / React Three Fiber による3Dシーン。かぐや・ヤチヨの表示も切り替えられます。",
 };

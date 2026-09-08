@@ -31,11 +31,15 @@ export function RootCanvas({
     >
       {/*
         fov は迫力を出すため広めに取っている(50→68)。
+        far は既定(1000)だと外周の山(MountainRing)が遠クリップで一部欠けるので
+        広げてある。near〜far を離すと深度精度は落ちるが、実ジオメトリは半径150内・
+        山は z-fight する相手がいないので問題ない。**この値の変更は Canvas の
+        カメラ生成が一度きりなので、反映にはページのハードリロードが要る。**
         preserveDrawingBuffer は録画(canvas.captureStream)で確実にフレームを
         拾うために必要。描画コストはごく僅か。
       */}
       <Canvas
-        camera={{ position: [0, 3, 11], fov: 68 }}
+        camera={{ position: [0, 3, 11], fov: 68, far: 2000 }}
         gl={{ preserveDrawingBuffer: true }}
         onCreated={({ gl }) => onCanvasReady?.(gl.domElement)}
       >

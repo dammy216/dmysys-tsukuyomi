@@ -27,10 +27,17 @@ const BODY_HEIGHT = 0.5;
 /** 台の色。夜に沈む黒木 */
 const BASE_COLOR = "#140f0b";
 /**
- * 光る本体の色。instanceColor で明滅だけ揺らすので、
- * マテリアル側は白にしておきここは基準色としてだけ使う。
+ * 光る本体の色。instanceColor で明滅だけ揺らすので、マテリアル側は白に
+ * しておきここは基準色としてだけ使う。**通常時は暖色の白**(ろうそく)。
  */
 const GLOW_COLOR = new Color("#fff2d2");
+/**
+ * Reply で昇っているときの色。**緑がかった光**(緑の蛍のモチーフに寄せる
+ * 指定)。昇り具合(eased)で GLOW_COLOR からここへ寄せるので、水面の灯籠は
+ * 暖色のまま・空へ昇るほど緑になり、outro で降りると暖色へ戻る。
+ * 昇りきると brightBoost で ×1.6 されるので、飽和しすぎない中間の緑にしてある。
+ */
+const GLOW_COLOR_REPLY = new Color("#d8ecac");
 
 /** 明るさのゆらぎ(ろうそくの揺れ)。0で無効 */
 const FLICKER_DEPTH = 0.22;
@@ -295,7 +302,11 @@ export function Lanterns({
             0.5 * Math.sin(elapsed * data.flickerSpeed + data.flickerPhase));
       // 昇りきるほど白熱させる
       const brightBoost = 1 + eased * GATHER_BRIGHT_BOOST;
-      scratchColor.copy(GLOW_COLOR).multiplyScalar(flicker * brightBoost);
+      // 昇るほど緑へ寄せる(Reply の緑の蛍。水面では暖色、outro で降りると戻る)
+      scratchColor
+        .copy(GLOW_COLOR)
+        .lerp(GLOW_COLOR_REPLY, eased)
+        .multiplyScalar(flicker * brightBoost);
       body.setColorAt(i, scratchColor);
     }
 
