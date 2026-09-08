@@ -876,7 +876,7 @@ export function SceneContents({
               lightsRef={replyLightsRef}
             />
             {/*
-              天守・隅櫓それぞれの屋根の四隅、軒下から外向きへ伸びる
+              天守・隅櫓それぞれの屋根の四隅、屋根の斜面の上から外向きへ伸びる
               トラス照明の見立て(80本)。EdoCastleの投影光と同じ
               activation*lights でフェードインしたうえで、本数・首振り・色は
               曲に合わせて動く(features/reply/castleBeamRig.ts の照明卓)。

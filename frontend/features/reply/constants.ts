@@ -281,13 +281,16 @@ export const REPLY_GLOW_COLOR = "#ff3d1a";
 export const PROJECTION_COLOR_A = "#ffab3d";
 export const PROJECTION_COLOR_B = "#ff3d86";
 /**
- * 背後から放射状に伸びるビームの色。指定によりピンク(#ff4fa3)と
- * 緑(#6effb0)を外し、紫(#8b6cff)2枠とオレンジ(#ffa93d)1枠にしてある。
+ * 背後から放射状に伸びるビームの色。当初はピンク(#ff4fa3)と緑(#6effb0)を
+ * 外していたが、TRACK_NOTES.md §4.1「緑は常に『動く光』として使われる」の
+ * 通り参照映像のサーチライトには実際に緑が使われているため、緑を復活させた
+ * (ピンクは引き続き除外)。紫(#8b6cff)を2枠、オレンジ(#ffa93d)・緑(#6effb0)を
+ * 1枠ずつにして、紫を主色として保ちながら緑を混ぜてある。
  * **小節ごとにこの中から2色を選んで会場ごと総入れ替え**する
  * (StageBeams の COLOR_BEATS)。本ごとに固定の色を割り振ると、
  * 何が起きても色の並びが変わらないので照明卓が動いていないように見える。
  */
-export const BEAM_COLORS = ["#8b6cff", "#8b6cff", "#ffa93d"];
+export const BEAM_COLORS = ["#8b6cff", "#8b6cff", "#ffa93d", "#6effb0"];
 
 /*
  * ------------------------------------------------------------------

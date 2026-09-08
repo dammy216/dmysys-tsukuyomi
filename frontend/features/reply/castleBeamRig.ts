@@ -70,16 +70,18 @@ export const CASTLE_BEAM_WARM = "#ffe9c7";
  * (寒色→暖色の順。リグの高さ方向にこの順で配ると、参照映像の大ファンと
  * 同じ「端から端へ色が変わる」グラデーションになる)。
  *
- * **色の選び方には経緯がある。** 参照映像のレーザーはシアン/緑/黄/マゼンタだが、
- * StageBeams の BEAM_COLORS はユーザーの指定で緑(#6effb0)とピンク(#ff4fa3)を
- * 明示的に**外してある**(constants.ts のコメント参照)。そこでこのリグでは
- * その2色を復活させず、既にこのシーンで使われている色
+ * 参照映像のレーザーはシアン/緑/黄/マゼンタ(TRACK_NOTES.md §4.1: 緑は
+ * 常に「動く光」として使われる)。StageBeams の BEAM_COLORS は当初
+ * 緑(#6effb0)とピンク(#ff4fa3)を外していたが、ビームに緑を使わないのは
+ * §4.1 と矛盾するため緑を復活させてある(constants.ts のコメント参照)。
+ * ここでも同じ緑を使い、既にこのシーンで使われている色
  * (#8b6cff = BEAM_COLORS の紫 / #ffab3d = PROJECTION_COLOR_A /
  * #ff3d86 = PROJECTION_COLOR_B)に、映像の寒色端としてシアンを1色だけ
- * 足す構成にしている。緑を入れたくなったらここに足すだけでよい。
+ * 足す構成にしている。
  */
 export const CASTLE_BEAM_PALETTE: readonly string[] = [
-  "#3ee0ff", // シアン(映像の寒色端。このリグで新規に足した唯一の色)
+  "#3ee0ff", // シアン(映像の寒色端。このリグで新規に足した色)
+  "#6effb0", // 緑 = BEAM_COLORS(参照映像のビームは緑を使う。§4.1参照)
   "#8b6cff", // 紫 = BEAM_COLORS
   "#ff3d86", // ピンク = PROJECTION_COLOR_B
   "#ffab3d", // 琥珀 = PROJECTION_COLOR_A
@@ -177,10 +179,15 @@ export type CastleBeamCue = {
   /**
    * **水平からの基準の仰角(ラジアン)。正で上向き。**
    *
-   * 0にすると全灯が真横を向き、引きの画で画面を横切るただの細い線になる
-   * (実際そうなっていた)。参照映像のビームは必ず斜め上〜ほぼ垂直へ向いて
-   * 夜空に扇を作っており、それが「会場の照明」に見える理由。
-   * サビでは立てて(0.85rad≒49°)、静かな箇所では寝かせる。
+   * lift と liftSwing は組で意味を持つ:「lift ± liftSwing」が実際の
+   * 可動範囲になる。**ユーザーが横から見た可動域の図を手描きして指定**
+   * しており、それによると建物のビームは
+   * 「ほぼ垂直(≒1.35rad)〜水平を超えて見下ろす向き(マイナス)」という
+   * 広い範囲を動く。上限(≒1.35rad、ほぼ垂直)は全セクション共通で固定し、
+   * 下限だけをセクションの盛り上がりに応じて下げる(静かな箇所は水平より
+   * 上まで、サビは下向きまで)。CASTLE_LIFT_UPPER / castleLiftFromRange
+   * で「上限固定・下限だけ指定」の形に組んでいるので、キュー表側は
+   * 下限の角度をひとつ書くだけでよい。
    */
   lift: number;
   /** 上下の揺れ幅(ラジアン)。上の仰角を中心に往復する */
@@ -213,6 +220,28 @@ export type CastleBeamCue = {
 };
 
 /**
+ * 首振りの上限(ラジアン、ほぼ垂直)。**全セクション共通で固定。**
+ * ユーザーが手描きした可動域の図で、すべての色(足元・建物とも)の矢印が
+ * 根元から真上へ伸びていた = 「上に向く分にはどのセクションでも同じだけ
+ * 振れる」という意味だと解釈し、ここだけ固定にした。
+ */
+const CASTLE_LIFT_UPPER = 1.35;
+
+/**
+ * lift/liftSwing を「上限(CASTLE_LIFT_UPPER で固定)・下限(セクションごとに
+ * 指定)」の形から逆算する。CUES 側は下限の角度をひとつ書くだけでよくなる。
+ *
+ * @param lower 下限の仰角(ラジアン)。マイナスなら水平を超えて見下ろす向き
+ *   まで振れる(ユーザーの図の「赤(建物)」がここまで下がっていた)。
+ */
+function castleLiftFromRange(lower: number): { lift: number; liftSwing: number } {
+  return {
+    lift: (CASTLE_LIFT_UPPER + lower) / 2,
+    liftSwing: (CASTLE_LIFT_UPPER - lower) / 2,
+  };
+}
+
+/**
  * セクションごとのキュー表。songStructure.ts の REPLY_SECTIONS と1対1。
  *
  * **density の段が演出の背骨**。TRACK_NOTES.md §4.3 のとおり、元映像は
@@ -234,8 +263,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   "intro-A": {
     level: 1,
     density: 1,
-    lift: 0.45,
-    liftSwing: 0.12,
+    ...castleLiftFromRange(0.6),
     yaw: 0.06,
     swingBars: 2,
     pattern: "unison",
@@ -256,8 +284,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   "intro-B": {
     level: 1,
     density: 1,
-    lift: 0.45,
-    liftSwing: 0.14,
+    ...castleLiftFromRange(0.6),
     yaw: 0.08,
     swingBars: 2,
     pattern: "rise",
@@ -277,8 +304,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   breath: {
     level: 0.5,
     density: 0.12,
-    lift: 0.3,
-    liftSwing: 0.04,
+    ...castleLiftFromRange(0.75),
     yaw: 0.02,
     swingBars: 8,
     pattern: "unison",
@@ -295,8 +321,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   A: {
     level: 0.68,
     density: 0.3,
-    lift: 0.38,
-    liftSwing: 0.1,
+    ...castleLiftFromRange(0.5),
     yaw: 0.05,
     swingBars: 4,
     pattern: "rise",
@@ -313,8 +338,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   B: {
     level: 0.85,
     density: 0.55,
-    lift: 0.52,
-    liftSwing: 0.14,
+    ...castleLiftFromRange(0.15),
     yaw: 0.1,
     swingBars: 2,
     pattern: "ring",
@@ -335,8 +359,8 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   SABI: {
     level: 1.4,
     density: 1,
-    lift: 0.85,
-    liftSwing: 0.22,
+    // 下限マイナス = 水平を超えて見下ろす向きまで振る(可動域の図の最大)
+    ...castleLiftFromRange(-0.45),
     yaw: 0.16,
     swingBars: 1,
     pattern: "spiral",
@@ -353,8 +377,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   LATTER: {
     level: 1.25,
     density: 0.85,
-    lift: 0.72,
-    liftSwing: 0.18,
+    ...castleLiftFromRange(-0.25),
     yaw: 0.13,
     swingBars: 1,
     pattern: "spiral",
@@ -371,8 +394,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   outro: {
     level: 0.75,
     density: 0.4,
-    lift: 0.4,
-    liftSwing: 0.08,
+    ...castleLiftFromRange(0.35),
     yaw: 0.04,
     swingBars: 4,
     pattern: "rise",
@@ -389,8 +411,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   fade: {
     level: 0.35,
     density: 0.08,
-    lift: 0.3,
-    liftSwing: 0.03,
+    ...castleLiftFromRange(0.75),
     yaw: 0,
     swingBars: 8,
     pattern: "unison",

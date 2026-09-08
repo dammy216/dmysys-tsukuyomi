@@ -6,7 +6,7 @@ import {
   AdditiveBlending,
   CircleGeometry,
   Color,
-  ConeGeometry,
+  CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
   Euler,
@@ -17,7 +17,7 @@ import {
   ShaderMaterial,
   Vector3,
 } from "three";
-import { CASTLE_ROOF_TIERS } from "./constants";
+import { CASTLE_ROOF_TIERS, CASTLE_TOP_Y } from "./constants";
 import {
   CASTLE_BEAM_PALETTE,
   CASTLE_BEAM_WARM,
@@ -27,7 +27,7 @@ import {
   heightGate,
   sampleCastleRig,
 } from "./castleBeamRig";
-import { CORNER_TOWER_XZ, TOWER_ROOF_TIERS } from "./towerLayout";
+import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
 
 /*
   参照画像はコンサート会場のトラス照明。天守・隅櫓それぞれの屋根の
@@ -49,13 +49,48 @@ import { CORNER_TOWER_XZ, TOWER_ROOF_TIERS } from "./towerLayout";
   (破風のビーム GableBeams.tsx も同じリグを共有するので、2つが揃って動く)。
 */
 
+type RoofRow = { y: number; halfWidth: number; halfDepth: number };
+
 type EaveTierAtBuilding = {
   cx: number;
   cz: number;
   y: number;
   halfWidth: number;
   halfDepth: number;
+  /**
+   * その段の屋根を登った先の軒(最上段はひとつ上が無いので屋根の頂部
+   * = 中心・halfWidth=halfDepth=0)。ROOF_CLIMB ぶんだけ軒からここへ寄せた
+   * 位置にビームの根元を置く(= 屋根斜面の上)。
+   */
+  upperY: number;
+  upperHalfWidth: number;
+  upperHalfDepth: number;
 };
+
+/**
+ * 屋根の段を「軒 → ひとつ上の段の軒(最上段は屋根の頂部)」の対にする。
+ * ビームの根元は EAVE_BEAM_SPOTS でこの2点を ROOF_CLIMB で補間した所へ置く。
+ */
+function withRoofClimb(
+  rows: readonly RoofRow[],
+  apexY: number,
+  cx: number,
+  cz: number,
+): EaveTierAtBuilding[] {
+  return rows.map((t, i) => {
+    const upper: RoofRow = rows[i + 1] ?? { y: apexY, halfWidth: 0, halfDepth: 0 };
+    return {
+      cx,
+      cz,
+      y: t.y,
+      halfWidth: t.halfWidth,
+      halfDepth: t.halfDepth,
+      upperY: upper.y,
+      upperHalfWidth: upper.halfWidth,
+      upperHalfDepth: upper.halfDepth,
+    };
+  });
+}
 
 /**
  * ビームを生やす「建物×層」の一覧。天守1棟(CASTLE_ROOF_TIERS ぶん)+
@@ -67,11 +102,13 @@ type EaveTierAtBuilding = {
  * 天守は指示により一番下の屋根(CASTLE_ROOF_TIERS[0]、最下・最大の層)だけ
  * ビームを消す。石垣に近く、他の層より目立ちすぎていたための間引き
  * (CASTLE_ROOF_TIERS 自体は実測値なので手を付けず、ここで slice する)。
+ * slice 後の各要素の「ひとつ上の段」は slice 後の次の要素なので、
+ * withRoofClimb にそのまま渡してよい(最上段だけ apex に落ちる)。
  */
 const EAVE_TIERS: EaveTierAtBuilding[] = [
-  ...CASTLE_ROOF_TIERS.slice(1).map((t) => ({ cx: 0, cz: 0, ...t })),
+  ...withRoofClimb(CASTLE_ROOF_TIERS.slice(1), CASTLE_TOP_Y, 0, 0),
   ...CORNER_TOWER_XZ.flatMap(([cx, cz]) =>
-    TOWER_ROOF_TIERS.map((t) => ({ cx, cz, ...t })),
+    withRoofClimb(TOWER_ROOF_TIERS, TOWER_HEIGHT, cx, cz),
   ),
 ];
 
@@ -84,6 +121,12 @@ const CORNER_SIGNS: readonly [1 | -1, 1 | -1][] = [
 ];
 
 type EaveBeamSpot = {
+  /**
+   * ビームの根元(光源側)のワールド座標。**軒の実測座標そのものではない。**
+   * 軒の隅から屋根の斜面を ROOF_CLIMB ぶん登り、さらに壁の内側へ
+   * BEAM_EMBED_DEPTH(天守/隅櫓別)ぶん埋め込んだ後の座標が入っている
+   * (EAVE_BEAM_SPOTS 参照)。
+   */
   position: [number, number, number];
   /** ジオメトリは既定でローカル+Zへ伸びる。Y回転でX/Z軸4方向のどれかへ向ける */
   rotationY: number;
@@ -95,6 +138,67 @@ type EaveBeamSpot = {
   /** 城の中心から見た方位 0〜1(1周)。チェイスが城を回る順番になる */
   azimuth: number;
 };
+
+/**
+ * ビームの太さ。トラス照明の光条らしい細さを求められ、2.6 → 1.2 → 0.8 と
+ * 段階的に絞ってきたが、まだ太いとの指摘でさらに絞ってある。
+ *
+ * **この定数群(BEAM_RADIUS 〜 CASTLE_BEAM_EMBED_DEPTH)は
+ * EAVE_BEAM_SPOTS より前に置くこと。** EAVE_BEAM_SPOTS はモジュール
+ * 読み込み時に即座に評価され、埋め込み深さの定数を参照するので、後ろに
+ * 置くと「初期化前に参照した」実行時エラー(ReferenceError)になる
+ * (TypeScript の型チェックでは検出できない。let/const の巡回参照は
+ * 実行時の初期化順序の問題なので、他のファイルへ真似するときも注意)。
+ */
+const BEAM_RADIUS = 0.5;
+/**
+ * 根元(光源側)の半径。**0にしないこと。**
+ *
+ * 元は ConeGeometry で根元を完全な点(半径0)にしていたが、フレア
+ * (根元に置く別ジオメトリの円盤)を非表示にした状態だと、光源そのものが
+ * 面積を持たず画面上でほぼ消えてしまい、「先細りして光源が見えない」状態
+ * になっていた(ユーザー指摘)。CylinderGeometry に変えて根元にも
+ * BEAM_RADIUS の4割ほどの太さを持たせ、光源に見える最低限の面積を確保する。
+ */
+const BEAM_ROOT_RADIUS = BEAM_RADIUS * 0.4;
+/**
+ * 根元を壁の内側へ埋め込む深さ(ワールド単位)。**隅櫓用。**
+ *
+ * spot.position(=軒の実測座標、壁面ちょうどの点)を中心に半径
+ * BEAM_ROOT_RADIUS の円柱を置くと断面の半分が建物の外へはみ出すので、
+ * 断面の中心を壁の内側へ押し込む必要がある。**BEAM_ROOT_RADIUS ぶん
+ * (=断面の半径ぶん)だけ押し込むと理屈上は壁面でちょうど全開の太さに
+ * なるはずだったが、実際に見ると壁面ぎりぎりで「建物の中から光ってる」
+ * 感が出ないとの指摘があったため、もう一段深く埋め込む
+ * (BEAM_ROOT_RADIUS の2.5倍)。**
+ *
+ * ジオメトリのtranslateではなく EAVE_BEAM_SPOTS 側で spot.position に
+ * 適用する(天守・隅櫓で埋め込み量を変えたいが、InstancedMesh は全80本で
+ * 1つのジオメトリを共有するため、ジオメトリ側に焼き込むと全本一律にしか
+ * できない。位置オフセットならインスタンスごとに変えられる)。
+ */
+const TOWER_BEAM_EMBED_DEPTH = BEAM_ROOT_RADIUS * 2.5;
+/**
+ * 天守用の埋め込み深さ。**天守は隅櫓よりモデル全体が大きい縮尺で
+ * 建っているため、隅櫓と同じ絶対値の埋め込みでは軒の張り出しに対して
+ * 相対的に浅く、壁からまだ浮いて見えてしまっていた**
+ * (ユーザー指摘:「天守のほうが若干建物から出ていない」)。
+ * 隅櫓用よりさらに深く埋め込む。
+ */
+const CASTLE_BEAM_EMBED_DEPTH = TOWER_BEAM_EMBED_DEPTH * 0;
+
+/**
+ * ビームの根元を、軒からその段の屋根をどれだけ登った所に置くか
+ * (0=軒ちょうど、1=ひとつ上の段の軒／最上段は屋根の頂部)。
+ *
+ * **軒(=屋根のいちばん下の縁)のままだと、上から見たとき光が屋根ではなく
+ * その下の壁・軒下の隙間から出ているように見える**との指摘(参照画像)。
+ * 0.38 だと軒と棟の間の下〜中ほど、水平方向にも内側へ入った位置になり、
+ * 根元が屋根の斜面の上(軒隅から頂部へ登るハズ)に乗る。x/z を同じ比率で
+ * 内へ詰めるので、L字の向き(rotationY)は変えなくても2本のビームは
+ * 引き続きその段の屋根の2辺を外へ延長する向きに走る。
+ */
+const ROOF_CLIMB = 0;
 
 /**
  * 層ごとの屋根の四隅(±半幅, ±半奥行き)それぞれに、そこへ集まる2辺を
@@ -113,21 +217,44 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
   // 天守は cx=cz=0 なので qx=qz=0 になり、下の間引き条件が常に真になる(=間引かれない)
   const qx = Math.sign(t.cx);
   const qz = Math.sign(t.cz);
+  /*
+    天守は隅櫓よりモデル全体が大きい縮尺で建っているので、同じ絶対値の
+    埋め込みだと軒の張り出しに対して相対的に浅く、壁からまだ浮いて見える
+    (ユーザー指摘:「天守のほうが若干建物から出ていない」)。cx=cz=0 が
+    天守なので、それで深さを切り替える(BEAM_EMBED_DEPTH のコメント参照)。
+  */
+  const isCastle = t.cx === 0 && t.cz === 0;
+  const embedDepth = isCastle ? CASTLE_BEAM_EMBED_DEPTH : TOWER_BEAM_EMBED_DEPTH;
   return CORNER_SIGNS.flatMap(([signX, signZ]): EaveBeamSpot[] => {
-    const x = t.cx + signX * t.halfWidth;
-    const z = t.cz + signZ * t.halfDepth;
-    const position: [number, number, number] = [x, t.y, z];
     /*
-      方位・高さは「その灯が城のどこに付いているか」そのもの。配列の添字では
-      なく実座標から取るので、EAVE_TIERS の並び順を変えても演出は壊れない。
+      根元の位置。軒の隅(base*)から、ひとつ上の段の軒の隅(upper*。最上段は
+      屋根の頂部)へ ROOF_CLIMB ぶん寄せて、屋根の斜面の上に置く
+      (軒ちょうどだと上から見て「屋根の下」から出ているように見えるとの
+      指摘。ROOF_CLIMB のコメント参照)。x/z を同じ比率で内へ詰めるので、
+      L字の2辺を外へ延長する向き(下の rotationY)は変えなくてよい。
     */
-    const heightNorm = castleRigHeightNorm(t.y);
-    const azimuth = (Math.atan2(x, z) / (Math.PI * 2) + 1) % 1;
+    const baseX = t.cx + signX * t.halfWidth;
+    const baseZ = t.cz + signZ * t.halfDepth;
+    const upperX = t.cx + signX * t.upperHalfWidth;
+    const upperZ = t.cz + signZ * t.upperHalfDepth;
+    const rootX = baseX + (upperX - baseX) * ROOF_CLIMB;
+    const rootZ = baseZ + (upperZ - baseZ) * ROOF_CLIMB;
+    const rootY = t.y + (t.upperY - t.y) * ROOF_CLIMB;
+    /*
+      方位・高さは埋め込み前の根元座標で計算する(埋め込みオフセットを
+      含めると外向き方向で座標がわずかに動き、チェイスの順番の基準が
+      ぶれるため)。高さは軒ではなく実際の取り付け高さ(rootY)から取る
+      ―― 屋根を登ったぶん灯は実際に高くなっているので、点灯フロントも
+      それに合わせる。
+    */
+    const heightNorm = castleRigHeightNorm(rootY);
+    const azimuth = (Math.atan2(rootX, rootZ) / (Math.PI * 2) + 1) % 1;
     const spots: EaveBeamSpot[] = [];
     if (qx === 0 || signX === qx) {
-      // X方向の辺を外へ延長(+Xならrotation.yが+90°で+Zジオメトリが+X向きになる)
+      // X方向の辺を外へ延長(+Xならrotation.yが+90°で+Zジオメトリが+X向きになる)。
+      // 埋め込みは外向き(signX)の逆方向、つまり建物の中心へ向けて引く。
       spots.push({
-        position,
+        position: [rootX - signX * embedDepth, rootY, rootZ],
         rotationY: signX > 0 ? Math.PI / 2 : -Math.PI / 2,
         heightNorm,
         azimuth,
@@ -136,7 +263,7 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
     if (qz === 0 || signZ === qz) {
       // Z方向の辺を外へ延長(+Zはジオメトリそのまま、-Zは180°反転)
       spots.push({
-        position,
+        position: [rootX, rootY, rootZ - signZ * embedDepth],
         rotationY: signZ > 0 ? 0 : Math.PI,
         heightNorm,
         azimuth,
@@ -151,11 +278,6 @@ const BEAM_COUNT = EAVE_BEAM_SPOTS.length;
 
 /** ビームの長さ。水面(半径400。scenery/SeaGlow.tsx参照)の内側に十分収まる長さ */
 const BEAM_LENGTH = 150;
-/**
- * ビームの太さ。トラス照明の光条らしい細さを求められ、前段(2.6)から
- * さらに絞ってある。
- */
-const BEAM_RADIUS = 1.2;
 /** 円周方向の分割数。太いStageBeamsの18分割ほどの解像度は要らないので絞る */
 const BEAM_SEGMENTS = 12;
 
@@ -167,13 +289,17 @@ const EAVE_BEAM_OPACITY_MAX = 0.55;
  * StageBeams(旧FLARE_SIZE=11相当)より小さくしてある。これが無いと、ただの
  * 三角形が壁から生えているだけに見え、光源だと分かりにくい。
  *
+ * **大きすぎると逆効果。** 元は1.6だったが、引きの画で天守のまわりに
+ * 白っぽい丸い玉がいくつも浮いて見え、「スポットライトの出口」ではなく
+ * 「浮いてる発光体」に見えてしまっていた(ユーザー指摘で0.8へ縮小)。
+ *
  * **ビルボード(sprite)にしないこと。** sprite は常にカメラの方を向くので、
  * どの角度から見ても真円の光る球体に見えてしまい、「スポットライトの
  * 出口」ではなく「浮いてる発光体」に見える。ビームと同じ向き(法線=
  * ビームの進行方向)を向いた円盤にして、正面(ビームが出ている方向)から
  * 見たときだけ光り、横や後ろからは見えないようにする(FLARE_FRAGMENT参照)。
  */
-const FLARE_RADIUS = 1.6;
+const FLARE_RADIUS = 0.8;
 /** フレアの最大の濃さ。ビーム本体(EAVE_BEAM_OPACITY_MAX)より少し明るく */
 const FLARE_OPACITY_MAX = 0.9;
 /**
@@ -221,9 +347,11 @@ const BEAM_VERTEX = /* glsl */ `
 `;
 
 /*
-  StageBeams.tsx の BEAM_FRAGMENT と同じ考え方(ConeGeometry の断面は
+  StageBeams.tsx の BEAM_FRAGMENT と同じ考え方(円筒の断面は
   「芯が明るい」・先端は smoothstep で完全に減衰)をそのまま流用する。
-  詳しい理屈のコメントは StageBeams.tsx 側を参照。
+  詳しい理屈のコメントは StageBeams.tsx 側を参照(あちらは根元が点の
+  ConeGeometry のままだが、facing による断面の明るさの計算自体は
+  ConeGeometry / CylinderGeometry のどちらでも同じ)。
 
   違いは色と明るさをインスタンス属性から取るところだけ。uOpacity は
   「リグ全体の最大の濃さ × 点灯具合」で、灯ごとの差は vLevel が持つ。
@@ -238,8 +366,15 @@ const BEAM_FRAGMENT = /* glsl */ `
 
   void main() {
     float y = clamp(vUv.y, 0.0, 1.0);
+    /*
+      根元(y=1)がもっとも明るく、先端(y=0)へ向かって暗くなる。
+      **以前あった根元だけを45%減衰させる処理は撤廃した。** ConeGeometryで
+      根元が完全な点だった頃は「一点だけ極端に光るのを避ける」ための処置
+      だったが、根元は光源そのものなので本来ここが一番明るくあるべきで、
+      むしろ光源が暗く・先細りして見えなくなる原因になっていた
+      (ユーザー指摘。BEAM_ROOT_RADIUS で根元に太さを持たせたのと対にして直す)。
+    */
     float along = mix(0.25, 1.0, pow(y, 1.5));
-    along *= 1.0 - smoothstep(0.94, 1.0, y) * 0.45;
     along *= smoothstep(0.0, 0.30, y);
 
     vec3 n = normalize(vNormalView);
@@ -330,9 +465,10 @@ type EaveBeamsProps = {
 };
 
 /**
- * 天守・隅櫓の屋根の四隅、軒下あたりから伸びる細いビームライト
- * (コンサート会場のトラス照明の見立て)。上から見て、その隅に集まる
- * 屋根の2辺をそのまま外へ延長するL字の2方向へ1本ずつ伸ばす。
+ * 天守・隅櫓の屋根の四隅、屋根の斜面の上(軒の隅から棟へ少し登った所。
+ * ROOF_CLIMB)から伸びる細いビームライト(コンサート会場のトラス照明の
+ * 見立て)。上から見て、その隅に集まる屋根の2辺をそのまま外へ延長する
+ * L字の2方向へ1本ずつ伸ばす。
  *
  * **演出は castleBeamRig.ts のキュー表が決める。** 本数(点灯フロント)・
  * 首振り・チェイス・色は全部あちら側で、ここはその結果をインスタンス属性へ
@@ -360,13 +496,27 @@ export function EaveBeams({
   const scratchRef = useRef<typeof scratchValue | null>(null);
 
   /*
-    コーンは既定で頂点が+h/2・底面が-h/2(+Y方向)。rotateX(-90°)で
-    頂点をワールド+Zへ倒し、translateで頂点を原点に据える
+    円柱(CylinderGeometry)は既定で top が+h/2・bottom が-h/2(+Y方向)。
+    radiusTop=BEAM_ROOT_RADIUS(根元)・radiusBottom=BEAM_RADIUS(先端)なので、
+    top 側が光源、bottom 側が空へ広がる先端になる。rotateX(-90°)で
+    top をワールド+Zへ倒し、translateで top を原点に据える
     (StageBeams は+Yへ伸ばすため rotateX(180°)を使っているが、
     今回は+Zへ伸ばしたいので回転角が異なる)。
+    **壁への埋め込みはここでは行わない。** 天守・隅櫓で埋め込み量を
+    変えたいが、この InstancedMesh は全80本で1つのジオメトリを共有する
+    ので、ジオメトリ側に焼き込むと一律にしかできない。埋め込みは
+    EAVE_BEAM_SPOTS 側で spot.position に反映済み(TOWER/CASTLE_BEAM_EMBED_DEPTH
+    のコメント参照)。
   */
   const geometry = useMemo(() => {
-    const g = new ConeGeometry(BEAM_RADIUS, BEAM_LENGTH, BEAM_SEGMENTS, 1, true);
+    const g = new CylinderGeometry(
+      BEAM_ROOT_RADIUS,
+      BEAM_RADIUS,
+      BEAM_LENGTH,
+      BEAM_SEGMENTS,
+      1,
+      true,
+    );
     g.rotateX(-Math.PI / 2);
     g.translate(0, 0, BEAM_LENGTH / 2);
     return g;
@@ -481,12 +631,19 @@ export function EaveBeams({
 
   useFrame(({ clock }, delta) => {
     const beamMesh = beamMeshRef.current;
+    // JSX 側でフレアの instancedMesh を外してある間は常に null
     const flareMesh = flareMeshRef.current;
     const mat = materialRef.current;
     const flareMat = flareMaterialRef.current;
     const attrs = attributesRef.current;
     const scratch = scratchRef.current;
-    if (!beamMesh || !flareMesh || !mat || !flareMat || !attrs || !scratch) {
+    /*
+      **フレアはユーザー指示でいったん描画を止めてある(JSX側で
+      instancedMesh をコメントアウト)。** flareMesh は null のまま
+      になるので早期return の条件には含めない ―― 含めると
+      ビーム本体(beamMesh)の更新まで一緒に止まってしまう。
+    */
+    if (!beamMesh || !mat || !flareMat || !attrs || !scratch) {
       return;
     }
 
@@ -565,7 +722,7 @@ export function EaveBeams({
       scratch.pos.set(spot.position[0], spot.position[1], spot.position[2]);
       scratch.matrix.compose(scratch.pos, scratch.quat, scratch.one);
       beamMesh.setMatrixAt(i, scratch.matrix);
-      flareMesh.setMatrixAt(i, scratch.matrix);
+      flareMesh?.setMatrixAt(i, scratch.matrix);
 
       /* --- 4. 色。パレットをリグの高さ方向へ配り、暖色から寄せる --- */
       const slot = s.colorSlot + spot.heightNorm * s.colorSpread * scratch.palette.length;
@@ -582,7 +739,7 @@ export function EaveBeams({
     }
 
     beamMesh.instanceMatrix.needsUpdate = true;
-    flareMesh.instanceMatrix.needsUpdate = true;
+    if (flareMesh) flareMesh.instanceMatrix.needsUpdate = true;
     attrs.colors.needsUpdate = true;
     attrs.levels.needsUpdate = true;
   });
@@ -598,12 +755,16 @@ export function EaveBeams({
         args={[geometry, material, BEAM_COUNT]}
         frustumCulled={false}
       />
-      {/* 光源そのもののフレア。正面(ビームの出ている方向)からしか見えない */}
-      <instancedMesh
+      {/*
+        光源そのもののフレア。**ユーザー指示でいったん非表示にしてある。**
+        戻すときはこのコメントを外すだけでよい(useFrame 側は flareMesh が
+        null でも動く作りにしてあるので、他の変更は不要)。
+      */}
+      {/* <instancedMesh
         ref={flareMeshRef}
         args={[flareGeometry, flareMaterial, BEAM_COUNT]}
         frustumCulled={false}
-      />
+      /> */}
     </group>
   );
 }

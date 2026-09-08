@@ -9,7 +9,9 @@ import {
   ConeGeometry,
   DoubleSide,
   Group,
+  Quaternion,
   ShaderMaterial,
+  Vector3,
   type SpriteMaterial,
 } from "three";
 import {
@@ -81,43 +83,39 @@ const BEAM_EDGE_OUTSET = 1.4;
 const BEAM_EDGE_SPREAD = 0.35;
 
 /* ------------------------------------------------------------------ *
- * 動き。土台は**参照映像(reply.mp4)から実測した1小節周期の開閉スイープ**で、
- * その上に「曲のセクションごとに照明卓のキューを切り替える」層を重ねている。
+ * 動き。**ユーザーが上から見た配置図を手描きして指定**した軌道をそのまま
+ * 実装している(赤=灯の位置固定、青=その灯の照射方向が描く軌道)。
  *
- * 開閉スイープの測り方(再現手順):
- *   ffmpeg -ss 2 -t 5 -i reply.mp4 -vf "fps=24,scale=192:108" \
- *          -pix_fmt rgb24 -f rawvideo strip.raw
- *   → 上1/3(空)の緑優位ピクセルについて、明るさで重み付けした
- *     |x - 中心| の平均を「広がり量」とし、時系列に取る。
- *   → カットの無い1ショット(4.92〜6.08秒)に正弦を最小二乗フィット。
+ *   隅の4本(隅櫓の外側の角。Beam.isCorner=true): 東(+X)→北(+Z)→
+ *     西(-X)→南(-Z)の順に、直線的に振れて戻る「十字」の軌道。
+ *   辺の8本(天守の四辺。Beam.isCorner=false): 方位を連続的に一周させる
+ *     「円」の軌道。
  *
- * 結果:
- *   周期 2拍 → R2=0.09   周期 4拍 → **R2=0.981**   (8拍は窓が足りず無意味)
- *   振幅 0.341 / 平均 0.482  = 広がりが 0.14 ⇔ 0.82 を往復している
- *   開ききりは小節頭の 0.41拍手前
+ * 以前は全灯が「垂直⇔外向きの扇」を開閉するだけの1軸の動き
+ * (reply.mp4 から実測した周期のフィット)だったが、指定によりこちらへ
+ * 置き換えた。**周期・振れ幅・色・明るさの制御(下の CUES)は変えていない**
+ * ―― セクションごとの盛り上がりに応じて速さ・振れ幅・色を切り替える仕組み
+ * はそのまま活きていて、「軌道の形」だけが十字/円になった。
  *
  * **ここに足してよい変化と、足してはいけない変化がある。**
  *   足してよい: 灯ごとに *決まった順番* で位相をずらす(チェイス・波)。
  *     どの灯がいつ光るかが空間的に読み取れるので、実機の照明卓と同じに見える。
  *   足してはいけない: 拍ごとのランダム抽選、灯ごとの乱数位相。
  *     規則が読めず、実機で見るとかなり気持ち悪い動きになる。
- *
- * 以前は全灯が同位相で開閉するだけだったが、それだと1小節ごとに全部が
- * 一斉に開いて閉じる「パタパタ」にしか見えない。下の CUES で
- * セクションごとにパターン・速さ・明るさ・色を切り替える。
  * ------------------------------------------------------------------ */
 
-/** 閉じきったときの傾き(ラジアン)。全灯ほぼ垂直に立って光の柱になる */
-const TILT_CLOSED = 0.06;
-/** 開ききったときの傾き。扇の内側(手前)の1本 */
-const TILT_OPEN_INNER = 0.52;
-/** 開ききったときの傾き。扇の外側(奥)の1本。差が扇の広がりになる */
-const TILT_OPEN_OUTER = 1.02;
 /**
- * 開ききりが小節頭より何拍手前に来るか。実測 0.41拍。
- * 0にすると小節頭ちょうどで開ききる。参照はわずかに食い気味。
+ * 首振りの最大の傾き(垂直からの角度、ラジアン)。隅の十字・辺の円のどちらも
+ * この振れ幅を基準にする。cue.spread(0〜1)を掛けて、以前の「開閉」の
+ * 代わりにする(spread=0で真上を向いたまま静止、1でこの角度まで振る)。
+ *
+ * **ユーザーが横から見た可動域の図を手描きして指定**しており、それによると
+ * 足元のライトは「垂直〜かなり水平に近い角度」まで動く(建物からのビーム
+ * (castleBeamRig.ts の CASTLE_LIFT_UPPER 系)は水平を超えて見下ろす向きまで
+ * 振れるが、足元は地面すれすれの根元なので水平までに留める)。
+ * 1.3rad(≒75°)は元の0.85rad(≒49°)よりだいぶ寝かせた値。
  */
-const SWEEP_LEAD_BEATS = 0.41;
+const MAX_SWING = 1.3;
 
 /** 小節頭にだけ足すアクセント */
 const BAR_ACCENT = 0.16;
@@ -142,7 +140,10 @@ type BeamPattern = "unison" | "wave" | "chase" | "split";
  */
 type BeamCue = {
   pattern: BeamPattern;
-  /** 開閉スイープの周期(小節)。大きいほどゆっくり首を振る */
+  /**
+   * 首振り(十字/円)の周期(小節)。大きいほどゆっくり動く
+   * (隅は1周=4方向を巡る周期、辺は1周=円を1周する周期)。
+   */
   sweepBars: number;
   /** 走る光(チェイス)が一周するのにかかる小節数 */
   chaseBars: number;
@@ -150,7 +151,7 @@ type BeamCue = {
   chaseDepth: number;
   /** 全体の明るさ倍率。1が基準 */
   level: number;
-  /** 扇の開き具合の上限。0で閉じたまま(光の柱)、1で全開 */
+  /** 首振りの振れ幅の上限。0で真上に静止(光の柱)、1でMAX_SWINGまで振る */
   spread: number;
   /** 拍のストロボの深さ */
   strobe: number;
@@ -421,6 +422,24 @@ type Beam = {
   half: number;
   /** 扇の内(0)から外(1)への位置。鏡像ペアには同じ値が入る */
   u: number;
+  /**
+   * 隅櫓の1本(true)か、天守の辺の1本(false)か。
+   * 首振りの軌道の形(十字 or 円)を決める(ユーザー指定の配置図参照)。
+   */
+  isCorner: boolean;
+  /**
+   * angle(外向きの方位)ぶんのY軸回転を打ち消す逆クォータニオン。
+   *
+   * **これが無いと、十字/円の軌道が「灯ごとの外向き方位を基準にした
+   * 相対的な向き」になってしまう。** mesh は外側の group(Y回転=angle)の
+   * 子で、mesh.quaternion はその group から見た**相対的な**回転。
+   * 首振りの計算(dir/targetQuat)はワールド座標系の絶対的な東西南北
+   * (画像どおり、灯の位置に関わらず同じ4方向・同じ円)で作っているので、
+   * mesh へ渡す前に親の回転(angle)を打ち消してローカル空間へ変換する
+   * 必要がある。useFrame 内で毎フレーム計算し直すのは無駄なので、
+   * angle は固定値であることを利用してここで一度だけ計算しておく。
+   */
+  groupQuatInverse: Quaternion;
 };
 
 /**
@@ -449,65 +468,104 @@ const [TOP_RIGHT_TOWER, TOP_LEFT_TOWER, BOTTOM_LEFT_TOWER, BOTTOM_RIGHT_TOWER] =
  * 確認済み: (front-right, front-left) / (隅櫓右上, 隅櫓左上) /
  * (right前寄り, left前寄り) / (right後寄り, left後寄り) /
  * (隅櫓右下, 隅櫓左下) / (back-right, back-left)。
+ *
+ * isCorner: 隅櫓の4点(true)か天守の辺の8点(false)か。首振りの軌道
+ * (十字 or 円)を決める(MAX_SWING のコメント参照)。
  */
-const BEAM_POINTS: readonly { x: number; z: number; angle: number }[] = [
+const BEAM_POINTS: readonly {
+  x: number;
+  z: number;
+  angle: number;
+  isCorner: boolean;
+}[] = [
   // front-right: 前辺、中心から右寄り
   {
     x: CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
     z: CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
     angle: 0,
+    isCorner: false,
   },
   // 隅櫓(右上): 前辺と右辺のちょうど中間の対角線上
-  { x: TOP_RIGHT_TOWER[0], z: TOP_RIGHT_TOWER[1], angle: Math.PI / 4 },
+  {
+    x: TOP_RIGHT_TOWER[0],
+    z: TOP_RIGHT_TOWER[1],
+    angle: Math.PI / 4,
+    isCorner: true,
+  },
   // right辺、前寄りの1点
   {
     x: CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
     z: CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
     angle: Math.PI / 2,
+    isCorner: false,
   },
   // right辺、後ろ寄りの1点
   {
     x: CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
     z: -CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
     angle: Math.PI / 2,
+    isCorner: false,
   },
   // 隅櫓(右下): 右辺と後辺のちょうど中間の対角線上
-  { x: BOTTOM_RIGHT_TOWER[0], z: BOTTOM_RIGHT_TOWER[1], angle: (3 * Math.PI) / 4 },
+  {
+    x: BOTTOM_RIGHT_TOWER[0],
+    z: BOTTOM_RIGHT_TOWER[1],
+    angle: (3 * Math.PI) / 4,
+    isCorner: true,
+  },
   // back-right: 後辺、中心から右寄り
   {
     x: CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
     z: -CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
     angle: Math.PI,
+    isCorner: false,
   },
   // back-left: 後辺、中心から左寄り
   {
     x: -CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
     z: -CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
     angle: Math.PI,
+    isCorner: false,
   },
   // 隅櫓(左下): 後辺と左辺のちょうど中間の対角線上
-  { x: BOTTOM_LEFT_TOWER[0], z: BOTTOM_LEFT_TOWER[1], angle: (-3 * Math.PI) / 4 },
+  {
+    x: BOTTOM_LEFT_TOWER[0],
+    z: BOTTOM_LEFT_TOWER[1],
+    angle: (-3 * Math.PI) / 4,
+    isCorner: true,
+  },
   // left辺、後ろ寄りの1点
   {
     x: -CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
     z: -CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
     angle: -Math.PI / 2,
+    isCorner: false,
   },
   // left辺、前寄りの1点
   {
     x: -CASTLE_HALF_WIDTH * BEAM_EDGE_OUTSET,
     z: CASTLE_HALF_DEPTH * BEAM_EDGE_SPREAD,
     angle: -Math.PI / 2,
+    isCorner: false,
   },
   // 隅櫓(左上): 左辺と前辺のちょうど中間の対角線上
-  { x: TOP_LEFT_TOWER[0], z: TOP_LEFT_TOWER[1], angle: -Math.PI / 4 },
+  {
+    x: TOP_LEFT_TOWER[0],
+    z: TOP_LEFT_TOWER[1],
+    angle: -Math.PI / 4,
+    isCorner: true,
+  },
   // front-left: 前辺、中心から左寄り
   {
     x: -CASTLE_HALF_WIDTH * BEAM_EDGE_SPREAD,
     z: CASTLE_HALF_DEPTH * BEAM_EDGE_OUTSET,
     angle: 0,
+    isCorner: false,
   },
 ];
+
+/** 灯の基準の向き(真上)。首振りの方向ベクトルをこの向きからの回転として作る */
+const UP = new Vector3(0, 1, 0);
 
 /** なめらかな加減速。キューのクロスフェードに使う */
 function smoothstep(x: number) {
@@ -564,15 +622,14 @@ type StageBeamsProps = {
  * 立ち上げる)。実際のボリュームライトは重いので、加算合成のコーン+根元の
  * フレアで見立てている。12本 × 三角形数十枚なので描画コストは無視できる。
  *
- * **動きは reply.mp4 から実測した1本の規則しか持たない。**
- * 1小節(4拍=1.412秒)周期の正弦で、全灯が同位相・左右対称に
- * 「垂直 ⇔ 外向きの扇」を往復する(上の TILT_* とフィット結果のコメント参照)。
- * 乱数も、拍ごとの抽選も、本ごとの位相ずらしも入れないこと — どれも
- * 「規則が読めない動き」になって、実機で見るとかなり気持ち悪い。
- * 変化を足したいときは、周期を小節の倍数に取ったレイヤーを重ねる
- * (色替えの COLOR_BARS がその例)。**リグ自体は固定位置で回転させない**
- * (以前はゆっくり1周させていたが、天守の周りを回っているように見えて
- * 不自然なので廃止した)。
+ * **動きはユーザーが手描きした配置図をそのまま実装している**
+ * (隅の4本=十字、辺の8本=円。上の「動き」セクションのコメント、
+ * MAX_SWING のコメント参照)。乱数も、拍ごとの抽選も、本ごとの乱数位相も
+ * 入れないこと — どれも「規則が読めない動き」になって、実機で見ると
+ * かなり気持ち悪い。変化を足したいときは、周期を小節の倍数に取った
+ * レイヤーを重ねる(色替えの COLOR_BARS がその例)。**リグ自体は固定位置で
+ * 回転させない**(以前はゆっくり1周させていたが、天守の周りを回っている
+ * ように見えて不自然なので廃止した)。
  */
 export function StageBeams({
   position = [0, 0, 0],
@@ -586,6 +643,10 @@ export function StageBeams({
   const beams = useMemo<Beam[]>(() => {
     return BEAM_POINTS.map((p, i) => {
       const half = Math.min(i, BEAM_COUNT - 1 - i);
+      // 親group(rotation.y=angle)を打ち消す逆クォータニオン(groupQuatInverse のコメント参照)
+      const groupQuatInverse = new Quaternion()
+        .setFromAxisAngle(UP, p.angle)
+        .invert();
       return {
         x: p.x,
         z: p.z,
@@ -593,6 +654,8 @@ export function StageBeams({
         order: i,
         half,
         u: half / (BEAM_HALF - 1),
+        isCorner: p.isCorner,
+        groupQuatInverse,
       };
     });
   }, []);
@@ -678,13 +741,16 @@ export function StageBeams({
   /** 今どのキューで塗ったか。セクションが変わったら塗り直す */
   const colorCueRef = useRef(Number.NaN);
   /**
-   * 灯ごとの現在の傾き(ラジアン)。目標値へ毎フレーム追従させる。
-   *
-   * 実機のムービングヘッドは首の回る速さに限りがあるので、目標へ瞬間移動
-   * させると作り物に見える。ここで一段なまらせることで、キューが切り替わって
-   * 位相が飛んでも「ヘッドが向きを変えた」動きとして繋がる。
+   * 首振り(十字/円)の計算で使い回すスクラッチ。useFrame の中で
+   * new すると R3F の禁止ルールに触れるので、ref の初期値として一度だけ
+   * 作る(tiltRef 時代と同じ「useRefの初期値に直接 new を渡す」パターン)。
+   * 灯ごとの目標姿勢は mesh.quaternion.slerp(...) で追従させる
+   * (実機のムービングヘッドは首の回る速さに限りがあり、目標へ瞬間移動
+   * させると作り物に見えるため。以前の tiltRef の役割を quaternion の
+   * slerp が引き継いでいる)。
    */
-  const tiltRef = useRef<Float32Array>(new Float32Array(BEAM_COUNT));
+  const swingDirRef = useRef(new Vector3());
+  const swingQuatRef = useRef(new Quaternion());
 
   useFrame(({ clock }, delta) => {
     // 出具合はref経由(数値propだと親ごと毎フレーム再レンダー)
@@ -775,36 +841,66 @@ export function StageBeams({
       group.children.forEach((child, i) => {
         const beam = beams[i];
         /*
-          傾けるのは中の mesh、配置角(Y回転)は外側の group。
-          親でY・子でXと分けないと、Euler の合成順(three既定のXYZ)の都合で
-          全ビームが同じ方向へ倒れてしまう。
+          首を振るのは中の mesh(quaternion)、配置角(外向きの方位)は
+          外側の group(rotation.y、固定)。役割を分けておくことで、
+          首振りの計算はどの灯も「ローカルの真上」を基準にした同じ式で
+          済み、外向きの方位はグループの回転が自動で載せてくれる。
         */
         const mesh = child.children[0];
         if (!beam || !mesh) return;
 
         /*
-          開ききり(=1)が小節頭の SWEEP_LEAD_BEATS ぶん手前に来るよう位相を
-          進める。そこへ灯ごとのずらし量を足すと、同じ正弦のまま
-          「順番に開いていく」動きになる。
+          首振りの向き。灯ごとのずらし量(phase)を足した上で、隅は「十字」・
+          辺は「円」の軌道を描く(ユーザー指定の配置図、MAX_SWING のコメント
+          参照)。spreadNow(0〜1)が振れ幅そのもの(以前の「開閉」に相当)。
         */
         const phase = patternPhase(cue.pattern, beam);
-        const open =
-          0.5 +
-          0.5 *
-            Math.cos(
-              Math.PI * 2 * (sweepPos + SWEEP_LEAD_BEATS / 4 + phase),
-            );
+        const cyclePos = sweepPos + phase;
 
-        // 開いたときの傾きは扇の内(TILT_OPEN_INNER)から外(OUTER)へ広がる
-        const openTilt =
-          TILT_OPEN_INNER + (TILT_OPEN_OUTER - TILT_OPEN_INNER) * beam.u;
-        const target = TILT_CLOSED + (openTilt - TILT_CLOSED) * open * spreadNow;
+        let azimuth: number;
+        let polar: number;
+        if (beam.isCorner) {
+          /*
+            十字: 東(+X)→北(+Z)→西(-X)→南(-Z)の順に、直線的に振れて
+            戻る。1周期(cue.sweepBars小節)を4等分し、その区間の中で
+            0→1→0 と往復する(Math.sin(within*π))。
+          */
+          const cycleFrac = cyclePos - Math.floor(cyclePos);
+          const segment = cycleFrac * 4;
+          const segIndex = Math.floor(segment) % 4;
+          const within = segment - Math.floor(segment);
+          const swing = Math.sin(within * Math.PI);
+          azimuth = segIndex * (Math.PI / 2);
+          polar = MAX_SWING * swing * spreadNow;
+        } else {
+          // 円: 方位を連続的に一周させる。傾きの大きさ(polar)は一定
+          azimuth = 2 * Math.PI * cyclePos;
+          polar = MAX_SWING * spreadNow;
+        }
 
-        // ヘッドの首振りをなまして追従させる(上の tiltRef のコメント参照)
-        const current = tiltRef.current[i];
-        const next = current + (target - current) * follow;
-        tiltRef.current[i] = next;
-        mesh.rotation.x = next;
+        /*
+          極角(polar)・方位角(azimuth)から方向ベクトルを作り、真上(UP)から
+          その方向への回転を Quaternion で直接組む。Euler(rotation.x/z)を
+          個別に動かすと合成順序でねじれるので、球面座標→ベクトル→
+          setFromUnitVectors で一発に作るのが正確(EaveBeams/GableBeams の
+          lift/yaw とは違い、こちらは対称な円錐状の首振りなのでこの方法が合う)。
+        */
+        const dir = swingDirRef.current;
+        dir.set(
+          Math.sin(polar) * Math.cos(azimuth),
+          Math.cos(polar),
+          Math.sin(polar) * Math.sin(azimuth),
+        );
+        const targetQuat = swingQuatRef.current;
+        // ここまではワールド座標系の絶対的な向き。mesh は外側group(Y回転=
+        // beam.angle)の子なので、親の回転を打ち消してローカル空間へ変換する
+        // (groupQuatInverse のコメント参照。これが無いと十字/円が
+        // 灯ごとの外向き方位で回転してしまう)
+        targetQuat.setFromUnitVectors(UP, dir);
+        targetQuat.premultiply(beam.groupQuatInverse);
+
+        // ヘッドの首振りをなまして追従させる(以前の tiltRef と同じ考え方)
+        mesh.quaternion.slerp(targetQuat, follow);
       });
     }
 
@@ -845,7 +941,7 @@ export function StageBeams({
           <mesh
             geometry={geometry}
             material={materials[i]}
-            rotation={[TILT_CLOSED, 0, 0]}
+            // 初期姿勢は真上(無回転)。以降は useFrame が quaternion を直接書き換える
             // 空へ長く伸びるので、天守の bbox ではカリングされてしまう
             frustumCulled={false}
           />

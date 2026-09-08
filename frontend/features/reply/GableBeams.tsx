@@ -6,7 +6,7 @@ import {
   AdditiveBlending,
   CircleGeometry,
   Color,
-  ConeGeometry,
+  CylinderGeometry,
   DoubleSide,
   DynamicDrawUsage,
   Euler,
@@ -99,6 +99,38 @@ function azimuthOf(x: number, z: number) {
   return (Math.atan2(x, z) / (Math.PI * 2) + 1) % 1;
 }
 
+/**
+ * ビームの太さ。指示で「少し太く」とのことで一度3.2まで太くしたが、
+ * まだ太いとの指摘で 2.2 → 1.4 と段階的に絞ってきた。EaveBeams と同じ
+ * 比率(先端/根元とも約36%減)で連動させてある(EaveBeams(0.5、軒下用の
+ * 細い光条)より明確に太いが、StageBeams(9、足元のサーチライト)ほどでは
+ * ない値を目視で選んである)。
+ *
+ * **この3定数(BEAM_RADIUS / BEAM_ROOT_RADIUS / BEAM_EMBED_DEPTH)は
+ * GABLE_SPOTS より前に置くこと。** GABLE_SPOTS はモジュール読み込み時に
+ * 即評価され、BEAM_EMBED_DEPTH を参照するので、後ろに置くと実行時
+ * ReferenceError になる(EaveBeams.tsx の同じ注意書きと同じ理由)。
+ */
+const BEAM_RADIUS = 1.4;
+/**
+ * 根元(光源側)の半径。**0にしないこと。**
+ * 理由は EaveBeams.tsx の同名定数のコメント参照(フレアを非表示にした状態で
+ * 根元が完全な点だと光源が消えて見えるため、CylinderGeometry で太さを持たせる)。
+ */
+const BEAM_ROOT_RADIUS = BEAM_RADIUS * 0.4;
+/**
+ * 根元を壁の内側へ埋め込む深さ(ワールド単位)。**破風は天守だけが対象**
+ * なので、EaveBeams.tsx の CASTLE_BEAM_EMBED_DEPTH(天守用、隅櫓より深い)
+ * と同じ係数(BEAM_ROOT_RADIUS の4.5倍)を使う。
+ *
+ * **ジオメトリではなく GABLE_SPOTS 側で spot.position に適用する**
+ * (EaveBeams.tsx と同じ)。ジオメトリに焼き込むと回転中心(instanceMatrix
+ * の原点)が光源から離れ、首を上下に振ったとき光源ごと弧を描いて
+ * 「緑の点からすこし離れた所を中心に光が回る」ように見えてしまう
+ * (ユーザー指摘。geometry のコメント参照)。
+ */
+const BEAM_EMBED_DEPTH = BEAM_ROOT_RADIUS * 4.5;
+
 const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
   // ひとつ上の段の軒(破風が乗る屋根の上端)。GABLE_TIERSで使うのは0〜2段目までだが、
   // CASTLE_ROOF_TIERS自体は5段あるので i+1 は常に存在する
@@ -109,16 +141,17 @@ const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
   const frontBack = FRONT_BACK_XS[i].flatMap((xr): GableSpot[] => {
     const x = xr * t.halfWidth;
     return [
-      // 正面(+Z)
+      // 正面(+Z)。根元を壁の内側(-Z)へ BEAM_EMBED_DEPTH 引く。
+      // 方位・高さは引く前の壁面座標で計算する(EaveBeams と同じ)。
       {
-        position: [x, y, t.halfDepth],
+        position: [x, y, t.halfDepth - BEAM_EMBED_DEPTH],
         rotationY: 0,
         heightNorm,
         azimuth: azimuthOf(x, t.halfDepth),
       },
-      // 背面(-Z)
+      // 背面(-Z)。根元を壁の内側(+Z)へ引く
       {
-        position: [x, y, -t.halfDepth],
+        position: [x, y, -t.halfDepth + BEAM_EMBED_DEPTH],
         rotationY: Math.PI,
         heightNorm,
         azimuth: azimuthOf(x, -t.halfDepth),
@@ -129,16 +162,16 @@ const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
   const sides = SIDE_ZS[i].flatMap((zr): GableSpot[] => {
     const z = zr * t.halfDepth;
     return [
-      // 右(+X)
+      // 右(+X)。根元を壁の内側(-X)へ引く
       {
-        position: [t.halfWidth, y, z],
+        position: [t.halfWidth - BEAM_EMBED_DEPTH, y, z],
         rotationY: Math.PI / 2,
         heightNorm,
         azimuth: azimuthOf(t.halfWidth, z),
       },
-      // 左(-X)
+      // 左(-X)。根元を壁の内側(+X)へ引く
       {
-        position: [-t.halfWidth, y, z],
+        position: [-t.halfWidth + BEAM_EMBED_DEPTH, y, z],
         rotationY: -Math.PI / 2,
         heightNorm,
         azimuth: azimuthOf(-t.halfWidth, z),
@@ -154,12 +187,6 @@ const BEAM_COUNT = GABLE_SPOTS.length;
 
 /** ビームの長さ。EaveBeams と同じく水面(半径400)の内側に収まる長さ */
 const BEAM_LENGTH = 150;
-/**
- * ビームの太さ。指示で「少し太く」とのことなので、EaveBeams(1.2、軒下用の
- * 細い光条)より明確に太いが、StageBeams(9、足元のサーチライト)ほどでは
- * ない値を目視で選んである。
- */
-const BEAM_RADIUS = 3.2;
 /** 円周方向の分割数。EaveBeams と同じく絞ってある */
 const BEAM_SEGMENTS = 12;
 
@@ -170,13 +197,18 @@ const GABLE_BEAM_OPACITY_MAX = 0.55;
  * 根元に置くフレアの半径(ワールド単位)。EaveBeamsよりビーム自体が太いので、
  * フレアも一回り大きくしてある。
  *
+ * **大きすぎると逆効果。** 元は2.4だったが、引きの画で天守のまわりに
+ * 白っぽい丸い玉がいくつも浮いて見え、「スポットライトの出口」ではなく
+ * 「浮いてる発光体」に見えてしまっていた(ユーザー指摘で1.2へ縮小。
+ * EaveBeams の FLARE_RADIUS と同じ比率で半分にしてある)。
+ *
  * **ビルボード(sprite)にしないこと。** sprite は常にカメラの方を向くので、
  * どの角度から見ても真円の光る球体に見えてしまい、「スポットライトの
  * 出口」ではなく「浮いてる発光体」に見える。ビームと同じ向き(法線=
  * ビームの進行方向)を向いた円盤にして、正面(ビームが出ている方向)から
  * 見たときだけ光り、横や後ろからは見えないようにする(FLARE_FRAGMENT参照)。
  */
-const FLARE_RADIUS = 2.4;
+const FLARE_RADIUS = 1.2;
 /** フレアの最大の濃さ。ビーム本体(GABLE_BEAM_OPACITY_MAX)より少し明るく */
 const FLARE_OPACITY_MAX = 0.9;
 /**
@@ -224,8 +256,15 @@ const BEAM_FRAGMENT = /* glsl */ `
 
   void main() {
     float y = clamp(vUv.y, 0.0, 1.0);
+    /*
+      根元(y=1)がもっとも明るく、先端(y=0)へ向かって暗くなる。
+      **以前あった根元だけを45%減衰させる処理は撤廃した。** ConeGeometryで
+      根元が完全な点だった頃は「一点だけ極端に光るのを避ける」ための処置
+      だったが、根元は光源そのものなので本来ここが一番明るくあるべきで、
+      むしろ光源が暗く・先細りして見えなくなる原因になっていた
+      (ユーザー指摘。BEAM_ROOT_RADIUS で根元に太さを持たせたのと対にして直す)。
+    */
     float along = mix(0.25, 1.0, pow(y, 1.5));
-    along *= 1.0 - smoothstep(0.94, 1.0, y) * 0.45;
     along *= smoothstep(0.0, 0.30, y);
 
     vec3 n = normalize(vNormalView);
@@ -318,11 +357,28 @@ export function GableBeams({
   const scratchRef = useRef<typeof scratchValue | null>(null);
 
   /*
-    コーンは既定で頂点が+h/2・底面が-h/2(+Y方向)。rotateX(-90°)で
-    頂点をワールド+Zへ倒し、translateで頂点を原点に据える。
+    円柱(CylinderGeometry)は既定で top が+h/2・bottom が-h/2(+Y方向)。
+    radiusTop=BEAM_ROOT_RADIUS(根元)・radiusBottom=BEAM_RADIUS(先端)なので、
+    top 側が光源、bottom 側が空へ広がる先端になる。rotateX(-90°)で
+    top をワールド+Zへ倒し、translateで **top(=光源)をちょうど原点に**据える。
+
+    **埋め込みオフセットをここに焼き込まないこと。** ここで -BEAM_EMBED_DEPTH
+    すると根元が原点より手前(-Z)へずれ、instanceMatrix の回転中心(=原点)が
+    光源そのものから離れる。すると首を上下に振ったとき光源が原点まわりに
+    弧を描き、「緑の点からすこし離れた所を中心に光が回っている」ように
+    見えてしまう(ユーザー指摘)。埋め込みは EaveBeams.tsx と同じく
+    GABLE_SPOTS 側で spot.position を壁の内側へ引いて行う ―― こうすると
+    回転中心が光源に一致し、首振りでは先端(末端)だけが動く。
   */
   const geometry = useMemo(() => {
-    const g = new ConeGeometry(BEAM_RADIUS, BEAM_LENGTH, BEAM_SEGMENTS, 1, true);
+    const g = new CylinderGeometry(
+      BEAM_ROOT_RADIUS,
+      BEAM_RADIUS,
+      BEAM_LENGTH,
+      BEAM_SEGMENTS,
+      1,
+      true,
+    );
     g.rotateX(-Math.PI / 2);
     g.translate(0, 0, BEAM_LENGTH / 2);
     return g;
@@ -418,12 +474,19 @@ export function GableBeams({
 
   useFrame(({ clock }, delta) => {
     const beamMesh = beamMeshRef.current;
+    // JSX 側でフレアの instancedMesh を外してある間は常に null
     const flareMesh = flareMeshRef.current;
     const mat = materialRef.current;
     const flareMat = flareMaterialRef.current;
     const attrs = attributesRef.current;
     const scratch = scratchRef.current;
-    if (!beamMesh || !flareMesh || !mat || !flareMat || !attrs || !scratch) {
+    /*
+      **フレアはユーザー指示でいったん描画を止めてある(JSX側で
+      instancedMesh をコメントアウト)。** flareMesh は null のまま
+      になるので早期return の条件には含めない ―― 含めると
+      ビーム本体(beamMesh)の更新まで一緒に止まってしまう。
+    */
+    if (!beamMesh || !mat || !flareMat || !attrs || !scratch) {
       return;
     }
 
@@ -478,7 +541,7 @@ export function GableBeams({
       scratch.pos.set(spot.position[0], spot.position[1], spot.position[2]);
       scratch.matrix.compose(scratch.pos, scratch.quat, scratch.one);
       beamMesh.setMatrixAt(i, scratch.matrix);
-      flareMesh.setMatrixAt(i, scratch.matrix);
+      flareMesh?.setMatrixAt(i, scratch.matrix);
 
       /* --- 4. 色。パレットをリグの高さ方向へ配り、暖色から寄せる --- */
       const slot = s.colorSlot + spot.heightNorm * s.colorSpread * n;
@@ -491,7 +554,7 @@ export function GableBeams({
     }
 
     beamMesh.instanceMatrix.needsUpdate = true;
-    flareMesh.instanceMatrix.needsUpdate = true;
+    if (flareMesh) flareMesh.instanceMatrix.needsUpdate = true;
     attrs.colors.needsUpdate = true;
     attrs.levels.needsUpdate = true;
   });
@@ -504,12 +567,16 @@ export function GableBeams({
         args={[geometry, material, BEAM_COUNT]}
         frustumCulled={false}
       />
-      {/* 光源そのもののフレア。正面(ビームの出ている方向)からしか見えない */}
-      <instancedMesh
+      {/*
+        光源そのもののフレア。**ユーザー指示でいったん非表示にしてある。**
+        戻すときはこのコメントを外すだけでよい(useFrame 側は flareMesh が
+        null でも動く作りにしてあるので、他の変更は不要)。
+      */}
+      {/* <instancedMesh
         ref={flareMeshRef}
         args={[flareGeometry, flareMaterial, BEAM_COUNT]}
         frustumCulled={false}
-      />
+      /> */}
     </group>
   );
 }
