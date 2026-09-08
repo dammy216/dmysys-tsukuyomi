@@ -47,6 +47,9 @@ import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
   **動き・色・本数は castleBeamRig.ts が受け持つ。** このファイルは
   「どこに何本あるか」と描画だけで、演出の判断は一切持たない
   (破風のビーム GableBeams.tsx も同じリグを共有するので、2つが揃って動く)。
+  例外として、**軒ビームの横振り(yaw)だけ**このファイルで増幅する
+  ―― cue.yaw が全リグ共通で小さく軒の光が横に動かないため
+  (天守・隅櫓で別ゲイン。*_YAW_GAIN / *_YAW_MIN 参照)。
 */
 
 type RoofRow = { y: number; halfWidth: number; halfDepth: number };
@@ -137,6 +140,11 @@ type EaveBeamSpot = {
   heightNorm: number;
   /** 城の中心から見た方位 0〜1(1周)。チェイスが城を回る順番になる */
   azimuth: number;
+  /**
+   * 隅櫓のビームか(true)、天守のビームか(false)。
+   * 横(yaw)の首振りゲインを天守/隅櫓で切り替えるのに使う(*_YAW_* 参照)。
+   */
+  isTower: boolean;
 };
 
 /**
@@ -212,6 +220,23 @@ const ROOF_CLIMB = 0;
 const CORNER_INSET = 0.08;
 
 /**
+ * 軒ビームの横(yaw)の首振りをどれだけ強めるか。**天守と隅櫓で別々に持つ。**
+ *
+ * castleBeamRig の cue.yaw は全リグ共通で ±1〜9°ほどしかなく、軒の光は
+ * ほぼ横に動かない(ユーザー指摘)。軒ビームに限ってこの倍率を掛け、上下の
+ * 振り(liftSwing)はそのままに左右へ扇状に大きく振らせる。上下と 90° 位相が
+ * ずれているので、ヘッドは横長の楕円を描く。破風(GableBeams)は cue.yaw のまま。
+ *
+ * *_YAW_MIN … 静かな区間でも最低これだけは横に振る下限(ラジアン。0.35≒20°)。
+ * *_YAW_GAIN を上げすぎると扇の端で隣の隅櫓・天守面へビームがかぶる。
+ * 今は天守・隅櫓とも同値。片方だけ広げたいときはここで差をつける。
+ */
+const TOWER_YAW_GAIN = 5;
+const TOWER_YAW_MIN = 0.35;
+const CASTLE_YAW_GAIN = 5;
+const CASTLE_YAW_MIN = 0.35;
+
+/**
  * 層ごとの屋根の四隅(±半幅, ±半奥行き)それぞれに、そこへ集まる2辺を
  * 外へ延長する2方向(L字)でビームの根元を置く。位置・向きは定数だけから
  * 決まるので、モジュール読み込み時に一度だけ計算する
@@ -276,6 +301,7 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
         rotationY: signX > 0 ? Math.PI / 2 : -Math.PI / 2,
         heightNorm,
         azimuth,
+        isTower: !isCastle,
       });
     }
     if (qz === 0 || signZ === qz) {
@@ -285,6 +311,7 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
         rotationY: signZ > 0 ? 0 : Math.PI,
         heightNorm,
         azimuth,
+        isTower: !isCastle,
       });
     }
     return spots;
@@ -717,7 +744,15 @@ export function EaveBeams({
         コメント参照)。
       */
       const targetLift = s.lift + s.liftSwing * Math.cos(swing);
-      const targetYaw = s.yaw * Math.sin(swing);
+      /*
+        軒ビームの横の首振りを大きくして扇状に振らせる(天守・隅櫓で別ゲイン、
+        破風は cue.yaw のまま)。上下(liftSwing)には手を付けないので、
+        横長の楕円軌道になる。*_YAW_* のコメント参照。
+      */
+      const yawAmp = spot.isTower
+        ? Math.max(s.yaw * TOWER_YAW_GAIN, TOWER_YAW_MIN)
+        : Math.max(s.yaw * CASTLE_YAW_GAIN, CASTLE_YAW_MIN);
+      const targetYaw = yawAmp * Math.sin(swing);
 
       /*
         実機のムービングヘッドは首の回る速さに限りがあるので、目標へ
