@@ -37,18 +37,18 @@ import {
   type UnderwaterEffectImpl,
 } from "@/features/starfall-sea";
 import {
+  BeamLight,
   CastleAssembly,
   ConcertStage,
   CornerTowers,
-  EaveBeams,
   EdoCastle,
-  GableBeams,
   ReplyCamera,
   ReplyFireworks,
   ReplyHologram,
   ReplyMoon,
-  StageBeams,
+  Searchlight,
   ToriiGate,
+  WashLight,
   replyFadeGainAt,
   replySectionEnergyAt,
   REPLY_BASE_POSITION,
@@ -328,7 +328,7 @@ export function SceneContents({
   */
   const replyLightsRef = useRef(0);
   /*
-    曲(=ホログラム映像)の再生位置(秒)。ステージ照明(StageBeams)の首振り・
+    曲(=ホログラム映像)の再生位置(秒)。サーチライト(Searchlight)の首振り・
     明滅・色替えを 170bpm のビートグリッドに乗せるために渡す。
     シーンの経過時間ではなく曲の時計を使うので、押し直してもループしても
     照明が曲と同じ位相をなぞる。
@@ -939,18 +939,18 @@ export function SceneContents({
               そのため songTimeRef も渡す。出し入れは activation で足りるので
               group.visible は不要。
             */}
-            <EaveBeams
+            <BeamLight
               position={REPLY_BASE_POSITION}
               activationRef={replyActivationRef}
               lightsRef={replyLightsRef}
               songTimeRef={replySongTimeRef}
             />
             {/*
-              天守四面(前後左右)の破風から外向きへ伸びる、EaveBeamsより
-              太いビーム(16本)。上の軒下ビームと**同じ照明卓**
-              (castleBeamRig.ts)で動くので、2つのビーム群は揃って動く。
+              天守四面(前後左右)の破風から外向きへ広がるウォッシュライト
+              (16本。細い筋ではなく面を染める光)。上の軒下ビームと
+              **同じ照明卓**(castleBeamRig.ts)で動くので揃って動く。
             */}
-            <GableBeams
+            <WashLight
               position={REPLY_BASE_POSITION}
               activationRef={replyActivationRef}
               lightsRef={replyLightsRef}
@@ -962,7 +962,7 @@ export function SceneContents({
               (上の replyStageGroupRef のコメント参照)。visible は useFrame が書く。
             */}
             <group ref={replyBeamsGroupRef} visible={false}>
-              <StageBeams
+              <Searchlight
                 position={REPLY_BASE_POSITION}
                 activationRef={replyLightsRef}
                 songTimeRef={replySongTimeRef}

@@ -30,6 +30,22 @@ import {
 import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
 
 /*
+  ------------------------------------------------------------------
+  用語(reply の照明は光源の場所で呼び分ける。ユーザー指定の呼び名):
+
+    BeamLight     = このファイル。**屋根の端(軒)から出るビーム**。
+                    天守・隅櫓の屋根の層ごとに四隅へ立てる 80 本(細い光条)。
+    WashLight     = 天守四面の**破風**から出る**ウォッシュライト** 16 本
+                    (細い筋ではなく広がりで面を染める光)。BeamLight と
+                    同じリグ(castleBeamRig)を共有する別コンポーネント。
+    Searchlight   = **足元**(水面すぐ上)から空へ撃つサーチライト 12 本。
+                    別リグ(Searchlight.tsx 内の CUES)で動く。
+
+  「建物から出る光」= BeamLight(軒 80)+ WashLight(破風 16)= 96 本で、
+  この 96 本だけ castleBeamRig.ts が照明卓としてまとめて動かす。
+  Searchlight はそこに含まれない。
+  ------------------------------------------------------------------
+
   参照画像はコンサート会場のトラス照明。天守・隅櫓それぞれの屋根の
   **層ごとに**四隅へ立てる。天守・隅櫓とも1段の箱ではなく、上へ行くほど
   幅が狭くなる屋根が何段も重なった層塔型の建物(天守はCASTLE_ROOF_TIERSで
@@ -38,7 +54,7 @@ import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
 
   向きは「全ビームが同じ+Zへ平行」ではなく、**各隅ごとにL字**
   (上から見て、その隅に集まる屋根の2辺をそのまま外へ延長する2方向)。
-  StageBeams.tsx のような放射状の扇でもない。
+  Searchlight.tsx のような放射状の扇でもない。
 
   天守は四隅とも正味のL字(4隅×2本=8本/層)。隅櫓は天守の四隅に重なって
   立つ配置なので、天守側(内側)を向く成分は城の中を貫通してしまうため
@@ -46,10 +62,10 @@ import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
 
   **動き・色・本数は castleBeamRig.ts が受け持つ。** このファイルは
   「どこに何本あるか」と描画だけで、演出の判断は一切持たない
-  (破風のビーム GableBeams.tsx も同じリグを共有するので、2つが揃って動く)。
+  (破風のウォッシュ WashLight.tsx も同じリグを共有するので、2つが揃って動く)。
   例外として、**横振り(yaw)だけ**は cue.yaw が全リグ共通で小さすぎて光が
   横に動かないため、各ファイルで増幅する(ここは軒。天守・隅櫓で別ゲイン。
-  *_YAW_GAIN / *_YAW_MIN 参照。破風は GableBeams.tsx の GABLE_YAW_*)。
+  *_YAW_GAIN / *_YAW_MIN 参照。破風は WashLight.tsx の WASH_YAW_*)。
 */
 
 type RoofRow = { y: number; halfWidth: number; halfDepth: number };
@@ -148,8 +164,15 @@ type EaveBeamSpot = {
 };
 
 /**
- * ビームの太さ。トラス照明の光条らしい細さを求められ、2.6 → 1.2 → 0.8 と
- * 段階的に絞ってきたが、まだ太いとの指摘でさらに絞ってある。
+ * ビームライトの太さ(先端の半径、ワールド単位)。
+ *
+ * **BeamLight は「細い光条」が持ち味。** 破風の WashLight が広がりで面を
+ * 染めるウォッシュなのに対し、こちらは参考画像のトラス照明のような
+ * くっきりした筋 ―― 断面も BEAM_FRAGMENT で芯(core = pow(facing, 7))を
+ * 立てて細いシャフトにしている。だから「細く」の指示はまずこの値を絞る。
+ *
+ * 変遷: 2.6 → 1.2 → 0.8 → 0.5 → **0.3**(そのつど「まだ太い」の指摘で
+ * 段階的に。根元は BEAM_ROOT_RADIUS = この4割)。
  *
  * **この定数群(BEAM_RADIUS 〜 CASTLE_BEAM_EMBED_DEPTH)は
  * EAVE_BEAM_SPOTS より前に置くこと。** EAVE_BEAM_SPOTS はモジュール
@@ -158,7 +181,7 @@ type EaveBeamSpot = {
  * (TypeScript の型チェックでは検出できない。let/const の巡回参照は
  * 実行時の初期化順序の問題なので、他のファイルへ真似するときも注意)。
  */
-const BEAM_RADIUS = 0.5;
+const BEAM_RADIUS = 0.1;
 /**
  * 根元(光源側)の半径。**0にしないこと。**
  *
@@ -225,7 +248,7 @@ const CORNER_INSET = 0.08;
  * castleBeamRig の cue.yaw は全リグ共通で ±1〜9°ほどしかなく、軒の光は
  * ほぼ横に動かない(ユーザー指摘)。軒ビームに限ってこの倍率を掛け、上下の
  * 振り(liftSwing)はそのままに左右へ扇状に大きく振らせる。上下と 90° 位相が
- * ずれているので、ヘッドは横長の楕円を描く。破風は GableBeams.tsx 側で同じ増幅。
+ * ずれているので、ヘッドは横長の楕円を描く。破風は WashLight.tsx 側で同じ増幅。
  *
  * *_YAW_MIN … 静かな区間でも最低これだけは横に振る下限(ラジアン。0.35≒20°)。
  * *_YAW_GAIN を上げすぎると扇の端で隣の隅櫓・天守面へビームがかぶる。
@@ -323,15 +346,15 @@ const BEAM_COUNT = EAVE_BEAM_SPOTS.length;
 
 /** ビームの長さ。水面(半径400。scenery/SeaGlow.tsx参照)の内側に十分収まる長さ */
 const BEAM_LENGTH = 150;
-/** 円周方向の分割数。太いStageBeamsの18分割ほどの解像度は要らないので絞る */
+/** 円周方向の分割数。太いSearchlightの18分割ほどの解像度は要らないので絞る */
 const BEAM_SEGMENTS = 12;
 
-/** ビーム本体の最大の濃さ。StageBeams の BEAM_OPACITY_MAX と同程度 */
+/** ビーム本体の最大の濃さ。Searchlight の BEAM_OPACITY_MAX と同程度 */
 const EAVE_BEAM_OPACITY_MAX = 0.55;
 
 /**
  * 根元に置くフレアの半径(ワールド単位)。細いビームなので
- * StageBeams(旧FLARE_SIZE=11相当)より小さくしてある。これが無いと、ただの
+ * Searchlight(旧FLARE_SIZE=11相当)より小さくしてある。これが無いと、ただの
  * 三角形が壁から生えているだけに見え、光源だと分かりにくい。
  *
  * **大きすぎると逆効果。** 元は1.6だったが、引きの画で天守のまわりに
@@ -362,7 +385,7 @@ const FLARE_FRESNEL_POWER = 1.8;
  * なったのでマテリアルの共有が崩れるが、本数ぶんマテリアルを作ると
  * 80回のユニフォーム更新 + 80ドローコールになる。インスタンス属性
  * (aColor / aLevel)に逃がせば、ドローコールはビーム1・フレア1の**計2回**で
- * 済む(破風の GableBeams.tsx も同じ作りにしてある)。
+ * 済む(破風の WashLight.tsx も同じ作りにしてある)。
  */
 const BEAM_VERTEX = /* glsl */ `
   /*
@@ -395,9 +418,9 @@ const BEAM_VERTEX = /* glsl */ `
 `;
 
 /*
-  StageBeams.tsx の BEAM_FRAGMENT と同じ考え方(円筒の断面は
+  Searchlight.tsx の BEAM_FRAGMENT と同じ考え方(円筒の断面は
   「芯が明るい」・先端は smoothstep で完全に減衰)をそのまま流用する。
-  詳しい理屈のコメントは StageBeams.tsx 側を参照(あちらは根元が点の
+  詳しい理屈のコメントは Searchlight.tsx 側を参照(あちらは根元が点の
   ConeGeometry のままだが、facing による断面の明るさの計算自体は
   ConeGeometry / CylinderGeometry のどちらでも同じ)。
 
@@ -432,7 +455,7 @@ const BEAM_FRAGMENT = /* glsl */ `
 
     float body = facing;
     float core = pow(facing, 7.0);
-    // pow の底は必ず 0 以上に丸める(負の底はGLSLで未定義=NaNになる。詳細はStageBeams.tsx参照)
+    // pow の底は必ず 0 以上に丸める(負の底はGLSLで未定義=NaNになる。詳細はSearchlight.tsx参照)
     float haze = pow(max(1.0 - facing, 0.0), 3.0);
 
     float shell = along * (body * 0.45 + core * 0.9 + haze * 0.1);
@@ -502,7 +525,7 @@ const FLARE_FRAGMENT = /* glsl */ `
   }
 `;
 
-type EaveBeamsProps = {
+type BeamLightProps = {
   /** 天守の底面のワールド座標。EdoCastle / CornerTowers と同じ値を渡す */
   position?: [number, number, number];
   /**
@@ -528,21 +551,25 @@ type EaveBeamsProps = {
 
 /**
  * 天守・隅櫓の屋根の四隅、屋根の斜面の上(軒の隅から棟へ少し登った所。
- * ROOF_CLIMB)から伸びる細いビームライト(コンサート会場のトラス照明の
- * 見立て)。上から見て、その隅に集まる屋根の2辺をそのまま外へ延長する
- * L字の2方向へ1本ずつ伸ばす。
+ * ROOF_CLIMB)から伸びる **細いビームライト** 80 本(コンサート会場の
+ * トラス照明の見立て)。上から見て、その隅に集まる屋根の2辺をそのまま外へ
+ * 延長する L字の2方向へ1本ずつ伸ばす。
+ *
+ * 見た目は**くっきりした細い光条** ―― 破風の WashLight(広がりで面を染める
+ * ウォッシュ)とは対になる役。太さは BEAM_RADIUS、筋っぽさは BEAM_FRAGMENT
+ * の芯(core)で作る。
  *
  * **演出は castleBeamRig.ts のキュー表が決める。** 本数(点灯フロント)・
  * 首振り・チェイス・色は全部あちら側で、ここはその結果をインスタンス属性へ
- * 書き込むだけ。破風の GableBeams.tsx と同じリグを共有しているので、
- * 2つのビーム群は必ず揃って動く。
+ * 書き込むだけ。破風の WashLight.tsx と同じリグを共有しているので、軒の
+ * ビームと破風のウォッシュは必ず揃って動く。
  */
-export function EaveBeams({
+export function BeamLight({
   position = [0, 0, 0],
   activationRef,
   lightsRef,
   songTimeRef,
-}: EaveBeamsProps) {
+}: BeamLightProps) {
   const beamMeshRef = useRef<InstancedMesh>(null);
   const flareMeshRef = useRef<InstancedMesh>(null);
   /*
@@ -562,7 +589,7 @@ export function EaveBeams({
     radiusTop=BEAM_ROOT_RADIUS(根元)・radiusBottom=BEAM_RADIUS(先端)なので、
     top 側が光源、bottom 側が空へ広がる先端になる。rotateX(-90°)で
     top をワールド+Zへ倒し、translateで top を原点に据える
-    (StageBeams は+Yへ伸ばすため rotateX(180°)を使っているが、
+    (Searchlight は+Yへ伸ばすため rotateX(180°)を使っているが、
     今回は+Zへ伸ばしたいので回転角が異なる)。
     **壁への埋め込みはここでは行わない。** 天守・隅櫓で埋め込み量を
     変えたいが、この InstancedMesh は全80本で1つのジオメトリを共有する
@@ -775,7 +802,7 @@ export function EaveBeams({
         実機のムービングヘッドは首の回る速さに限りがあるので、目標へ
         瞬間移動させると作り物に見える。ここで一段なまらせることで、
         キューが切り替わって位相が飛んでも「ヘッドが向きを変えた」動きとして
-        繋がる(StageBeams の tiltRef と同じ手当て)。
+        繋がる(Searchlight の tiltRef と同じ手当て)。
       */
       const nextLift = scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
       const nextYaw = scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;

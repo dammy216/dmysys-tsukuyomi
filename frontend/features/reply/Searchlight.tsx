@@ -22,6 +22,9 @@ import {
   REPLY_BAR_SECONDS,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
+  REPLY_INTRO2_BEAM_GREEN,
+  REPLY_INTRO2_BEAM_MAGENTA,
+  REPLY_INTRO2_BEAM_ORANGE,
 } from "./constants";
 import {
   REPLY_SECTIONS,
@@ -33,6 +36,15 @@ import {
   TOWER_HALF_DEPTH,
   TOWER_HALF_WIDTH,
 } from "./towerLayout";
+
+/*
+  用語(reply の照明は光源の場所で呼び分ける。ユーザー指定の呼び名):
+    Searchlight = このファイル。**足元**(水面すぐ上)から空へ撃つ 12 本。
+    BeamLight   = 屋根の端(軒)から出るビーム 80 本(BeamLight.tsx。細い光条)。
+    WashLight   = 破風から出るウォッシュライト 16 本(WashLight.tsx。広がりで面を染める)。
+  BeamLight + WashLight の 96 本は castleBeamRig.ts が動かす。Searchlight は
+  それとは別リグで、下の CUES がセクションごとに動きを切り替える。
+*/
 
 /**
  * 本数。**必ず偶数**にすること。天守の四辺(前後左右)それぞれの外側、
@@ -131,8 +143,10 @@ const WAVE_SPREAD = 0.42;
  * - wave:   扇の内→外へ波が広がる。左右対称は保たれる
  * - chase:  円周に沿って順番に。光が会場をぐるりと回る
  * - split:  1本おきに逆位相。開く灯と閉じる灯が噛み合う
+ * - crossX: 左右のペアが中央線をまたいでX字に交差(reply.mp4 4〜9秒)。
+ *           イントロ2専用。点く灯・色は INTRO2_SOLO で固定する
  */
-type BeamPattern = "unison" | "wave" | "chase" | "split";
+type BeamPattern = "unison" | "wave" | "chase" | "split" | "crossX";
 
 /**
  * セクション1つぶんの照明キュー。実機の照明卓で言う「シーン」1つ。
@@ -172,29 +186,43 @@ type BeamCue = {
  * (全開・全灯・最大の明るさ)。動きだけ、ごく浅い波にしてある。
  */
 const CUES: Record<ReplySectionName, BeamCue> = {
+  /*
+    intro-A は11秒より手前=ビームが点く前なので実際には描画されないが、
+    intro-B へのクロスフェード元(prev)として数値が参照されるため
+    intro-B と同じ値を置く(11秒で何も動かないように)。
+  */
   "intro-A": {
-    pattern: "wave",
-    sweepBars: 1,
+    pattern: "crossX",
+    sweepBars: 2,
     chaseBars: 2,
-    chaseDepth: 0,
+    chaseDepth: 0.12,
     level: 1,
-    spread: 1,
-    strobe: 0.22,
-    colorBars: 2,
+    spread: 0.55,
+    strobe: 0.16,
+    colorBars: 4,
     ringColors: false,
-    slew: 9,
+    slew: 7,
   },
+  /*
+    イントロ2。ユーザー指定で reply.mp4 4〜9秒のサーチライトに寄せる:
+    - 点くのは図の6灯だけ(INTRO2_SOLO。残り6灯はこの区間だけ消灯)
+    - 動きは左右ペアが中央線をまたいでX字に交わるシザース(pattern crossX)
+    - 色は図に合わせた固定色(INTRO2_SOLO)
+    sweepBars 2 = 1シザース(交差→開く)で2小節≒2.82秒。§2.1 のイントロの
+    2小節パルスと同じ間隔。spread 0.55 = 交差時の傾きが最大 MAX_SWING*0.55
+    ≒ 41°(足元なので水平までは寝かせない)。
+  */
   "intro-B": {
-    pattern: "wave",
-    sweepBars: 1,
+    pattern: "crossX",
+    sweepBars: 2,
     chaseBars: 2,
-    chaseDepth: 0.18,
+    chaseDepth: 0.12,
     level: 1,
-    spread: 1,
-    strobe: 0.22,
-    colorBars: 2,
+    spread: 0.55,
+    strobe: 0.16,
+    colorBars: 4,
     ringColors: false,
-    slew: 9,
+    slew: 7,
   },
   // 音が落ち着く区間。ほぼ柱に立てて、明滅も止める
   breath: {
@@ -287,6 +315,44 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ringColors: false,
     slew: 2,
   },
+};
+
+/**
+ * イントロ2(intro-B / 11.05〜23秒)専用のオーバーライド。
+ *
+ * ユーザーが手描きした「reply の建物を上から見た図」(上=奥 / -Z 向き、
+ * 図の右=ワールド +X)に置かれた6つの光点だけを点け、色も図に合わせる。
+ * key は BEAM_POINTS の添字(beam.order):
+ *   4, 7  = 奥(-Z)の隅櫓 左右          → 緑
+ *   5, 6  = 奥(-Z)の辺の中央 左右       → オレンジ
+ *   1, 10 = 手前(+Z)の隅櫓 左右         → ピンク(他より遅く交差。INTRO2_SWEEP_SCALE)
+ * ここに無い6灯 —— 0,11(手前の辺の中央) / 2,3(右の辺) / 8,9(左の辺) —— は
+ * intro-B の間だけ消灯し、breath(23秒)へ移る 1.4 秒で戻す。
+ *
+ * 動き(pattern: "crossX")は reply.mp4 4〜9秒の「左右から中央へ寄って
+ * X字に交わる」サーチライトに合わせた、中央線をまたぐシザース。左右の灯は
+ * beam.x の符号で鏡像になる(useFrame 内)ので必ず対称に交差する。
+ */
+const INTRO2_SOLO: Readonly<Record<number, string>> = {
+  1: REPLY_INTRO2_BEAM_MAGENTA,
+  4: REPLY_INTRO2_BEAM_GREEN,
+  5: REPLY_INTRO2_BEAM_ORANGE,
+  6: REPLY_INTRO2_BEAM_ORANGE,
+  7: REPLY_INTRO2_BEAM_GREEN,
+  10: REPLY_INTRO2_BEAM_MAGENTA,
+};
+
+/**
+ * crossX のシザース周期(既定 cue.sweepBars=2小節)を灯ごとに引き伸ばす倍率。
+ * ユーザー指定で、手前のピンク(1・10)と奥のオレンジ(5・6)を他より遅く交差
+ * させる(2 = 周期2倍 ≒ 5.6秒)。速いままなのは奥の緑(4・7)だけ。
+ * ここに無い灯は 1(等倍)。ペアで同じ値にしておけば左右対称は保たれる。
+ */
+const INTRO2_SWEEP_SCALE: Readonly<Record<number, number>> = {
+  1: 2,
+  10: 2,
+  5: 2,
+  6: 2,
 };
 
 /** サビ・後半の頭で「バーン」と出すセクション */
@@ -445,7 +511,7 @@ type Beam = {
 /**
  * 隅櫓4棟、それぞれの外側の角(天守から一番遠い、城全体の外周のコーナー)。
  * towerLayout.ts の CORNER_TOWER_XZ(隅櫓の中心)に、隅櫓自身の半幅/半奥行き
- * を外向きに足した位置 ―― EaveBeams.tsx で「外側の1隅」として使っているのと
+ * を外向きに足した位置 ―― BeamLight.tsx で「外側の1隅」として使っているのと
  * 同じ角。ここに天守の足元と同じサーチライトを1本ずつ追加する。
  */
 const [TOP_RIGHT_TOWER, TOP_LEFT_TOWER, BOTTOM_LEFT_TOWER, BOTTOM_RIGHT_TOWER] =
@@ -591,12 +657,16 @@ function patternPhase(pattern: BeamPattern, beam: Beam): number {
       return beam.order / BEAM_COUNT;
     case "split":
       return (beam.order % 2) * 0.5;
+    case "crossX":
+      // 位相ずらしは無し。左右の交差は beam.x の符号だけで作る(useFrame 内)。
+      // 3ペアが同位相で揃ってシザースする
+      return 0;
     default:
       return 0;
   }
 }
 
-type StageBeamsProps = {
+type SearchlightProps = {
   /** 天守の底面のワールド座標。EdoCastle と同じ値を渡す */
   position?: [number, number, number];
   /**
@@ -631,11 +701,11 @@ type StageBeamsProps = {
  * 回転させない**(以前はゆっくり1周させていたが、天守の周りを回っている
  * ように見えて不自然なので廃止した)。
  */
-export function StageBeams({
+export function Searchlight({
   position = [0, 0, 0],
   activationRef,
   songTimeRef,
-}: StageBeamsProps) {
+}: SearchlightProps) {
   const groupRef = useRef<Group>(null);
   const materialsRef = useRef<ShaderMaterial[]>([]);
   const flaresRef = useRef<(SpriteMaterial | null)[]>([]);
@@ -775,6 +845,15 @@ export function StageBeams({
     const k = section.ramp > 0 ? smoothstep(since / section.ramp) : 1;
 
     /*
+      イントロ2(crossX)の solo。図の6灯(INTRO2_SOLO)以外は intro-B の間だけ
+      消灯し、次の breath へ移る ramp(1.4秒)で戻す。intro-B の間は k に
+      関わらずハードに絞る(11秒の点灯の瞬間から6灯だけ、というユーザー指定)。
+    */
+    const crossX = cue.pattern === "crossX";
+    const prevCrossX =
+      si > 0 && REPLY_SECTIONS[si - 1].name === "intro-B";
+
+    /*
       連続量だけ混ぜる。パターン・色・周期は離散のまま切り替える
       (周期を補間すると位相が飛ぶ。飛びは下の首振りのなまし(slew)が吸収する)。
     */
@@ -806,16 +885,23 @@ export function StageBeams({
       const partner = 1 + (((colorSlot % partners) + partners) % partners);
       beams.forEach((beam, i) => {
         /*
+          crossX(イントロ2): 図に合わせた固定色。図に無い灯は消灯するので
+          色は効かないが、breath へ戻るときの1フレームだけ変な色が出ないよう
+          通常の2色ロジックを当てておく。
           ringColors: 2本ひと組で色を変えながら円周を一周させる。1本ずつ
           色を変えると点描になって色が読めないので、組にして帯にする。
           スロットごとに起点をずらすので、小節ごとに色の帯が回って見える。
           それ以外: 鏡像ペアには同じ色。並び順の偶奇で2色を交互に差す。
         */
-        const hex = cue.ringColors
-          ? BEAM_COLORS[
-              (Math.floor(beam.order / 2) + colorSlot) % BEAM_COLORS.length
-            ]
-          : BEAM_COLORS[beam.half % 2 === 0 ? 0 : partner];
+        const soloHex = INTRO2_SOLO[beam.order];
+        const hex =
+          crossX && soloHex
+            ? soloHex
+            : cue.ringColors
+              ? BEAM_COLORS[
+                  (Math.floor(beam.order / 2) + colorSlot) % BEAM_COLORS.length
+                ]
+              : BEAM_COLORS[beam.half % 2 === 0 ? 0 : partner];
         materialsRef.current[i]?.uniforms.uColor.value.set(hex);
         flaresRef.current[i]?.color.set(hex);
       });
@@ -859,7 +945,27 @@ export function StageBeams({
 
         let azimuth: number;
         let polar: number;
-        if (beam.isCorner) {
+        if (crossX) {
+          /*
+            シザース交差(reply.mp4 4〜9秒)。図の左右(=ワールド X)方向へ
+            首を振り、中央線をまたいで往復する。
+              swing =  +1 … 相方の側へ倒れて交差(X字)
+              swing =  -1 … 反対へ倒れて開く(V字)
+            右灯(beam.x>=0)と左灯は beam.x の符号で lean の向きが逆になる
+            ので、位相をずらさなくても常に左右対称に交わる。isCorner(隅櫓)か
+            辺の灯かに関わらず同じ動き。
+
+            INTRO2_SWEEP_SCALE で灯ごとに周期を伸ばせる(ピンクの2灯だけ遅く)。
+            ペア(1と10)は同じ倍率なので左右対称は保たれる。
+          */
+          const swing = Math.sin(
+            (2 * Math.PI * cyclePos) / (INTRO2_SWEEP_SCALE[beam.order] ?? 1),
+          );
+          const side = beam.x >= 0 ? 1 : -1;
+          const lean = -side * swing;
+          azimuth = lean >= 0 ? 0 : Math.PI;
+          polar = MAX_SWING * spreadNow * Math.abs(swing);
+        } else if (beam.isCorner) {
           /*
             十字: 東(+X)→北(+Z)→西(-X)→南(-Z)の順に、直線的に振れて
             戻る。1周期(cue.sweepBars小節)を4等分し、その区間の中で
@@ -882,7 +988,7 @@ export function StageBeams({
           極角(polar)・方位角(azimuth)から方向ベクトルを作り、真上(UP)から
           その方向への回転を Quaternion で直接組む。Euler(rotation.x/z)を
           個別に動かすと合成順序でねじれるので、球面座標→ベクトル→
-          setFromUnitVectors で一発に作るのが正確(EaveBeams/GableBeams の
+          setFromUnitVectors で一発に作るのが正確(BeamLight/WashLight の
           lift/yaw とは違い、こちらは対称な円錐状の首振りなのでこの方法が合う)。
         */
         const dir = swingDirRef.current;
@@ -913,7 +1019,18 @@ export function StageBeams({
       const phase = patternPhase(cue.pattern, beam);
       const wave = 0.5 + 0.5 * Math.cos(Math.PI * 2 * (chasePos - phase));
       const chase = 1 - chaseDepth + chaseDepth * Math.pow(wave, 3);
-      const level = base * chase;
+      /*
+        イントロ2は図の6灯だけ(INTRO2_SOLO)。intro-B の間はハードに0、
+        breath へ移るあいだ(prevCrossX)は section の ramp で 0→1 に戻す。
+      */
+      const solo = crossX
+        ? INTRO2_SOLO[beam.order]
+          ? 1
+          : 0
+        : prevCrossX && !INTRO2_SOLO[beam.order]
+          ? k
+          : 1;
+      const level = base * chase * solo;
 
       mat.uniforms.uOpacity.value = Math.max(level * BEAM_OPACITY_MAX, 0);
       const flare = flaresRef.current[i];

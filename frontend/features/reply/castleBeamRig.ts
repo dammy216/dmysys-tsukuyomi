@@ -1,7 +1,8 @@
 /**
- * 天守・隅櫓に仕込んだビーム(EaveBeams / GableBeams)を動かす「照明卓」。
+ * 天守・隅櫓に仕込んだ光(軒のビーム BeamLight / 破風のウォッシュ WashLight)を
+ * 動かす「照明卓」。
  *
- * StageBeams.tsx が足元のサーチライト12本を受け持つのに対し、こちらは
+ * Searchlight.tsx が足元のサーチライト12本を受け持つのに対し、こちらは
  * **建物そのものから出る光**(軒下80本 + 破風16本 = 96本)をまとめて受け持つ。
  * 2つのコンポーネントが同じキュー表・同じ位相・同じ点灯フロントを共有するので、
  * 別々に書いた演出がぶつからず、1つのリグとして揃って動く。
@@ -36,7 +37,7 @@
  *   4. color    … **何色か**(リグ全体に配るグラデーション)
  *
  * **乱数を使わないこと。** どの層も「灯の高さ・方位」から決まる決定的な値で
- * 動かす。StageBeams.tsx の同じ趣旨のコメントを参照 ―― 拍ごとの抽選や
+ * 動かす。Searchlight.tsx の同じ趣旨のコメントを参照 ―― 拍ごとの抽選や
  * 灯ごとの乱数位相は規則が読めず、実機で見るとかなり気持ち悪い動きになる。
  */
 
@@ -59,7 +60,7 @@ import { TOWER_ROOF_TIERS } from "./towerLayout";
  * ------------------------------------------------------------------ */
 
 /**
- * 静かな箇所で使う地の色。EaveBeams / GableBeams が元々1色で使っていた
+ * 静かな箇所で使う地の色。BeamLight / WashLight が元々1色で使っていた
  * 暖色の白そのもの。彩度を上げるのは盛り上がる箇所だけなので、
  * 「色が付いていない状態」= これになる。
  */
@@ -71,7 +72,7 @@ export const CASTLE_BEAM_WARM = "#ffe9c7";
  * 同じ「端から端へ色が変わる」グラデーションになる)。
  *
  * 参照映像のレーザーはシアン/緑/黄/マゼンタ(TRACK_NOTES.md §4.1: 緑は
- * 常に「動く光」として使われる)。StageBeams の BEAM_COLORS は当初
+ * 常に「動く光」として使われる)。Searchlight の BEAM_COLORS は当初
  * 緑(#6effb0)とピンク(#ff4fa3)を外していたが、ビームに緑を使わないのは
  * §4.1 と矛盾するため緑を復活させてある(constants.ts のコメント参照)。
  * ここでも同じ緑を使い、既にこのシーンで使われている色
@@ -155,7 +156,7 @@ export function heightGate(heightNorm: number, density: number): number {
 
 /**
  * 灯ごとの位相のずらし方。**どれも灯の取り付け位置から決まる決定的な並び**で、
- * 「次はどれが光るか」が目で追える形にしてある(StageBeams の BeamPattern と
+ * 「次はどれが光るか」が目で追える形にしてある(Searchlight の BeamPattern と
  * 同じ趣旨だが、あちらが円周上の12点なのに対しこちらは**高さを持つ**ので、
  * 縦に走る波が使える)。
  *
@@ -259,7 +260,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   /*
     11秒より手前でビームはまだ点いていない(activation が0)ので実際には
     使われないが、intro-B へのクロスフェード元として参照されるため
-    intro-B と同じ値を置く(StageBeams の CUES と同じ扱い)。
+    intro-B と同じ値を置く(Searchlight の CUES と同じ扱い)。
   */
   "intro-A": {
     level: 1,
@@ -428,16 +429,16 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
 };
 
 /**
- * サビ・後半の頭で焚く一撃を出すセクション。StageBeams の HIT_SECTIONS と
+ * サビ・後半の頭で焚く一撃を出すセクション。Searchlight の HIT_SECTIONS と
  * 揃えてあり、足元のサーチライトと建物の光が同じ瞬間に「バーン」と来る。
  */
 const HIT_SECTIONS: readonly ReplySectionName[] = ["SABI", "LATTER"];
-/** 一撃が減衰するまでの秒数(指数減衰の時定数)。StageBeams の HIT_DECAY と同値 */
+/** 一撃が減衰するまでの秒数(指数減衰の時定数)。Searchlight の HIT_DECAY と同値 */
 const HIT_DECAY = 0.85;
 /** 一撃で上乗せする明るさ */
 export const CASTLE_HIT_LEVEL = 0.8;
 
-/** 小節頭にだけ足すアクセント。StageBeams の BAR_ACCENT と同値 */
+/** 小節頭にだけ足すアクセント。Searchlight の BAR_ACCENT と同値 */
 const BAR_ACCENT = 0.16;
 
 /* ------------------------------------------------------------------ *
@@ -564,7 +565,7 @@ export function sampleCastleRig(
   out.chasePos = barPos / cue.chaseBars;
   out.colorSlot = Math.floor(barPos / cue.colorBars);
 
-  /* 拍の明滅。小節頭だけ一段上げる(StageBeams と同じ式) */
+  /* 拍の明滅。小節頭だけ一段上げる(Searchlight と同じ式) */
   const strobe = mix(prev.strobe, cue.strobe, k);
   const beatPos = (time - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
   const beatPhase = beatPos - Math.floor(beatPos);

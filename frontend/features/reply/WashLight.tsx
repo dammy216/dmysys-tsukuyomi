@@ -29,11 +29,21 @@ import {
 } from "./castleBeamRig";
 
 /*
-  天守正面(と背面)の破風(その段の屋根の上に乗っている、小さな三角の飾り屋根)
-  の位置から伸びるビーム。EaveBeams.tsx(屋根の四隅・軒下からL字に伸びる
-  細いビーム)とは別枠で、破風の中心から前後(±Z)へまっすぐ伸びる、
-  少し太めのビーム。**軒(屋根の下端)ではなく、屋根の上に乗った破風の
-  高さに置くこと** ―― 最初の実装で軒の高さに置いてしまい、位置がずれた。
+  天守の**破風**(その段の屋根の上に乗っている、小さな三角の飾り屋根)から
+  出す **ウォッシュライト**。ユーザー指定で「ウォッシュライトとして扱う」
+  = 参考画像(コンサートのステージ照明)のような、細い筋ではなく **広がりの
+  ある光で面を染める**灯にする。細い光条の BeamLight.tsx(屋根の四隅・軒下
+  からL字)や Searchlight.tsx(足元)とは見た目も役割も別。
+
+  2枚重ねで作る:
+    1. 色の靄の円錐(WASH_FRAGMENT)。ほぼ点の根元(WASH_ROOT_RADIUS)から
+       WASH_FAR_RADIUS まで開く(半頂角およそ32°)。芯は立てず、中央が濃く
+       縁へソフトに0。うすく色だけ乗せる(WASH_OPACITY_MAX)。
+    2. 光源のキラキラ(FLARE_FRAGMENT)。芯 + 十字グレア + ハロー + またたき。
+       まぶしさ・存在感はこちらが受け持つ。
+
+  **軒(屋根の下端)ではなく、屋根の上に乗った破風の高さに置くこと** ――
+  最初の実装で軒の高さに置いてしまい、位置がずれた。
 
   対象は天守のみ(隅櫓は指示に含まれていない)。指示のスケッチでは
   一番下の段(幅が広く、破風が左右に2つ)・その上の2段(破風1つずつ)の
@@ -45,8 +55,9 @@ import {
   側面: 最下段は中央1つ、2段目(下から2番目)が左右に2つ、3段目は中央1つ。
   同じ「軒とひとつ上の軒の中間の高さ」というルールは前後・側面で共通。
 
-  **動き・色・本数は castleBeamRig.ts が受け持つ。** 軒下の EaveBeams.tsx と
-  同じリグ・同じ点灯フロントを共有するので、2つのビーム群は必ず揃って動く。
+  **動き・色・本数は castleBeamRig.ts が受け持つ。** 軒下の BeamLight.tsx と
+  同じリグ・同じ点灯フロントを共有するので、軒のビームと破風のウォッシュは
+  必ず揃って動く。
 */
 
 type GableSpot = {
@@ -55,8 +66,8 @@ type GableSpot = {
   rotationY: number;
   /**
    * 取り付け高さ 0(リグ下端=隅櫓の最下層)〜1(上端=天守の最上層)。
-   * EaveBeams と**同じ基準**で正規化するので、点灯フロントが降りてくると
-   * 軒下と破風のビームが高さ順に混ざって点いていく。
+   * BeamLight と**同じ基準**で正規化するので、点灯フロントが降りてくると
+   * 軒下のビームと破風のウォッシュが高さ順に混ざって点いていく。
    */
   heightNorm: number;
   /** 城の中心から見た方位 0〜1(1周)。チェイスが城を回る順番になる */
@@ -94,42 +105,47 @@ const SIDE_ZS: readonly number[][] = [
   [0],
 ];
 
-/** 方位を 0〜1 に。EaveBeams の azimuth と同じ式(リグ全体で順番を揃えるため) */
+/** 方位を 0〜1 に。BeamLight の azimuth と同じ式(リグ全体で順番を揃えるため) */
 function azimuthOf(x: number, z: number) {
   return (Math.atan2(x, z) / (Math.PI * 2) + 1) % 1;
 }
 
 /**
- * ビームの太さ。指示で「少し太く」とのことで一度3.2まで太くしたが、
- * まだ太いとの指摘で 2.2 → 1.4 と段階的に絞ってきた。EaveBeams と同じ
- * 比率(先端/根元とも約36%減)で連動させてある(EaveBeams(0.5、軒下用の
- * 細い光条)より明確に太いが、StageBeams(9、足元のサーチライト)ほどでは
- * ない値を目視で選んである)。
+ * **ウォッシュライトの広がり。** 破風のこの光は「筋(ビーム)」ではなく、
+ * **ほぼ点の根元から扇状に開いて面を染めるウォッシュ**(参考画像のコンサート
+ * のステージ照明)。細い光条だった BeamLight(軒)/ Searchlight(足元)とは別物。
  *
- * **この3定数(BEAM_RADIUS / BEAM_ROOT_RADIUS / BEAM_EMBED_DEPTH)は
+ * WASH_ROOT_RADIUS はほぼ点(破風の飾りに対して根元の円盤が大きすぎると
+ * 「ラッパの口が刺さってる」ように見える ―― ユーザー指摘)。そこから
+ * WASH_LENGTH かけて WASH_FAR_RADIUS へ、半頂角およそ 32°
+ * (atan((34-0.3)/55))で開く。光源の存在感はフレア(キラキラ)側が持つ。
+ *
+ * **この3定数(WASH_FAR_RADIUS / WASH_ROOT_RADIUS / WASH_EMBED_DEPTH)は
  * GABLE_SPOTS より前に置くこと。** GABLE_SPOTS はモジュール読み込み時に
- * 即評価され、BEAM_EMBED_DEPTH を参照するので、後ろに置くと実行時
- * ReferenceError になる(EaveBeams.tsx の同じ注意書きと同じ理由)。
+ * 即評価され、WASH_EMBED_DEPTH を参照するので、後ろに置くと実行時
+ * ReferenceError になる(BeamLight.tsx の同じ注意書きと同じ理由)。
  */
-const BEAM_RADIUS = 1.4;
+const WASH_FAR_RADIUS = 34;
 /**
- * 根元(光源側)の半径。**0にしないこと。**
- * 理由は EaveBeams.tsx の同名定数のコメント参照(フレアを非表示にした状態で
- * 根元が完全な点だと光源が消えて見えるため、CylinderGeometry で太さを持たせる)。
+ * 根元(光源側)の半径。**ほぼ点。** 0 にはしない(円錐の先端が完全な点だと
+ * 断面が消えて根元付近が見えなくなる)が、破風の飾りに対して大きく見えない
+ * ぎりぎりまで絞る。光源そのものはフレア(FLARE_*)が描くので、円錐側の
+ * 根元は細くてよい。
  */
-const BEAM_ROOT_RADIUS = BEAM_RADIUS * 0.4;
+const WASH_ROOT_RADIUS = 0.3;
 /**
- * 根元を壁の内側へ埋め込む深さ(ワールド単位)。**破風は天守だけが対象**
- * なので、EaveBeams.tsx の CASTLE_BEAM_EMBED_DEPTH(天守用、隅櫓より深い)
- * と同じ係数(BEAM_ROOT_RADIUS の4.5倍)を使う。
+ * 根元を壁の内側へ埋め込む深さ(ワールド単位)。**破風は天守だけが対象。**
+ * BeamLight.tsx の CASTLE_BEAM_EMBED_DEPTH と同じ意図(根元を壁に少し
+ * めり込ませて「面から湧いている」ように見せる)。根元がほぼ点になったので
+ * 浅くてよい。
  *
  * **ジオメトリではなく GABLE_SPOTS 側で spot.position に適用する**
- * (EaveBeams.tsx と同じ)。ジオメトリに焼き込むと回転中心(instanceMatrix
+ * (BeamLight.tsx と同じ)。ジオメトリに焼き込むと回転中心(instanceMatrix
  * の原点)が光源から離れ、首を上下に振ったとき光源ごと弧を描いて
  * 「緑の点からすこし離れた所を中心に光が回る」ように見えてしまう
  * (ユーザー指摘。geometry のコメント参照)。
  */
-const BEAM_EMBED_DEPTH = BEAM_ROOT_RADIUS * 4.5;
+const WASH_EMBED_DEPTH = 0.6;
 
 const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
   // ひとつ上の段の軒(破風が乗る屋根の上端)。GABLE_TIERSで使うのは0〜2段目までだが、
@@ -141,17 +157,17 @@ const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
   const frontBack = FRONT_BACK_XS[i].flatMap((xr): GableSpot[] => {
     const x = xr * t.halfWidth;
     return [
-      // 正面(+Z)。根元を壁の内側(-Z)へ BEAM_EMBED_DEPTH 引く。
-      // 方位・高さは引く前の壁面座標で計算する(EaveBeams と同じ)。
+      // 正面(+Z)。根元を壁の内側(-Z)へ WASH_EMBED_DEPTH 引く。
+      // 方位・高さは引く前の壁面座標で計算する(BeamLight と同じ)。
       {
-        position: [x, y, t.halfDepth - BEAM_EMBED_DEPTH],
+        position: [x, y, t.halfDepth - WASH_EMBED_DEPTH],
         rotationY: 0,
         heightNorm,
         azimuth: azimuthOf(x, t.halfDepth),
       },
       // 背面(-Z)。根元を壁の内側(+Z)へ引く
       {
-        position: [x, y, -t.halfDepth + BEAM_EMBED_DEPTH],
+        position: [x, y, -t.halfDepth + WASH_EMBED_DEPTH],
         rotationY: Math.PI,
         heightNorm,
         azimuth: azimuthOf(x, -t.halfDepth),
@@ -164,14 +180,14 @@ const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
     return [
       // 右(+X)。根元を壁の内側(-X)へ引く
       {
-        position: [t.halfWidth - BEAM_EMBED_DEPTH, y, z],
+        position: [t.halfWidth - WASH_EMBED_DEPTH, y, z],
         rotationY: Math.PI / 2,
         heightNorm,
         azimuth: azimuthOf(t.halfWidth, z),
       },
       // 左(-X)。根元を壁の内側(+X)へ引く
       {
-        position: [-t.halfWidth + BEAM_EMBED_DEPTH, y, z],
+        position: [-t.halfWidth + WASH_EMBED_DEPTH, y, z],
         rotationY: -Math.PI / 2,
         heightNorm,
         azimuth: azimuthOf(-t.halfWidth, z),
@@ -183,56 +199,63 @@ const GABLE_SPOTS: readonly GableSpot[] = GABLE_TIERS.flatMap((t, i) => {
 });
 
 /** 灯の数。前後6本 + 側面6本 + …で計16本 */
-const BEAM_COUNT = GABLE_SPOTS.length;
-
-/** ビームの長さ。EaveBeams と同じく水面(半径400)の内側に収まる長さ */
-const BEAM_LENGTH = 150;
-/** 円周方向の分割数。EaveBeams と同じく絞ってある */
-const BEAM_SEGMENTS = 12;
-
-/** ビーム本体の最大の濃さ。EaveBeams と同じ */
-const GABLE_BEAM_OPACITY_MAX = 0.55;
+const WASH_COUNT = GABLE_SPOTS.length;
 
 /**
- * 破風ビームの横(yaw)の首振りをどれだけ強めるか。EaveBeams の
+ * ウォッシュの長さ。短め ―― 長いと「空へ伸びる筋」に見える。細い根元から
+ * この距離かけて WASH_FAR_RADIUS まで開き、先端でほぼ薄れて消える。
+ */
+const WASH_LENGTH = 55;
+/** 円周方向の分割数。広い円錐なので角(ファセット)が出ないよう多めに取る */
+const WASH_SEGMENTS = 28;
+
+/**
+ * ウォッシュ本体の最大の濃さ。**面を染めるフィル光**なので薄く。光源の
+ * 主張はフレア(キラキラ)側が受け持ち、円錐は色の靄だけを乗せる。
+ * 加算合成なので重なる所は自然に持ち上がる。
+ */
+const WASH_OPACITY_MAX = 0.24;
+
+/**
+ * 破風のウォッシュの横(yaw)の首振りをどれだけ強めるか。BeamLight の
  * *_YAW_GAIN / *_YAW_MIN と同じ趣旨 ―― cue.yaw は全リグ共通で ±1〜9° しかなく
- * 破風の光もほぼ横に動かないので、ここで倍率を掛けて左右へ扇状に振らせる。
+ * 破風の光もほぼ横に動かないので、ここで倍率を掛けて左右へ振らせる。
  * 上下(liftSwing)には手を付けないので、ヘッドは横長の楕円を描く。
- * GABLE_YAW_MIN は静かな区間でも最低これだけは横に振る下限(ラジアン)。
+ * WASH_YAW_MIN は静かな区間でも最低これだけは横に振る下限(ラジアン)。
  */
-const GABLE_YAW_GAIN = 5;
-const GABLE_YAW_MIN = 0.35;
+const WASH_YAW_GAIN = 5;
+const WASH_YAW_MIN = 0.35;
 
 /**
- * 根元に置くフレアの半径(ワールド単位)。EaveBeamsよりビーム自体が太いので、
- * フレアも一回り大きくしてある。
+ * 光源の**キラキラ**(FLARE_FRAGMENT が芯 + 十字グレア + ハロー + またたきを
+ * 描く)を乗せる円盤の半径。参考画像のステージ照明のように「光源そのものが
+ * まぶしく輝いている」見え方を、この円盤1枚で作る。
  *
- * **大きすぎると逆効果。** 元は2.4だったが、引きの画で天守のまわりに
- * 白っぽい丸い玉がいくつも浮いて見え、「スポットライトの出口」ではなく
- * 「浮いてる発光体」に見えてしまっていた(ユーザー指摘で1.2へ縮小。
- * EaveBeams の FLARE_RADIUS と同じ比率で半分にしてある)。
- *
- * **ビルボード(sprite)にしないこと。** sprite は常にカメラの方を向くので、
- * どの角度から見ても真円の光る球体に見えてしまい、「スポットライトの
- * 出口」ではなく「浮いてる発光体」に見える。ビームと同じ向き(法線=
- * ビームの進行方向)を向いた円盤にして、正面(ビームが出ている方向)から
- * 見たときだけ光り、横や後ろからは見えないようにする(FLARE_FRAGMENT参照)。
+ * **ビルボード(sprite)にしないこと。** sprite は常にカメラを向くので、
+ * どの角度からも同じ丸い玉に見えて「浮いてる発光体」になる。ビーム軸を
+ * 向いた円盤にして、光が出ている方向から見たときだけ光らせる
+ * (法線 vs 視線の FLARE_FRESNEL_POWER。横・後ろからは自然に消える)。
  */
-const FLARE_RADIUS = 1.2;
-/** フレアの最大の濃さ。ビーム本体(GABLE_BEAM_OPACITY_MAX)より少し明るく */
-const FLARE_OPACITY_MAX = 0.9;
+const FLARE_RADIUS = 3;
 /**
- * 正面から外れたときの減衰の鋭さ。大きいほど真正面付近だけに絞られ、
- * 少し角度がつくだけで急に消える。円盤の縁でのブツ切れ感を抑えつつ
- * 「正面からしか見えない」を成立させる値を目視で選んである。
+ * フレアの最大の濃さ。芯は加算合成で 1.0 を超えて飽和し、白く抜ける
+ * (参考画像の光源も白飛びしている)。
  */
-const FLARE_FRESNEL_POWER = 1.8;
+const FLARE_OPACITY_MAX = 1.3;
+/**
+ * 正面から外れたときの減衰の鋭さ。小さいほど広い角度から見え、大きいほど
+ * 真正面付近だけに絞られる。キラキラを見せたいので以前(1.8)より寝かせて
+ * ある。
+ */
+const FLARE_FRESNEL_POWER = 1.3;
+/** またたきの速さ(rad/秒)。灯ごとに位置から決まる固定位相でずらす */
+const WASH_TWINKLE_SPEED = 6.5;
 
 /*
   灯ごとの色・明るさをインスタンス属性(aColor / aLevel)で持たせる。
-  理屈とドローコールの話は EaveBeams.tsx の同名の定数のコメントを参照。
+  理屈とドローコールの話は BeamLight.tsx の同名の定数のコメントを参照。
 */
-const BEAM_VERTEX = /* glsl */ `
+const WASH_VERTEX = /* glsl */ `
   attribute vec3 aColor;
   attribute float aLevel;
   varying vec2 vUv;
@@ -240,8 +263,10 @@ const BEAM_VERTEX = /* glsl */ `
   varying vec3 vViewDir;
   varying vec3 vColor;
   varying float vLevel;
-  /* ビームの進行方向(ローカル+Z=根元→先端)をビュー空間で。真正面判定に使う */
+  /* 光の進行方向(ローカル+Z=根元→先端)をビュー空間で。真正面判定に使う */
   varying vec3 vAxisView;
+  /* 灯ごとに固定の位相(取り付け位置のハッシュ。またたきをズラすのに使う) */
+  varying float vTwinkle;
   void main() {
     vUv = uv;
     vColor = aColor;
@@ -251,15 +276,19 @@ const BEAM_VERTEX = /* glsl */ `
     vNormalView = normalize(normalMatrix * mat3(instanceMatrix) * normal);
     vViewDir = normalize(-mv.xyz);
     vAxisView = normalize((modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);
+    vec3 iPos = instanceMatrix[3].xyz;
+    vTwinkle = fract(sin(dot(iPos, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.2831853;
     gl_Position = projectionMatrix * mv;
   }
 `;
 
 /*
-  StageBeams.tsx の BEAM_FRAGMENT と同じ考え方(断面は「芯が明るい」・
-  先端は smoothstep で完全に減衰)。詳しい理屈は StageBeams.tsx 側を参照。
+  ウォッシュの円錐(色の靄)。**芯(細いシャフト)は作らない** ―― それを入れると
+  「ビーム」に戻る。視線が円錐を貫く長さ ≒ facing なので、中央が濃く縁へ
+  滑らかに0(=ソフトな輪郭)。根元(y=1、細い)がいちばん濃く、先端(y=0、広い)
+  へ薄れて消える = 一点から広がって拡散する光。光源のまぶしさは FLARE 側。
 */
-const BEAM_FRAGMENT = /* glsl */ `
+const WASH_FRAGMENT = /* glsl */ `
   uniform float uOpacity;
   varying vec2 vUv;
   varying vec3 vNormalView;
@@ -270,74 +299,78 @@ const BEAM_FRAGMENT = /* glsl */ `
 
   void main() {
     float y = clamp(vUv.y, 0.0, 1.0);
-    /*
-      根元(y=1)がもっとも明るく、先端(y=0)へ向かって暗くなる。
-      **以前あった根元だけを45%減衰させる処理は撤廃した。** ConeGeometryで
-      根元が完全な点だった頃は「一点だけ極端に光るのを避ける」ための処置
-      だったが、根元は光源そのものなので本来ここが一番明るくあるべきで、
-      むしろ光源が暗く・先細りして見えなくなる原因になっていた
-      (ユーザー指摘。BEAM_ROOT_RADIUS で根元に太さを持たせたのと対にして直す)。
-    */
-    float along = mix(0.25, 1.0, pow(y, 1.5));
-    along *= smoothstep(0.0, 0.30, y);
+    float along = pow(y, 2.2);
+    along *= smoothstep(0.0, 0.16, y);   // 先端側を完全に消す
 
     vec3 n = normalize(vNormalView);
     vec3 v = normalize(vViewDir);
     float facing = clamp(abs(dot(n, v)), 0.0, 1.0);
 
-    float body = facing;
-    float core = pow(facing, 7.0);
-    // pow の底は必ず 0 以上に丸める(負の底はGLSLで未定義=NaNになる。詳細はStageBeams.tsx参照)
-    float haze = pow(max(1.0 - facing, 0.0), 3.0);
+    float body = facing * facing;                          // 中央が濃い、縁で0
+    float rim  = pow(max(1.0 - facing, 0.0), 3.5) * 0.10;  // ごく薄い縁
 
-    float shell = along * (body * 0.45 + core * 0.9 + haze * 0.1);
+    float shell = along * (body * 0.55 + rim);
 
-    /*
-      真正面のまぶしさ。円筒シェルは軸方向から見ると壁の法線が視線と直交し
-      facing≈0 で何も描かれず、光の真正面にいるのに光が消えていた
-      (ユーザー指摘)。理屈は EaveBeams.tsx の同じ箇所のコメント参照。
-    */
-    float headOn = clamp(dot(normalize(vAxisView), normalize(vViewDir)), 0.0, 1.0);
-    float glare = pow(headOn, 2.0);
+    // 正面に立ったときのふわっとした明るさ(ギラつかせない)
+    float headOn = clamp(dot(normalize(vAxisView), v), 0.0, 1.0);
+    float glow = pow(headOn, 2.0) * 0.30;
 
-    float a = clamp((shell + glare * 1.1) * uOpacity * vLevel, 0.0, 1.0);
-    vec3 rgb = mix(vColor, vec3(1.0), glare * 0.5);
-    gl_FragColor = vec4(rgb * a, a);
+    float a = clamp((shell + glow) * uOpacity * vLevel, 0.0, 1.0);
+    gl_FragColor = vec4(vColor * a, a);
   }
 `;
 
 /*
-  根元のフレア。頂点シェーダーは BEAM_VERTEX を使い回す。
-  芯を白飛びさせる理屈は EaveBeams.tsx の FLARE_FRAGMENT のコメントを参照
-  (参照映像の光源は「明るすぎて白く抜けている」見え方をしている)。
+  光源の**キラキラ**。ビーム軸を向いた円盤に、白熱した芯 + 十字のグレア +
+  やわらかいハロー + またたきを描く。円盤なので光が出ている方向から見た
+  ときだけ光り、横・後ろからは facing→0 で自然に消える(FLARE_FRESNEL_POWER)。
+  芯は加算合成で 1.0 を超えて飽和し白く抜ける(参考画像の光源も白飛び)。
 */
 const FLARE_FRAGMENT = /* glsl */ `
   uniform float uOpacity;
+  uniform float uTime;
   varying vec2 vUv;
   varying vec3 vNormalView;
   varying vec3 vViewDir;
   varying vec3 vColor;
   varying float vLevel;
+  varying float vTwinkle;
 
   void main() {
-    float d = length(vUv - vec2(0.5));
-    float radial = smoothstep(0.5, 0.15, d);
+    vec2 p = (vUv - vec2(0.5)) * 2.0;   // -1..1
+    float r = length(p);
+    if (r > 1.0) discard;
 
-    vec3 n = normalize(vNormalView);
-    vec3 v = normalize(vViewDir);
-    float facing = max(dot(n, v), 0.0);
+    // 円盤はビーム軸を向いている。正面付近でだけ見える。
+    float facing = max(dot(normalize(vNormalView), normalize(vViewDir)), 0.0);
+    float face = pow(facing, ${FLARE_FRESNEL_POWER.toFixed(1)});
 
-    float a = radial * pow(facing, ${FLARE_FRESNEL_POWER.toFixed(1)}) * uOpacity * vLevel;
+    // 白熱した芯
+    float core = pow(smoothstep(0.42, 0.0, r), 2.4);
 
-    float core = smoothstep(0.34, 0.0, d) * clamp(vLevel, 0.0, 1.0);
-    vec3 tinted = mix(vColor, vec3(1.0), core * 0.85);
+    // 十字のグレア(横+縦)、斜め45°を弱く
+    float ang = atan(p.y, p.x);
+    float k = 22.0;
+    float star = pow(abs(cos(ang)), k) + pow(abs(sin(ang)), k);
+    star += 0.3 * (pow(abs(cos(ang - 0.7854)), k) + pow(abs(sin(ang - 0.7854)), k));
+    float ray = star * pow(smoothstep(1.0, 0.04, r), 1.6);
 
-    gl_FragColor = vec4(tinted * a, a);
+    // やわらかいハロー
+    float halo = pow(smoothstep(1.0, 0.1, r), 2.2) * 0.4;
+
+    // またたき(灯ごとに固定位相 + 時間)
+    float tw = 0.6 + 0.4 * sin(uTime * ${WASH_TWINKLE_SPEED.toFixed(1)} + vTwinkle);
+
+    float lum = (core * 1.8 + ray * 0.85 + halo) * face * tw
+              * uOpacity * clamp(vLevel, 0.0, 1.0);
+    vec3 rgb = mix(vColor, vec3(1.0), clamp(core * 0.9 + ray * 0.4, 0.0, 1.0));
+    float a = clamp(lum, 0.0, 1.0);
+    gl_FragColor = vec4(rgb * a, a);
   }
 `;
 
-type GableBeamsProps = {
-  /** 天守の底面のワールド座標。EdoCastle / EaveBeams と同じ値を渡す */
+type WashLightProps = {
+  /** 天守の底面のワールド座標。EdoCastle / BeamLight と同じ値を渡す */
   position?: [number, number, number];
   /** Reply の進行度(0〜1)を持つ ref */
   activationRef?: RefObject<number>;
@@ -345,24 +378,25 @@ type GableBeamsProps = {
   lightsRef?: RefObject<number>;
   /**
    * 曲の再生位置(秒)を持つ ref。**clock.elapsedTime ではなく曲の時計を
-   * 使うこと**(理由は EaveBeams.tsx の同名 prop のコメント参照)。
+   * 使うこと**(理由は BeamLight.tsx の同名 prop のコメント参照)。
    */
   songTimeRef?: RefObject<number>;
 };
 
 /**
- * 天守四面の破風から外向きへ伸びる、EaveBeams より太いビーム。
+ * 天守四面の破風から外向きへ広がる **ウォッシュライト**(細い筋ではなく、
+ * 面を染める広い円錐。ユーザー指定)。
  *
  * **演出は castleBeamRig.ts のキュー表が決める。** 本数(点灯フロント)・
  * 首振り・チェイス・色は全部あちら側で、ここはその結果をインスタンス属性へ
- * 書き込むだけ。軒下の EaveBeams.tsx と同じリグを共有している。
+ * 書き込むだけ。軒下の BeamLight.tsx と同じリグを共有している。
  */
-export function GableBeams({
+export function WashLight({
   position = [0, 0, 0],
   activationRef,
   lightsRef,
   songTimeRef,
-}: GableBeamsProps) {
+}: WashLightProps) {
   const beamMeshRef = useRef<InstancedMesh>(null);
   const flareMeshRef = useRef<InstancedMesh>(null);
   /*
@@ -379,44 +413,44 @@ export function GableBeams({
 
   /*
     円柱(CylinderGeometry)は既定で top が+h/2・bottom が-h/2(+Y方向)。
-    radiusTop=BEAM_ROOT_RADIUS(根元)・radiusBottom=BEAM_RADIUS(先端)なので、
+    radiusTop=WASH_ROOT_RADIUS(根元)・radiusBottom=WASH_FAR_RADIUS(先端)なので、
     top 側が光源、bottom 側が空へ広がる先端になる。rotateX(-90°)で
     top をワールド+Zへ倒し、translateで **top(=光源)をちょうど原点に**据える。
 
-    **埋め込みオフセットをここに焼き込まないこと。** ここで -BEAM_EMBED_DEPTH
+    **埋め込みオフセットをここに焼き込まないこと。** ここで -WASH_EMBED_DEPTH
     すると根元が原点より手前(-Z)へずれ、instanceMatrix の回転中心(=原点)が
     光源そのものから離れる。すると首を上下に振ったとき光源が原点まわりに
     弧を描き、「緑の点からすこし離れた所を中心に光が回っている」ように
-    見えてしまう(ユーザー指摘)。埋め込みは EaveBeams.tsx と同じく
+    見えてしまう(ユーザー指摘)。埋め込みは BeamLight.tsx と同じく
     GABLE_SPOTS 側で spot.position を壁の内側へ引いて行う ―― こうすると
     回転中心が光源に一致し、首振りでは先端(末端)だけが動く。
   */
   const geometry = useMemo(() => {
     const g = new CylinderGeometry(
-      BEAM_ROOT_RADIUS,
-      BEAM_RADIUS,
-      BEAM_LENGTH,
-      BEAM_SEGMENTS,
+      WASH_ROOT_RADIUS,
+      WASH_FAR_RADIUS,
+      WASH_LENGTH,
+      WASH_SEGMENTS,
       1,
       true,
     );
     g.rotateX(-Math.PI / 2);
-    g.translate(0, 0, BEAM_LENGTH / 2);
+    g.translate(0, 0, WASH_LENGTH / 2);
     return g;
   }, []);
 
-  const flareGeometry = useMemo(() => new CircleGeometry(FLARE_RADIUS, 24), []);
+  const flareGeometry = useMemo(() => new CircleGeometry(FLARE_RADIUS, 32), []);
 
   /*
     灯ごとの色と明るさ。ビームとフレアで同じバッファを共有する
-    (同じ灯なので必ず同じ値。EaveBeams.tsx と同じ作り)。
+    (同じ灯なので必ず同じ値。BeamLight.tsx と同じ作り)。
   */
   const attributes = useMemo(() => {
     const colors = new InstancedBufferAttribute(
-      new Float32Array(BEAM_COUNT * 3),
+      new Float32Array(WASH_COUNT * 3),
       3,
     );
-    const levels = new InstancedBufferAttribute(new Float32Array(BEAM_COUNT), 1);
+    const levels = new InstancedBufferAttribute(new Float32Array(WASH_COUNT), 1);
     colors.setUsage(DynamicDrawUsage);
     levels.setUsage(DynamicDrawUsage);
     return { colors, levels };
@@ -434,8 +468,8 @@ export function GableBeams({
     () =>
       new ShaderMaterial({
         uniforms: { uOpacity: { value: 0 } },
-        vertexShader: BEAM_VERTEX,
-        fragmentShader: BEAM_FRAGMENT,
+        vertexShader: WASH_VERTEX,
+        fragmentShader: WASH_FRAGMENT,
         transparent: true,
         depthWrite: false,
         blending: AdditiveBlending,
@@ -448,8 +482,8 @@ export function GableBeams({
   const flareMaterial = useMemo(
     () =>
       new ShaderMaterial({
-        uniforms: { uOpacity: { value: 0 } },
-        vertexShader: BEAM_VERTEX,
+        uniforms: { uOpacity: { value: 0 }, uTime: { value: 0 } },
+        vertexShader: WASH_VERTEX,
         fragmentShader: FLARE_FRAGMENT,
         transparent: true,
         depthWrite: false,
@@ -483,8 +517,8 @@ export function GableBeams({
       color: new Color(),
       warm: new Color(CASTLE_BEAM_WARM),
       palette: CASTLE_BEAM_PALETTE.map((hex) => new Color(hex)),
-      lift: new Float32Array(BEAM_COUNT),
-      yaw: new Float32Array(BEAM_COUNT),
+      lift: new Float32Array(WASH_COUNT),
+      yaw: new Float32Array(WASH_COUNT),
     }),
     [],
   );
@@ -495,17 +529,14 @@ export function GableBeams({
 
   useFrame(({ clock }, delta) => {
     const beamMesh = beamMeshRef.current;
-    // JSX 側でフレアの instancedMesh を外してある間は常に null
     const flareMesh = flareMeshRef.current;
     const mat = materialRef.current;
     const flareMat = flareMaterialRef.current;
     const attrs = attributesRef.current;
     const scratch = scratchRef.current;
     /*
-      **フレアはユーザー指示でいったん描画を止めてある(JSX側で
-      instancedMesh をコメントアウト)。** flareMesh は null のまま
-      になるので早期return の条件には含めない ―― 含めると
-      ビーム本体(beamMesh)の更新まで一緒に止まってしまう。
+      flareMesh は早期return の条件に含めない。JSX 側で外されていても
+      (`flareMesh?.` で扱う)円錐本体(beamMesh)の更新は止めたくないため。
     */
     if (!beamMesh || !mat || !flareMat || !attrs || !scratch) {
       return;
@@ -515,8 +546,10 @@ export function GableBeams({
     const lights = lightsRef?.current ?? 1;
     const lit = activation * lights;
 
-    mat.uniforms.uOpacity.value = lit * GABLE_BEAM_OPACITY_MAX;
+    mat.uniforms.uOpacity.value = lit * WASH_OPACITY_MAX;
     flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
+    // またたきは曲の時計ではなくシーンの経過時間で回す(止めない・ループしない)
+    flareMat.uniforms.uTime.value = clock.elapsedTime;
 
     const raw = songTimeRef?.current ?? clock.elapsedTime;
     const s = sampleCastleRig(raw, scratch.sample);
@@ -526,7 +559,7 @@ export function GableBeams({
     const levels = attrs.levels.array as Float32Array;
     const n = scratch.palette.length;
 
-    for (let i = 0; i < BEAM_COUNT; i++) {
+    for (let i = 0; i < WASH_COUNT; i++) {
       const spot = GABLE_SPOTS[i];
 
       const phase = castleBeamPhase(
@@ -546,13 +579,13 @@ export function GableBeams({
 
       /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */
       const swing = Math.PI * 2 * (s.swingPos + phase);
-      // 基準の仰角を中心に振る(理由は EaveBeams.tsx の同じ箇所のコメント参照)
+      // 基準の仰角を中心に振る(理由は BeamLight.tsx の同じ箇所のコメント参照)
       const targetLift = s.lift + s.liftSwing * Math.cos(swing);
-      // 横は cue.yaw を増幅して扇状に振らせる(GABLE_YAW_* のコメント参照)
-      const yawAmp = Math.max(s.yaw * GABLE_YAW_GAIN, GABLE_YAW_MIN);
+      // 横は cue.yaw を増幅して扇状に振らせる(WASH_YAW_* のコメント参照)
+      const yawAmp = Math.max(s.yaw * WASH_YAW_GAIN, WASH_YAW_MIN);
       const targetYaw = yawAmp * Math.sin(swing);
 
-      // 首の回る速さの上限。理屈は EaveBeams.tsx / StageBeams.tsx を参照
+      // 首の回る速さの上限。理屈は BeamLight.tsx / Searchlight.tsx を参照
       const nextLift = scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
       const nextYaw = scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;
       scratch.lift[i] = nextLift;
@@ -587,19 +620,19 @@ export function GableBeams({
       {/* 遠くまで長く伸びるので、建物のbboxではカリングされてしまう */}
       <instancedMesh
         ref={beamMeshRef}
-        args={[geometry, material, BEAM_COUNT]}
+        args={[geometry, material, WASH_COUNT]}
         frustumCulled={false}
       />
       {/*
-        光源そのもののフレア。**ユーザー指示でいったん非表示にしてある。**
-        戻すときはこのコメントを外すだけでよい(useFrame 側は flareMesh が
-        null でも動く作りにしてあるので、他の変更は不要)。
+        光源そのものの**キラキラ**(芯 + 十字グレア + ハロー + またたき。
+        FLARE_FRAGMENT)。ビーム軸を向いた円盤なので、光が出ている方向から
+        見たときだけ光る。
       */}
-      {/* <instancedMesh
+      <instancedMesh
         ref={flareMeshRef}
-        args={[flareGeometry, flareMaterial, BEAM_COUNT]}
+        args={[flareGeometry, flareMaterial, WASH_COUNT]}
         frustumCulled={false}
-      /> */}
+      />
     </group>
   );
 }

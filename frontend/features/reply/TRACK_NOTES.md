@@ -166,7 +166,7 @@ music に重なっており、ドラムが分離できていない。
 - **白飛び**: 転換で全画面が白く飛ぶカットが多用される(0:27-0:31、1:34 など)
 
 既存の `BEAM_COLORS = ["#8b6cff", "#8b6cff", "#ffa93d", "#6effb0"]` はこの配色と整合している
-(ピンクはStageBeamsの見た目調整で除外したまま。緑は§4.1「緑は動く光」の通りビームに
+(ピンクはSearchlightの見た目調整で除外したまま。緑は§4.1「緑は動く光」の通りビームに
 使う色なので復活させてある。constants.ts のコメント参照)。
 
 ### 4.2 モチーフ
@@ -210,10 +210,19 @@ Aメロ/Bメロ 0.48–0.59 カット/秒 (1カット 1.7–2.1秒)
 
 ### 5.1 照明リグは2系統ある
 
-| リグ | 灯数 | 実装 | 参照 |
-|---|---|---|---|
-| 足元のサーチライト | 12 | [StageBeams.tsx](StageBeams.tsx) | reply.mp4 実測(1小節周期の開閉スイープ) |
-| **建物から出る光**(軒下+破風) | 96 | [castleBeamRig.ts](castleBeamRig.ts) → [EaveBeams.tsx](EaveBeams.tsx) / [GableBeams.tsx](GableBeams.tsx) | **別の映像**(下記) |
+光源の場所で呼び分ける(ユーザー指定の呼び名):
+
+| 呼び名 | 場所 | 灯数 | 実装 | 動きの出どころ |
+|---|---|---|---|---|
+| **サーチライト**(Searchlight) | 足元(水面すぐ上)から空へ | 12 | [Searchlight.tsx](Searchlight.tsx) の `CUES` | reply.mp4 実測。ただし**イントロ2だけ** 4〜9秒のシザース交差(`crossX`、6灯だけ点灯)に差し替え(ユーザー指定) |
+| **ビームライト**(BeamLight) | 屋根の端(軒)から | 80 | [BeamLight.tsx](BeamLight.tsx) | ↓ castleBeamRig(下記) |
+| **ウォッシュライト**(WashLight) | 天守四面の破風から | 16 | [WashLight.tsx](WashLight.tsx) | ↓ castleBeamRig(下記) |
+
+ビームライト=細い光条、ウォッシュライト=広がりで面を染める光（参考画像の
+コンサート照明。細い筋にはしない）。**ビームライト + ウォッシュライト = 96 本**が
+「建物から出る光」で、この96本だけ
+[castleBeamRig.ts](castleBeamRig.ts) が照明卓としてまとめて動かす(位相・色・
+点灯フロントを共有)。サーチライトはこのリグに含まれない。
 
 建物側のリグだけ **reply.mp4 ではなく BUMP OF CHICKEN「BUTTERFLY」
 (TOUR 2019 Aurora Ark)の 3:06〜3:56** を参照している(ユーザー指定)。

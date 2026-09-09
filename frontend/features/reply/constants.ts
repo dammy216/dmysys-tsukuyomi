@@ -71,7 +71,7 @@ export const CASTLE_HALF_DEPTH = 0.2203 * CASTLE_SCALE;
 
 /**
  * 天守の屋根の層(軒)。天守は1枚屋根の単純な箱ではなく、上へ行くほど幅が
- * 狭くなる屋根が5段重なった層塔型(五重天守)。EaveBeams.tsx が「軒下」に
+ * 狭くなる屋根が5段重なった層塔型(五重天守)。BeamLight.tsx が「軒下」に
  * ビームを立てるには、建物全体の外周(CASTLE_HALF_WIDTH/DEPTH)や頂点の
  * 比率近似ではなく、層ごとの軒の実測位置・幅・奥行きが要る。
  *
@@ -308,15 +308,30 @@ export const PROJECTION_COLOR_B = "#ff3d86";
  * (ピンクは引き続き除外)。紫(#8b6cff)を2枠、オレンジ(#ffa93d)・緑(#6effb0)を
  * 1枠ずつにして、紫を主色として保ちながら緑を混ぜてある。
  * **小節ごとにこの中から2色を選んで会場ごと総入れ替え**する
- * (StageBeams の COLOR_BEATS)。本ごとに固定の色を割り振ると、
+ * (Searchlight の COLOR_BEATS)。本ごとに固定の色を割り振ると、
  * 何が起きても色の並びが変わらないので照明卓が動いていないように見える。
  */
-export const BEAM_COLORS = ["#8b6cff", "#8b6cff", "#ffa93d", "#6effb0"];
+export const BEAM_COLORS = ["#8b6cff", "#ffa93d", "#6effb0"];
+
+/**
+ * イントロ2(intro-B / 11.05〜23秒)だけ足元サーチライトに使う固定色。
+ * ユーザーが手描きした「reply の建物を上から見た図(上=奥 / -Z 向き)」に
+ * 置かれた6つの光点の色に合わせてある(図から目視で拾った近似値なので、
+ * ズレていたらここを調整する)。灯への割り当ては Searchlight.tsx の INTRO2_SOLO。
+ *   奥の隅櫓(左右) = 緑 / 奥の辺の中央(左右) = オレンジ / 手前の隅櫓(左右) = マゼンタ
+ *
+ * **値は必ず6桁hex(#RRGGBB)。** 8桁の #RRGGBBAA を渡すと Three.Color.set() が
+ * 警告だけ出して無視し、その灯が初期色(紫 #8b6cff)のまま残る。灯を薄くしたい
+ * ときは色ではなく明るさ側で調整する。
+ */
+export const REPLY_INTRO2_BEAM_GREEN = "#6effb0";
+export const REPLY_INTRO2_BEAM_ORANGE = "#ffa93d";
+export const REPLY_INTRO2_BEAM_MAGENTA = "#8b6cff";
 
 /*
  * ------------------------------------------------------------------
  * 曲(Reply)のビートグリッド。**すべて reply.mp4 の音声から実測した値**で、
- * 勘で置いた数字ではない。ステージ照明(StageBeams)はこのグリッドの上で動く。
+ * 勘で置いた数字ではない。ステージ照明(Searchlight)はこのグリッドの上で動く。
  *
  * 楽曲構成・歌詞タイミング・実測ダイナミクス・映像の絵づくりは
  * `frontend/features/reply/TRACK_NOTES.md` に詳細をまとめてある。
