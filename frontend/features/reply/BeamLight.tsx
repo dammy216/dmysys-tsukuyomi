@@ -31,9 +31,9 @@ import {
   CASTLE_TOP_Y,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
-  REPLY_INTRO2_BEAM_GREEN,
-  REPLY_INTRO2_BEAM_MAGENTA,
-  REPLY_INTRO2_BEAM_ORANGE,
+  REPLY_INTRO2_LASER_HIGH,
+  REPLY_INTRO2_LASER_LOW,
+  REPLY_INTRO2_LASER_MID,
 } from "./constants";
 import { REPLY_SECTIONS } from "./songStructure";
 import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
@@ -340,14 +340,15 @@ const INTRO2_BLINK_ON = 0.38;
 const INTRO2_BLINK_FLOOR = 0;
 
 /**
- * レーザー時の色。**城のパレット(CASTLE_BEAM_PALETTE)や暖色は使わず、
- * サーチライトのイントロ2と同じ3色**(ユーザー指定)。灯の取り付け高さで
- * 3バンドに配るので、同じ層の X は単色・層ごとに色が変わる。
+ * レーザー時の色。**城のパレット(CASTLE_BEAM_PALETTE)は使わず、イントロ2の
+ * 溶鉄グラデ3色**(Searchlight のイントロ2と共有。REPLY_INTRO2_LASER_* 参照)。
+ * 灯の取り付け高さで3バンドに配る ―― 下=赤熱 LOW / 中=橙 MID / 上=白熱 HIGH。
+ * 同じ層の X は単色、層を上がるほど熱くなる(エンバー投影と同じ家系)。
  */
 const INTRO2_LASER_COLORS: readonly Color[] = [
-  new Color(REPLY_INTRO2_BEAM_GREEN),
-  new Color(REPLY_INTRO2_BEAM_MAGENTA),
-  new Color(REPLY_INTRO2_BEAM_ORANGE),
+  new Color(REPLY_INTRO2_LASER_LOW),
+  new Color(REPLY_INTRO2_LASER_MID),
+  new Color(REPLY_INTRO2_LASER_HIGH),
 ];
 
 /**

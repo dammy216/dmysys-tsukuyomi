@@ -22,9 +22,9 @@ import {
   REPLY_BAR_SECONDS,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
-  REPLY_INTRO2_BEAM_GREEN,
-  REPLY_INTRO2_BEAM_MAGENTA,
-  REPLY_INTRO2_BEAM_ORANGE,
+  REPLY_INTRO2_LASER_HIGH,
+  REPLY_INTRO2_LASER_LOW,
+  REPLY_INTRO2_LASER_MID,
 } from "./constants";
 import {
   REPLY_SECTIONS,
@@ -323,10 +323,11 @@ const CUES: Record<ReplySectionName, BeamCue> = {
  *
  * ユーザーが手描きした「reply の建物を上から見た図」(上=奥 / -Z 向き、
  * 図の右=ワールド +X)に置かれた6つの光点だけを点け、色も図に合わせる。
- * key は BEAM_POINTS の添字(beam.order):
- *   4, 7  = 奥(-Z)の隅櫓 左右          → 緑
- *   5, 6  = 奥(-Z)の辺の中央 左右       → オレンジ
- *   1, 10 = 手前(+Z)の隅櫓 左右         → ピンク(他より遅く交差。INTRO2_SWEEP_SCALE)
+ * key は BEAM_POINTS の添字(beam.order)。色は溶鉄グラデ(REPLY_INTRO2_LASER_*)を
+ * 前後に配る ―― 手前ほど白熱、奥ほど赤い:
+ *   4, 7  = 奥(-Z)の隅櫓 左右          → LOW(赤熱)
+ *   5, 6  = 奥(-Z)の辺の中央 左右       → MID(橙。他より遅く交差。INTRO2_SWEEP_SCALE)
+ *   1, 10 = 手前(+Z)の隅櫓 左右         → HIGH(白熱。他より遅く交差)
  * ここに無い6灯 —— 0,11(手前の辺の中央) / 2,3(右の辺) / 8,9(左の辺) —— は
  * intro-B の間だけ消灯し、breath(23秒)へ移る 1.4 秒で戻す。
  *
@@ -335,18 +336,18 @@ const CUES: Record<ReplySectionName, BeamCue> = {
  * beam.x の符号で鏡像になる(useFrame 内)ので必ず対称に交差する。
  */
 const INTRO2_SOLO: Readonly<Record<number, string>> = {
-  1: REPLY_INTRO2_BEAM_MAGENTA,
-  4: REPLY_INTRO2_BEAM_GREEN,
-  5: REPLY_INTRO2_BEAM_ORANGE,
-  6: REPLY_INTRO2_BEAM_ORANGE,
-  7: REPLY_INTRO2_BEAM_GREEN,
-  10: REPLY_INTRO2_BEAM_MAGENTA,
+  1: REPLY_INTRO2_LASER_HIGH,
+  4: REPLY_INTRO2_LASER_LOW,
+  5: REPLY_INTRO2_LASER_MID,
+  6: REPLY_INTRO2_LASER_MID,
+  7: REPLY_INTRO2_LASER_LOW,
+  10: REPLY_INTRO2_LASER_HIGH,
 };
 
 /**
  * crossX のシザース周期(既定 cue.sweepBars=2小節)を灯ごとに引き伸ばす倍率。
- * ユーザー指定で、手前のピンク(1・10)と奥のオレンジ(5・6)を他より遅く交差
- * させる(2 = 周期2倍 ≒ 5.6秒)。速いままなのは奥の緑(4・7)だけ。
+ * ユーザー指定で、手前の白熱(1・10)と奥の橙(5・6)を他より遅く交差
+ * させる(2 = 周期2倍 ≒ 5.6秒)。速いままなのは奥の赤熱(4・7)だけ。
  * ここに無い灯は 1(等倍)。ペアで同じ値にしておけば左右対称は保たれる。
  */
 const INTRO2_SWEEP_SCALE: Readonly<Record<number, number>> = {

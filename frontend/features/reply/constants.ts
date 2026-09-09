@@ -341,19 +341,23 @@ export const PROJECTION_PANEL_SIZE = 2.2;
 export const BEAM_COLORS = ["#8b6cff", "#ffa93d", "#6effb0"];
 
 /**
- * イントロ2(intro-B / 11.05〜23秒)だけ足元サーチライトに使う固定色。
- * ユーザーが手描きした「reply の建物を上から見た図(上=奥 / -Z 向き)」に
- * 置かれた6つの光点の色に合わせてある(図から目視で拾った近似値なので、
- * ズレていたらここを調整する)。灯への割り当ては Searchlight.tsx の INTRO2_SOLO。
- *   奥の隅櫓(左右) = 緑 / 奥の辺の中央(左右) = オレンジ / 手前の隅櫓(左右) = マゼンタ
+ * イントロ2(intro-B / 11.05〜23秒)のレーザー(BeamLight のレーザーモード +
+ * Searchlight の交差)に使う固定3色。**溶鉄グラデ** ―― 組み上がりきった直後の
+ * 天守を「まだ冷えきってない鍛鉄」に見立てた投影(castleProjectionPalette の
+ * イントロ2 = エンバー)と家系を揃える。当初は緑/橙/紫だったが、エンバー投影
+ * から浮くというユーザー指摘で赤熱→白熱の熱勾配へ差し替えた。
+ *
+ * - BeamLight: 取り付け高さ3バンドに LOW→MID→HIGH で配る(下=赤熱・上=白熱)。
+ * - Searchlight(INTRO2_SOLO): 奥の隅櫓 = LOW / 奥の辺の中央 = MID /
+ *   手前の隅櫓 = HIGH。手前ほど白熱、奥ほど赤い前後グラデになる。
  *
  * **値は必ず6桁hex(#RRGGBB)。** 8桁の #RRGGBBAA を渡すと Three.Color.set() が
  * 警告だけ出して無視し、その灯が初期色(紫 #8b6cff)のまま残る。灯を薄くしたい
  * ときは色ではなく明るさ側で調整する。
  */
-export const REPLY_INTRO2_BEAM_GREEN = "#6effb0";
-export const REPLY_INTRO2_BEAM_ORANGE = "#ffa93d";
-export const REPLY_INTRO2_BEAM_MAGENTA = "#8b6cff";
+export const REPLY_INTRO2_LASER_LOW = "#e0431c";
+export const REPLY_INTRO2_LASER_MID = "#ff8a3a";
+export const REPLY_INTRO2_LASER_HIGH = "#ffe4b0";
 
 /*
  * ------------------------------------------------------------------
