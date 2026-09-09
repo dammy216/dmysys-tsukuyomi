@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import {
   AdditiveBlending,
   CircleGeometry,
@@ -18,12 +18,6 @@ import {
   Vector3,
 } from "three";
 import {
-  CASTLE_ROOF_TIERS,
-  CASTLE_TOP_Y,
-  REPLY_BEAT_OFFSET,
-  REPLY_BEAT_SECONDS,
-} from "./constants";
-import {
   CASTLE_BEAM_PALETTE,
   CASTLE_BEAM_WARM,
   castleBeamPhase,
@@ -32,6 +26,15 @@ import {
   heightGate,
   sampleCastleRig,
 } from "./castleBeamRig";
+import {
+  CASTLE_ROOF_TIERS,
+  CASTLE_TOP_Y,
+  REPLY_BEAT_OFFSET,
+  REPLY_BEAT_SECONDS,
+  REPLY_INTRO2_BEAM_GREEN,
+  REPLY_INTRO2_BEAM_MAGENTA,
+  REPLY_INTRO2_BEAM_ORANGE,
+} from "./constants";
 import { REPLY_SECTIONS } from "./songStructure";
 import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
 
@@ -74,7 +77,7 @@ import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
   *_YAW_GAIN / *_YAW_MIN 参照。破風は WashLight.tsx の WASH_YAW_*)。
 */
 
-type RoofRow = { y: number; halfWidth: number; halfDepth: number };
+type RoofRow = { y: number; halfWidth: number; halfDepth: number; };
 
 type EaveTierAtBuilding = {
   cx: number;
@@ -280,10 +283,12 @@ const CASTLE_YAW_MIN = 0.35;
  * 切り替える**(INTRO2_LASER_SWAY。スナップ。スイープはしない)。点滅の合間は
  * 完全消灯(INTRO2_BLINK_FLOOR = 0)なので移動の途中は一切見えず、点いた一瞬
  * だけ X が現れて消える = 「パッパと切り替わる」。
- * castleBeamRig の首振り・チェイスは無視、色・本数フロントは従来どおり。
+ * 色も城のパレットではなく **サーチライトのイントロ2と同じ3色**
+ * (INTRO2_LASER_COLORS。ユーザー指定)。castleBeamRig からは本数フロント
+ * (density/gate)と明るさのベースだけ引き継ぐ ―― 首振り・チェイス・色は無視。
  * ------------------------------------------------------------------ */
 /** レーザーの仰角(ラジアン)。水平から。0.6 ≒ 34°(浅め・外向き) */
-const INTRO2_LASER_LIFT = 0.5;
+const INTRO2_LASER_LIFT = 0.8;
 /**
  * **ビームを交差させる yaw(ラジアン)。** 面の右端の灯を左へ、左端の灯を右へ
  * 振って、空中で X に交わらせる(ユーザー指定「右端の光と左端の光を交差」)。
@@ -307,6 +312,17 @@ const INTRO2_BLINK_ON = 0.38;
  * 真っ暗にして、点いた一瞬だけ X が見えるようにする。
  */
 const INTRO2_BLINK_FLOOR = 0;
+
+/**
+ * レーザー時の色。**城のパレット(CASTLE_BEAM_PALETTE)や暖色は使わず、
+ * サーチライトのイントロ2と同じ3色**(ユーザー指定)。灯の取り付け高さで
+ * 3バンドに配るので、同じ層の X は単色・層ごとに色が変わる。
+ */
+const INTRO2_LASER_COLORS: readonly Color[] = [
+  new Color(REPLY_INTRO2_BEAM_GREEN),
+  new Color(REPLY_INTRO2_BEAM_MAGENTA),
+  new Color(REPLY_INTRO2_BEAM_ORANGE),
+];
 
 /**
  * 層ごとの屋根の四隅(±半幅, ±半奥行き)それぞれに、そこへ集まる2辺を
@@ -620,8 +636,8 @@ type BeamLightProps = {
  * **例外: イントロ2(intro-B / 11.05〜23秒)だけ「レーザー」モード**
  * (ユーザー指定。INTRO2_LASER_* / useFrame の isIntro2 分岐参照):面の右端と
  * 左端の灯を交差させて X をつくり、点滅のたびに X の傾きをスナップで切り替える
- * (合間は完全消灯)。この区間だけ castleBeamRig の首振り・チェイスを無視する
- * (色・本数フロントはそのまま)。
+ * (合間は完全消灯)。色はサーチライトのイントロ2と同じ3色。この区間だけ
+ * castleBeamRig の首振り・チェイス・色を無視する(本数フロントはそのまま)。
  */
 export function BeamLight({
   position = [0, 0, 0],
@@ -937,18 +953,33 @@ export function BeamLight({
       beamMesh.setMatrixAt(i, scratch.matrix);
       flareMesh?.setMatrixAt(i, scratch.matrix);
 
-      /* --- 4. 色。パレットをリグの高さ方向へ配り、暖色から寄せる --- */
-      const slot = s.colorSlot + spot.heightNorm * s.colorSpread * scratch.palette.length;
-      /*
-        剰余は必ず正に丸める。曲頭(barPos<0)では colorSlot が負になり、
-        JS の % は負を返すので、そのまま添字にすると undefined になる。
-      */
-      const n = scratch.palette.length;
-      const idx = ((Math.floor(slot) % n) + n) % n;
-      scratch.color.copy(scratch.warm).lerp(scratch.palette[idx], s.tint);
-      colors[i * 3] = scratch.color.r;
-      colors[i * 3 + 1] = scratch.color.g;
-      colors[i * 3 + 2] = scratch.color.b;
+      /* --- 4. 色 --- */
+      if (isIntro2) {
+        /*
+          レーザーは城のパレットではなく **サーチライトのイントロ2と同じ3色**
+          (ユーザー指定)。取り付け高さで3バンドに配る(暖色・tint は掛けない)。
+        */
+        const cn = INTRO2_LASER_COLORS.length;
+        const c =
+          INTRO2_LASER_COLORS[Math.min(Math.floor(spot.heightNorm * cn), cn - 1)];
+        colors[i * 3] = c.r;
+        colors[i * 3 + 1] = c.g;
+        colors[i * 3 + 2] = c.b;
+      } else {
+        // パレットをリグの高さ方向へ配り、暖色から寄せる
+        const slot =
+          s.colorSlot + spot.heightNorm * s.colorSpread * scratch.palette.length;
+        /*
+          剰余は必ず正に丸める。曲頭(barPos<0)では colorSlot が負になり、
+          JS の % は負を返すので、そのまま添字にすると undefined になる。
+        */
+        const n = scratch.palette.length;
+        const idx = ((Math.floor(slot) % n) + n) % n;
+        scratch.color.copy(scratch.warm).lerp(scratch.palette[idx], s.tint);
+        colors[i * 3] = scratch.color.r;
+        colors[i * 3 + 1] = scratch.color.g;
+        colors[i * 3 + 2] = scratch.color.b;
+      }
     }
 
     beamMesh.instanceMatrix.needsUpdate = true;
