@@ -277,13 +277,16 @@ const CASTLE_YAW_GAIN = 5;
 const CASTLE_YAW_MIN = 0.35;
 
 /* ------------------------------------------------------------------ *
- * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定:
- * 軒から外向きへ照射し、**面の右端の灯は左へ・左端の灯は右へ**振って空中で
- * X に交差させる(INTRO2_LASER_CROSS)。**点滅のたびに X を左右へパッと
- * 切り替える**(INTRO2_LASER_SWAY。スナップ。スイープはしない)。点滅の合間は
- * 完全消灯(INTRO2_BLINK_FLOOR = 0)なので移動の途中は一切見えず、点いた一瞬
- * だけ X が現れて消える = 「パッパと切り替わる」。
- * 色も城のパレットではなく **サーチライトのイントロ2と同じ3色**
+ * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
+ * 2フェーズある:
+ *  1) intro-B 開始 〜 INTRO2_BLINK_START_SECONDS(カメラの引きが終わるまで):
+ *     交差も点滅もさせず、各面から外向きへ平行にレーザーをそのまま出す。
+ *  2) それ以降: **面の右端の灯は左へ・左端の灯は右へ**振って空中で X に
+ *     交差(INTRO2_LASER_CROSS)。**点滅のたびに X を左右へパッと切り替える**
+ *     (INTRO2_LASER_SWAY。スナップ。スイープはしない)。点滅の合間は完全消灯
+ *     (INTRO2_BLINK_FLOOR = 0)なので移動の途中は見えず、点いた一瞬だけ X が
+ *     現れて消える = 「パッパと切り替わる」。
+ * 色は城のパレットではなく **サーチライトのイントロ2と同じ3色**
  * (INTRO2_LASER_COLORS。ユーザー指定)。castleBeamRig からは本数フロント
  * (density/gate)と明るさのベースだけ引き継ぐ ―― 首振り・チェイス・色は無視。
  * ------------------------------------------------------------------ */
@@ -304,6 +307,14 @@ const INTRO2_LASER_CROSS = 0.7;
 const INTRO2_LASER_SWAY = 0.4;
 /** レーザー時の明るさ倍率。細い光条をくっきり見せるため少し持ち上げる */
 const INTRO2_LASER_LEVEL = 1.35;
+/**
+ * フェーズ2(交差 + 点滅)を始める再生位置(秒)。これより前は交差も点滅も
+ * させず平行照射(上のコメント参照)。ユーザー指定:「イントロ2に入るときの
+ * カメラの引きが終わるまでは表示、そこから点滅」。
+ * dronePathData の引きの着地点(t:11.5 で radius 11.5→53、そこから詰め始める)
+ * あたり。長く感じるなら後ろへずらす。
+ */
+const INTRO2_BLINK_START_SECONDS = 11.8;
 /** 1拍のうちレーザーが点いている割合(0〜1)。残りは完全消灯 */
 const INTRO2_BLINK_ON = 0.38;
 /**
@@ -634,10 +645,11 @@ type BeamLightProps = {
  * ビームと破風のウォッシュは必ず揃って動く。
  *
  * **例外: イントロ2(intro-B / 11.05〜23秒)だけ「レーザー」モード**
- * (ユーザー指定。INTRO2_LASER_* / useFrame の isIntro2 分岐参照):面の右端と
- * 左端の灯を交差させて X をつくり、点滅のたびに X の傾きをスナップで切り替える
- * (合間は完全消灯)。色はサーチライトのイントロ2と同じ3色。この区間だけ
- * castleBeamRig の首振り・チェイス・色を無視する(本数フロントはそのまま)。
+ * (ユーザー指定。INTRO2_LASER_* / useFrame の isIntro2 分岐参照):最初は平行に
+ * 外向き照射、カメラの引きが終わってから面の右端/左端を交差させた X + 点滅
+ * (合間は完全消灯)+ 点滅ごとに X の傾きをスナップ切り替え。色はサーチライトの
+ * イントロ2と同じ3色。この区間だけ castleBeamRig の首振り・チェイス・色を
+ * 無視する(本数フロントはそのまま)。
  */
 export function BeamLight({
   position = [0, 0, 0],
@@ -831,12 +843,19 @@ export function BeamLight({
       イントロ2(intro-B)だけ「レーザー」モード(INTRO2_LASER_* のコメント参照):
       右端/左端の灯を交差させた X + 点滅ごとに X の傾きを切り替える。ここで
       その区間かどうかと、拍のブリンク係数・X の傾き向き(全灯共通)を1回求める。
+
+      **カメラの引きが終わる(INTRO2_BLINK_START_SECONDS)まで**は点滅させず、
+      **交差もさせず**にレーザーをそのまま出す(各面から外向きへ平行に照射)。
+      引き切ってから、交差の X + 拍の点滅 + 傾きの切り替えを始める。
     */
     const isIntro2 = REPLY_SECTIONS[s.sectionIndex]?.name === "intro-B";
     let intro2Blink = 1;
     /** 偶数拍 +1 / 奇数拍 -1。点滅のたびに X の傾きをこの符号で反転する */
     let intro2BeatDir = 0;
-    if (isIntro2) {
+    /** 交差(X)させるか。引きが終わるまでは false = 平行に外向き照射 */
+    let intro2Crossing = false;
+    if (isIntro2 && raw >= INTRO2_BLINK_START_SECONDS) {
+      intro2Crossing = true;
       const beatPos = (raw - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
       const beat = Math.floor(beatPos);
       const beatPhase = beatPos - beat;
@@ -883,26 +902,33 @@ export function BeamLight({
       let targetYaw: number;
       if (isIntro2) {
         /*
-          レーザーモード: 仰角は INTRO2_LASER_LIFT 固定。yaw は「交差」:
-          その灯が面の中心のどちら側か(進行方向と直交する軸の座標 ―― **棟の
-          中心 (cx,cz) からの相対**で見る。隅櫓は棟がまるごと城の隅にあるので
-          ワールド座標の符号では全灯同じ側になり交差しない)。lateralSign は
-          右端 +1 / 左端 -1。右端は左へ・左端は右へ振るので向きは -lateralSign。
-          振り角の大きさは CROSS を基準に、点滅ごとに ±SWAY で深い側・浅い側が
-          入れ替わる(lateralSign*beatDir で符号)→ 拍ごとに X が左寄り ↔ 右寄り
-          へスナップで切り替わる。
+          レーザーモード: 仰角は INTRO2_LASER_LIFT 固定。
+          intro2Crossing=false(カメラの引きが終わるまで): yaw=0 =
+            各面から法線方向へ平行に外向き照射。交差させない。
+          intro2Crossing=true: 「交差」―― その灯が面の中心のどちら側か
+            (進行方向と直交する軸の座標。**棟の中心 (cx,cz) からの相対**で見る。
+            隅櫓は棟がまるごと城の隅にあるのでワールド座標の符号では全灯同じ側
+            になり交差しない)。lateralSign は右端 +1 / 左端 -1。右端は左へ・
+            左端は右へ振るので向きは -lateralSign。振り角の大きさは CROSS を
+            基準に、点滅ごとに ±SWAY で深い側・浅い側が入れ替わる
+            (lateralSign*beatDir で符号)→ 拍ごとに X が左寄り ↔ 右寄りへ
+            スナップで切り替わる。
         */
         targetLift = INTRO2_LASER_LIFT;
-        const pointsAlongX =
-          spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
-        const lateral = pointsAlongX
-          ? spot.position[2] - spot.cz
-          : spot.position[0] - spot.cx;
-        const lateralSign = lateral >= 0 ? 1 : -1;
-        targetYaw =
-          -lateralSign *
-          (INTRO2_LASER_CROSS +
-            lateralSign * intro2BeatDir * INTRO2_LASER_SWAY);
+        if (intro2Crossing) {
+          const pointsAlongX =
+            spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
+          const lateral = pointsAlongX
+            ? spot.position[2] - spot.cz
+            : spot.position[0] - spot.cx;
+          const lateralSign = lateral >= 0 ? 1 : -1;
+          targetYaw =
+            -lateralSign *
+            (INTRO2_LASER_CROSS +
+              lateralSign * intro2BeatDir * INTRO2_LASER_SWAY);
+        } else {
+          targetYaw = 0;
+        }
       } else {
         const swing = Math.PI * 2 * (s.swingPos + phase);
         /*
