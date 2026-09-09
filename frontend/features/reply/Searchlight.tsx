@@ -237,13 +237,14 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ringColors: false,
     slew: 3,
   },
-  // Aメロ。ゆっくりした波で、歌の邪魔をしない
+  // Aメロ。**サーチライトは消す**(ユーザー指定)。他は breath→B の
+  // クロスフェード用に無害な値を置くだけ。
   A: {
     pattern: "wave",
     sweepBars: 2,
     chaseBars: 4,
     chaseDepth: 0.3,
-    level: 0.62,
+    level: 0,
     spread: 0.5,
     strobe: 0.1,
     colorBars: 4,

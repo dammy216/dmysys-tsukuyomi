@@ -280,7 +280,11 @@ const CASTLE_YAW_MIN = 0.35;
  * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
  * 2フェーズある:
  *  1) intro-B 開始 〜 INTRO2_BLINK_START_SECONDS(カメラの引きが終わるまで):
- *     交差も点滅もさせず、各面から外向きへ平行にレーザーをそのまま出す。
+ *     交差も点滅もさせず、平行照射のまま **仰角を真上寄り→外向きへ倒して
+ *     「開いていく」**(INTRO2_OPEN_LIFT → INTRO2_LASER_LIFT。カメラの引きに
+ *     合わせる。ユーザー指定)。開きカーブは ease-out ―― 現れた瞬間から一番
+ *     大きく動く(smoothstep だと束のまま一瞬止まって見えた)。明るさの
+ *     フェードは通常どおり(サーチライトと同時に出る)。
  *  2) それ以降: 各建物ごと、灯を**その建物の中心の右側/左側**で分けて、
  *     中心をまたぐ向きへ振り空中で X に交差させる(INTRO2_LASER_CROSS。
  *     天守は4面それぞれ、隅櫓は各棟で X)。振る向きは進行方向(rotationY)で
@@ -295,8 +299,14 @@ const CASTLE_YAW_MIN = 0.35;
  * castleBeamRig からは本数フロント(density/gate)と明るさのベースだけ
  * 引き継ぐ ―― 首振り・チェイス・色は無視。
  * ------------------------------------------------------------------ */
-/** レーザーの仰角(ラジアン)。水平から。0.6 ≒ 34°(浅め・外向き) */
+/** レーザーの仰角(ラジアン)。水平から。0.8 ≒ 46°(外向き)。フェーズ2の固定値 */
 const INTRO2_LASER_LIFT = 0.8;
+/**
+ * フェーズ1の**開き始め**の仰角(ラジアン)。1.45 ≒ 83°(ほぼ真上)。
+ * intro-B 開始時はここ(真上寄りの束)→ INTRO2_BLINK_START_SECONDS までに
+ * INTRO2_LASER_LIFT へ倒れていく = カメラの引きに合わせて外へ「開いていく」。
+ */
+const INTRO2_OPEN_LIFT = 1.45;
 /**
  * **ビームを交差させる yaw(ラジアン)。** 面の右端の灯を左へ、左端の灯を右へ
  * 振って、空中で X に交わらせる(ユーザー指定「右端の光と左端の光を交差」)。
@@ -834,9 +844,6 @@ export function BeamLight({
     const lights = lightsRef?.current ?? 1;
     const lit = activation * lights;
 
-    mat.uniforms.uOpacity.value = lit * EAVE_BEAM_OPACITY_MAX;
-    flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
-
     /*
       グリッドは**曲の再生位置**で取る。シーンの経過時間で回すと、
       REPLY_BAR_ORIGIN(曲の頭からの実測値)を基準にした小節線がずれる。
@@ -850,7 +857,7 @@ export function BeamLight({
       その区間かどうかと、拍のブリンク係数・X の傾き向き(全灯共通)を1回求める。
 
       **カメラの引きが終わる(INTRO2_BLINK_START_SECONDS)まで**は点滅させず、
-      **交差もさせず**にレーザーをそのまま出す(各面から外向きへ平行に照射)。
+      **交差もさせず**、真上寄りの束から外向きへ「開いていく」。
       引き切ってから、交差の X + 拍の点滅 + 傾きの切り替えを始める。
     */
     const isIntro2 = REPLY_SECTIONS[s.sectionIndex]?.name === "intro-B";
@@ -859,6 +866,15 @@ export function BeamLight({
     let intro2BeatDir = 0;
     /** 交差(X)させるか。引きが終わるまでは false = 平行に外向き照射 */
     let intro2Crossing = false;
+    /**
+     * フェーズ1の開き具合 0〜1(0 = 真上寄りの束、1 = 外向きに開ききった)。
+     * intro-B 開始 → INTRO2_BLINK_START_SECONDS で 0→1。仰角(束→外向き)は
+     * これを使う。**ease-out(1-(1-c)^2)** ―― smoothstep は開始の傾きが 0 で、
+     * 表示された瞬間しばらく束のまま止まって見えた(ユーザー指摘「一度表示
+     * されてから開く」)。ease-out なら現れた瞬間から一番大きく開く。
+     * 明るさは触らない(uOpacity は lit のまま = サーチライトと同時に出る)。
+     */
+    let intro2OpenP = 1;
     if (isIntro2 && raw >= INTRO2_BLINK_START_SECONDS) {
       intro2Crossing = true;
       const beatPos = (raw - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
@@ -866,7 +882,16 @@ export function BeamLight({
       const beatPhase = beatPos - beat;
       intro2Blink = beatPhase < INTRO2_BLINK_ON ? 1 : INTRO2_BLINK_FLOOR;
       intro2BeatDir = (((beat % 2) + 2) % 2) === 0 ? 1 : -1;
+    } else if (isIntro2) {
+      const start = REPLY_SECTIONS[s.sectionIndex].start;
+      const span = INTRO2_BLINK_START_SECONDS - start;
+      const p = span > 0 ? (raw - start) / span : 1;
+      const c = p < 0 ? 0 : p > 1 ? 1 : p;
+      intro2OpenP = 1 - (1 - c) * (1 - c); // ease-out
     }
+
+    mat.uniforms.uOpacity.value = lit * EAVE_BEAM_OPACITY_MAX;
+    flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
 
     const follow = 1 - Math.exp(-s.slew * delta);
     const colors = attrs.colors.array as Float32Array;
@@ -907,10 +932,12 @@ export function BeamLight({
       let targetYaw: number;
       if (isIntro2) {
         /*
-          レーザーモード: 仰角は INTRO2_LASER_LIFT 固定。
-          intro2Crossing=false(カメラの引きが終わるまで): yaw=0 =
-            各面から法線方向へ平行に外向き照射。交差させない。
-          intro2Crossing=true: 「交差」―― その灯が面の中心のどちら側か
+          レーザーモード:
+          intro2Crossing=false(カメラの引きが終わるまで): yaw=0 で各面の
+            法線方向へ平行照射。仰角は INTRO2_OPEN_LIFT(真上寄り)から
+            INTRO2_LASER_LIFT へ intro2OpenP で倒れていく = 外へ開いていく。
+          intro2Crossing=true: 仰角は INTRO2_LASER_LIFT 固定。「交差」――
+            その灯が面の中心のどちら側か
             (進行方向と直交する軸の座標。**棟の中心 (cx,cz) からの相対**。
             隅櫓は棟がまるごと城の隅にあるのでワールド座標の符号では全灯同じ側
             になり交差しない)。lateralSign は +1 / -1。
@@ -924,8 +951,8 @@ export function BeamLight({
             左右へ振れる = 「1回目と2回目で逆方向」)。crossSign を掛けないので
             全面いっせいに同じ向きへ回る。
         */
-        targetLift = INTRO2_LASER_LIFT;
         if (intro2Crossing) {
+          targetLift = INTRO2_LASER_LIFT;
           const pointsAlongX =
             spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
           const lateral = pointsAlongX
@@ -938,6 +965,10 @@ export function BeamLight({
             crossSign * lateralSign * INTRO2_LASER_CROSS +
             intro2BeatDir * INTRO2_LASER_SWAY;
         } else {
+          // フェーズ1: 真上寄り(束)→ 外向きへ「開いていく」。yaw は 0(平行)
+          targetLift =
+            INTRO2_OPEN_LIFT +
+            (INTRO2_LASER_LIFT - INTRO2_OPEN_LIFT) * intro2OpenP;
           targetYaw = 0;
         }
       } else {

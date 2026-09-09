@@ -319,10 +319,15 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     tint: 0.15,
     slew: 2.5,
   },
-  // Aメロ。上から20本ほど。ゆっくり上下して歌の邪魔をしない
+  /*
+    Aメロ。ゆっくり上下して歌の邪魔をしない。
+    density は 0.3(上から2層ほど)だったが、ユーザー指定で **天守の4層すべて**
+    ビームを出すため 0.68 へ。天守の一番下のビーム層(heightNorm≈0.35)まで
+    点灯フロントが届く値。隅櫓の最上層・破風も少し増えるが、天守の見え方優先。
+  */
   A: {
     level: 0.68,
-    density: 0.3,
+    density: 0.68,
     ...castleLiftFromRange(0.5),
     yaw: 0.05,
     swingBars: 4,
