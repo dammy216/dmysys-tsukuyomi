@@ -281,14 +281,19 @@ const CASTLE_YAW_MIN = 0.35;
  * 2フェーズある:
  *  1) intro-B 開始 〜 INTRO2_BLINK_START_SECONDS(カメラの引きが終わるまで):
  *     交差も点滅もさせず、各面から外向きへ平行にレーザーをそのまま出す。
- *  2) それ以降: **面の右端の灯は左へ・左端の灯は右へ**振って空中で X に
- *     交差(INTRO2_LASER_CROSS)。**点滅のたびに X を左右へパッと切り替える**
- *     (INTRO2_LASER_SWAY。スナップ。スイープはしない)。点滅の合間は完全消灯
- *     (INTRO2_BLINK_FLOOR = 0)なので移動の途中は見えず、点いた一瞬だけ X が
- *     現れて消える = 「パッパと切り替わる」。
+ *  2) それ以降: 各建物ごと、灯を**その建物の中心の右側/左側**で分けて、
+ *     中心をまたぐ向きへ振り空中で X に交差させる(INTRO2_LASER_CROSS。
+ *     天守は4面それぞれ、隅櫓は各棟で X)。振る向きは進行方向(rotationY)で
+ *     +yaw の世界向きが反転するので **crossSign** で補正する ―― 無いと
+ *     「南は交差するのに北は開く」になる(ユーザー指摘)。**点滅のたびに
+ *     全灯まとめて逆向きへ ±SWAY 回して X の交点を左右へ振る**
+ *     (INTRO2_LASER_SWAY。= 1回目と2回目で逆方向。スナップ)。点滅の合間は
+ *     完全消灯(INTRO2_BLINK_FLOOR = 0)なので移動の途中は見えず、点いた一瞬
+ *     だけ X が現れて消える = 「パッパと切り替わる」。
  * 色は城のパレットではなく **サーチライトのイントロ2と同じ3色**
- * (INTRO2_LASER_COLORS。ユーザー指定)。castleBeamRig からは本数フロント
- * (density/gate)と明るさのベースだけ引き継ぐ ―― 首振り・チェイス・色は無視。
+ * (INTRO2_LASER_COLORS。取り付け高さで3バンド。ユーザー指定)。
+ * castleBeamRig からは本数フロント(density/gate)と明るさのベースだけ
+ * 引き継ぐ ―― 首振り・チェイス・色は無視。
  * ------------------------------------------------------------------ */
 /** レーザーの仰角(ラジアン)。水平から。0.6 ≒ 34°(浅め・外向き) */
 const INTRO2_LASER_LIFT = 0.8;
@@ -314,7 +319,7 @@ const INTRO2_LASER_LEVEL = 1.35;
  * dronePathData の引きの着地点(t:11.5 で radius 11.5→53、そこから詰め始める)
  * あたり。長く感じるなら後ろへずらす。
  */
-const INTRO2_BLINK_START_SECONDS = 11.8;
+const INTRO2_BLINK_START_SECONDS =11.8;
 /** 1拍のうちレーザーが点いている割合(0〜1)。残りは完全消灯 */
 const INTRO2_BLINK_ON = 0.38;
 /**
@@ -646,10 +651,10 @@ type BeamLightProps = {
  *
  * **例外: イントロ2(intro-B / 11.05〜23秒)だけ「レーザー」モード**
  * (ユーザー指定。INTRO2_LASER_* / useFrame の isIntro2 分岐参照):最初は平行に
- * 外向き照射、カメラの引きが終わってから面の右端/左端を交差させた X + 点滅
- * (合間は完全消灯)+ 点滅ごとに X の傾きをスナップ切り替え。色はサーチライトの
- * イントロ2と同じ3色。この区間だけ castleBeamRig の首振り・チェイス・色を
- * 無視する(本数フロントはそのまま)。
+ * 外向き照射、カメラの引きが終わってから建物ごとに右側/左側の灯を交差させた
+ * X + 点滅(合間は完全消灯)+ 点滅ごとに全灯まとめて逆向きへ ±SWAY 回す。
+ * 色はサーチライトのイントロ2と同じ3色(高さ3バンド)。この区間だけ
+ * castleBeamRig の首振り・チェイス・色を無視する(本数フロントはそのまま)。
  */
 export function BeamLight({
   position = [0, 0, 0],
@@ -906,13 +911,18 @@ export function BeamLight({
           intro2Crossing=false(カメラの引きが終わるまで): yaw=0 =
             各面から法線方向へ平行に外向き照射。交差させない。
           intro2Crossing=true: 「交差」―― その灯が面の中心のどちら側か
-            (進行方向と直交する軸の座標。**棟の中心 (cx,cz) からの相対**で見る。
+            (進行方向と直交する軸の座標。**棟の中心 (cx,cz) からの相対**。
             隅櫓は棟がまるごと城の隅にあるのでワールド座標の符号では全灯同じ側
-            になり交差しない)。lateralSign は右端 +1 / 左端 -1。右端は左へ・
-            左端は右へ振るので向きは -lateralSign。振り角の大きさは CROSS を
-            基準に、点滅ごとに ±SWAY で深い側・浅い側が入れ替わる
-            (lateralSign*beatDir で符号)→ 拍ごとに X が左寄り ↔ 右寄りへ
-            スナップで切り替わる。
+            になり交差しない)。lateralSign は +1 / -1。
+
+            **crossSign(= sin(rotationY) - cos(rotationY) ∈ {±1})が必須。**
+            +yaw が世界のどちら向きに首を振るかは進行方向(rotationY)で反転する
+            (+Z 面なら +yaw→+X、-Z 面なら +yaw→-X …)。これを掛けないと
+            「南側は交差するのに北側は開く(交差しない)」になる(ユーザー指摘)。
+
+            SWAY: 拍ごとに全灯まとめて世界Y軸まわりに ±SWAY 回す(X の交点が
+            左右へ振れる = 「1回目と2回目で逆方向」)。crossSign を掛けないので
+            全面いっせいに同じ向きへ回る。
         */
         targetLift = INTRO2_LASER_LIFT;
         if (intro2Crossing) {
@@ -922,10 +932,11 @@ export function BeamLight({
             ? spot.position[2] - spot.cz
             : spot.position[0] - spot.cx;
           const lateralSign = lateral >= 0 ? 1 : -1;
+          const crossSign =
+            Math.sin(spot.rotationY) - Math.cos(spot.rotationY) >= 0 ? 1 : -1;
           targetYaw =
-            -lateralSign *
-            (INTRO2_LASER_CROSS +
-              lateralSign * intro2BeatDir * INTRO2_LASER_SWAY);
+            crossSign * lateralSign * INTRO2_LASER_CROSS +
+            intro2BeatDir * INTRO2_LASER_SWAY;
         } else {
           targetYaw = 0;
         }
