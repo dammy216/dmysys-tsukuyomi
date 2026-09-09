@@ -298,9 +298,36 @@ export const REPLY_GLOW_COLOR = "#ff3d1a";
   ステージ照明の色。Reply.mp4 の 0:07〜0:11 で、暗い天守に当たっている
   投影光と、背後から放射状に伸びるサーチライトの色に合わせてある。
 */
-/** 天守に這わせる投影光(プロジェクションマッピング) */
-export const PROJECTION_COLOR_A = "#ffab3d";
-export const PROJECTION_COLOR_B = "#ff3d86";
+/**
+ * 天守に這わせる投影光(プロジェクションマッピング)の **既定/Aメロの配色**。
+ *
+ * 元映像 reply.mp4 は「ピンク×金の対」(TRACK_NOTES.md §4.1)だが、この曲
+ * (超かぐや姫「Reply」)の「電子の海」「どこにもないカラフル」の質感には
+ * 暖色2色は形式ばって聞こえる、というユーザー判断で **寒色・電子寄り** を
+ * 基準にした。シアン + バイオレット + 月明かりの白。シアン/バイオレットは
+ * CASTLE_BEAM_PALETTE と同値 ―― 投影はビームリグの寒色側だけを抜き出した配色。
+ *
+ * **セクションごとの配色は castleProjectionPalette.ts が差し替える**
+ * (イントロ2 = エンバー / サビ = 暖色パーティー …)。ここの4色は uniform の
+ * 初期値 + Aメロ・breath・fade で使う寒色の素材。金は サビ・後半の頭の
+ * 一撃(castleBeamRig の castleHitAt)でだけ差す。
+ */
+export const PROJECTION_COLOR_CYAN = "#3ee0ff";
+export const PROJECTION_COLOR_VIOLET = "#8b6cff";
+/** 月明かりの白。少数のパネルだけこれにして寒色2色のあいだに抜けを作る */
+export const PROJECTION_COLOR_MOON = "#dce6ff";
+/** サビ・後半の頭の一撃でだけ、点灯中パネルの一部がこの金へフラッシュする */
+export const PROJECTION_COLOR_HIT = "#ffab3d";
+/**
+ * 投影パネル1枚の大きさ(ワールド単位)。castleBuildShader.ts の
+ * プロジェクションマッピングは、建物の面を法線で「屋根 / 4方位の壁」に
+ * 分け、その面へ正面から映像を平面投影したうえで、この間隔の格子で
+ * パネルに割る。天守(高さ約36・底面約29.7×26.4)で横13枚・縦16枚ほど。
+ * BUILD_CELL_SIZE(組み上げのボクセル 0.4)より粗い ―― あちらは
+ * ブロックの粒、こちらは「1面をいくつのパネルに割って順に灯すか」。
+ * 小さくするとパネルが細かくなり点描寄り、大きくすると1面まるごと数枚。
+ */
+export const PROJECTION_PANEL_SIZE = 2.2;
 /**
  * 背後から放射状に伸びるビームの色。当初はピンク(#ff4fa3)と緑(#6effb0)を
  * 外していたが、TRACK_NOTES.md §4.1「緑は常に『動く光』として使われる」の

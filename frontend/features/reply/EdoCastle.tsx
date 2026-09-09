@@ -13,6 +13,8 @@ import {
   createCastleBuildUniforms,
   PROJECTION_INTENSITY_MAX,
 } from "./castleBuildShader";
+import { castleHitAt } from "./castleBeamRig";
+import { sampleCastleProjection } from "./castleProjectionPalette";
 
 const MODEL_PATH = "/3DModel/944e48f240cc449abb5ecc969051b155/scene.gltf";
 
@@ -140,6 +142,12 @@ type EdoCastleProps = {
    * 黒いシルエットのままにしておく。
    */
   lightsRef?: RefObject<number>;
+  /**
+   * 曲の再生位置(秒)を持つ ref。投影光がサビ・後半の頭の一撃で金へ
+   * フラッシュする(castleHitAt)のに使う。渡さなければシーンの経過時間に
+   * フォールバックし、一撃は出ない(セクションが引けないため)。
+   */
+  songTimeRef?: RefObject<number>;
 };
 
 /**
@@ -156,6 +164,7 @@ export function EdoCastle({
   activationRef,
   buildRef,
   lightsRef,
+  songTimeRef,
 }: EdoCastleProps) {
   const { scene, materials, buildUniforms } = usePreparedCastle();
   /*
@@ -197,6 +206,16 @@ export function EdoCastle({
       // 投影光は11秒(lights)から。それまで天守は黒いシルエットのまま
       uniforms.uProjStrength.value = activation * lights * PROJECTION_INTENSITY_MAX;
       uniforms.uProjTime.value = clock.elapsedTime;
+      const songTime = songTimeRef?.current ?? clock.elapsedTime;
+      // セクション別の投影3色(イントロ2=白+電気ブルー / サビ=暖色パーティー …)
+      sampleCastleProjection(
+        songTime,
+        uniforms.uProjA.value,
+        uniforms.uProjB.value,
+        uniforms.uProjC.value,
+      );
+      // サビ・後半の頭の一撃だけ投影を金へフラッシュ(足元/軒の光と同じ瞬間)
+      uniforms.uProjHit.value = activation * lights * castleHitAt(songTime);
       uniforms.uProjBaseY.value = position[1];
       uniforms.uProjTopY.value = position[1] + CASTLE_TOP_Y;
       uniforms.uBuildY.value = position[1] + build * BUILD_TOP_Y;

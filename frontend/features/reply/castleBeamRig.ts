@@ -76,16 +76,18 @@ export const CASTLE_BEAM_WARM = "#ffe9c7";
  * 緑(#6effb0)とピンク(#ff4fa3)を外していたが、ビームに緑を使わないのは
  * §4.1 と矛盾するため緑を復活させてある(constants.ts のコメント参照)。
  * ここでも同じ緑を使い、既にこのシーンで使われている色
- * (#8b6cff = BEAM_COLORS の紫 / #ffab3d = PROJECTION_COLOR_A /
- * #ff3d86 = PROJECTION_COLOR_B)に、映像の寒色端としてシアンを1色だけ
- * 足す構成にしている。
+ * (#8b6cff = BEAM_COLORS の紫 / #ffab3d = 提灯・天守ライトアップの暖色 /
+ * #ff3d86 = マゼンタ)に、映像の寒色端としてシアンを1色だけ
+ * 足す構成にしている。シアン(#3ee0ff)と紫(#8b6cff)は投影光
+ * (PROJECTION_COLOR_CYAN / PROJECTION_COLOR_VIOLET)と共通で、
+ * 投影はこのパレットの寒色側だけを抜き出した配色になっている。
  */
 export const CASTLE_BEAM_PALETTE: readonly string[] = [
-  "#3ee0ff", // シアン(映像の寒色端。このリグで新規に足した色)
+  "#3ee0ff", // シアン(映像の寒色端。投影光の PROJECTION_COLOR_CYAN と共通)
   "#6effb0", // 緑 = BEAM_COLORS(参照映像のビームは緑を使う。§4.1参照)
-  "#8b6cff", // 紫 = BEAM_COLORS
-  "#ff3d86", // ピンク = PROJECTION_COLOR_B
-  "#ffab3d", // 琥珀 = PROJECTION_COLOR_A
+  "#8b6cff", // 紫 = BEAM_COLORS / 投影光の PROJECTION_COLOR_VIOLET
+  "#ff3d86", // ピンク(マゼンタ。映像の主アクセント)
+  "#ffab3d", // 琥珀(提灯・天守ライトアップ。投影光はサビの一撃でだけこの金)
 ];
 
 /* ------------------------------------------------------------------ *
@@ -442,6 +444,22 @@ const HIT_SECTIONS: readonly ReplySectionName[] = ["SABI", "LATTER"];
 const HIT_DECAY = 0.85;
 /** 一撃で上乗せする明るさ */
 export const CASTLE_HIT_LEVEL = 0.8;
+
+/**
+ * サビ・後半の頭の一撃のエンベロープ(0〜1)。指数減衰。
+ *
+ * sampleCastleRig の中で base に混ぜ込んでいるのと同じ値だが、こちらは
+ * **単体で取り出せる**。EdoCastle / CornerTowers の投影光
+ * (castleBuildShader の uProjHit)を、この瞬間だけ金へフラッシュさせるのに使う
+ * ―― 足元サーチライト・建物のビームが「バーン」と来るのと同じ拍・同じ時定数。
+ */
+export function castleHitAt(t: number): number {
+  const time = Number.isFinite(t) ? t : 0;
+  const section = REPLY_SECTIONS[replySectionIndexAt(time)];
+  if (!HIT_SECTIONS.includes(section.name)) return 0;
+  const since = Math.max(time - section.start, 0);
+  return Math.exp(-since / HIT_DECAY);
+}
 
 /** 小節頭にだけ足すアクセント。Searchlight の BAR_ACCENT と同値 */
 const BAR_ACCENT = 0.16;

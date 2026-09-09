@@ -14,6 +14,8 @@ import {
   PROJECTION_INTENSITY_MAX,
 } from "./castleBuildShader";
 import { CORNER_TOWER_XZ, TOWER_SCALE } from "./towerLayout";
+import { castleHitAt } from "./castleBeamRig";
+import { sampleCastleProjection } from "./castleProjectionPalette";
 
 const MODEL_PATH = "/3DModel/japanese_tower/scene.gltf";
 
@@ -74,6 +76,8 @@ type CornerTowersProps = {
   activationRef?: RefObject<number>;
   /** ステージ照明の点灯具合(0〜1)。曲が11秒に達してから立ち上がる */
   lightsRef?: RefObject<number>;
+  /** 曲の再生位置(秒)。投影光がサビ・後半の頭の一撃で金へフラッシュするのに使う */
+  songTimeRef?: RefObject<number>;
 };
 
 /**
@@ -85,6 +89,7 @@ export function CornerTowers({
   buildRef,
   activationRef,
   lightsRef,
+  songTimeRef,
 }: CornerTowersProps) {
   const { towers, material, buildUniforms } = usePreparedTowers();
   /*
@@ -115,6 +120,15 @@ export function CornerTowers({
       uniforms.uProjStrength.value =
         activation * lights * PROJECTION_INTENSITY_MAX;
       uniforms.uProjTime.value = clock.elapsedTime;
+      const songTime = songTimeRef?.current ?? clock.elapsedTime;
+      // セクション別の投影3色。天守(EdoCastle)と同じ表・同じ時計で揃える
+      sampleCastleProjection(
+        songTime,
+        uniforms.uProjA.value,
+        uniforms.uProjB.value,
+        uniforms.uProjC.value,
+      );
+      uniforms.uProjHit.value = activation * lights * castleHitAt(songTime);
       uniforms.uProjBaseY.value = position[1];
       uniforms.uProjTopY.value = position[1] + CASTLE_TOP_Y;
       uniforms.uBuildY.value = position[1] + build * BUILD_TOP_Y;

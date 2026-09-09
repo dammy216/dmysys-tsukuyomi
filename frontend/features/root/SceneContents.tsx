@@ -911,6 +911,7 @@ export function SceneContents({
               activationRef={replyActivationRef}
               buildRef={replyCastleBuildRef}
               lightsRef={replyLightsRef}
+              songTimeRef={replySongTimeRef}
             />
             {/*
               天守を組み上げる飛来ブロック。天守ぶんは replyCastleBuildRef
@@ -930,6 +931,7 @@ export function SceneContents({
               buildRef={replyBuildRef}
               activationRef={replyActivationRef}
               lightsRef={replyLightsRef}
+              songTimeRef={replySongTimeRef}
             />
             {/*
               天守・隅櫓それぞれの屋根の四隅、屋根の斜面の上から外向きへ伸びる
