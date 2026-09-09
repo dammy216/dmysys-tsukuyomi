@@ -17,7 +17,12 @@ import {
   ShaderMaterial,
   Vector3,
 } from "three";
-import { CASTLE_ROOF_TIERS, CASTLE_TOP_Y } from "./constants";
+import {
+  CASTLE_ROOF_TIERS,
+  CASTLE_TOP_Y,
+  REPLY_BEAT_OFFSET,
+  REPLY_BEAT_SECONDS,
+} from "./constants";
 import {
   CASTLE_BEAM_PALETTE,
   CASTLE_BEAM_WARM,
@@ -27,6 +32,7 @@ import {
   heightGate,
   sampleCastleRig,
 } from "./castleBeamRig";
+import { REPLY_SECTIONS } from "./songStructure";
 import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
 
 /*
@@ -161,6 +167,14 @@ type EaveBeamSpot = {
    * 横(yaw)の首振りゲインを天守/隅櫓で切り替えるのに使う(*_YAW_* 参照)。
    */
   isTower: boolean;
+  /**
+   * この灯が属する棟の中心(ワールド x, z)。天守は (0, 0)、隅櫓は
+   * CORNER_TOWER_XZ の各棟。イントロ2のレーザーで「面の右端/左端」を
+   * **棟ローカル**に判定する(棟がまるごと城の隅にある隅櫓でも、その棟の
+   * 2本が正しく交差するように)ためだけに使う。
+   */
+  cx: number;
+  cz: number;
 };
 
 /**
@@ -259,6 +273,41 @@ const TOWER_YAW_MIN = 0.35;
 const CASTLE_YAW_GAIN = 5;
 const CASTLE_YAW_MIN = 0.35;
 
+/* ------------------------------------------------------------------ *
+ * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定:
+ * 軒から外向きへ照射し、**面の右端の灯は左へ・左端の灯は右へ**振って空中で
+ * X に交差させる(INTRO2_LASER_CROSS)。**点滅のたびに X を左右へパッと
+ * 切り替える**(INTRO2_LASER_SWAY。スナップ。スイープはしない)。点滅の合間は
+ * 完全消灯(INTRO2_BLINK_FLOOR = 0)なので移動の途中は一切見えず、点いた一瞬
+ * だけ X が現れて消える = 「パッパと切り替わる」。
+ * castleBeamRig の首振り・チェイスは無視、色・本数フロントは従来どおり。
+ * ------------------------------------------------------------------ */
+/** レーザーの仰角(ラジアン)。水平から。0.6 ≒ 34°(浅め・外向き) */
+const INTRO2_LASER_LIFT = 0.5;
+/**
+ * **ビームを交差させる yaw(ラジアン)。** 面の右端の灯を左へ、左端の灯を右へ
+ * 振って、空中で X に交わらせる(ユーザー指定「右端の光と左端の光を交差」)。
+ * 0.7 ≒ 40°。
+ */
+const INTRO2_LASER_CROSS = 0.7;
+/**
+ * 点滅のたびに X を左右へ傾ける量(ラジアン)。0.4 ≒ 23°。
+ * 偶数拍は X が左寄り(右端の灯が深く・左端が浅く)、奇数拍はその鏡像。
+ * **なまさずスナップ**するので「左右左右とスウィング」ではなく拍ごとに
+ * パッと切り替わる。CROSS + SWAY ≒ 63° が可動域の端(*_YAW_GAIN のコメント参照)。
+ */
+const INTRO2_LASER_SWAY = 0.4;
+/** レーザー時の明るさ倍率。細い光条をくっきり見せるため少し持ち上げる */
+const INTRO2_LASER_LEVEL = 1.35;
+/** 1拍のうちレーザーが点いている割合(0〜1)。残りは完全消灯 */
+const INTRO2_BLINK_ON = 0.38;
+/**
+ * 消灯側の残光。**0 = 完全に消す。** 合間に beam が見えると、拍ごとに位置が
+ * 変わるぶんが「左右にスウィングしている」ように見えてしまう(ユーザー指摘)。
+ * 真っ暗にして、点いた一瞬だけ X が見えるようにする。
+ */
+const INTRO2_BLINK_FLOOR = 0;
+
 /**
  * 層ごとの屋根の四隅(±半幅, ±半奥行き)それぞれに、そこへ集まる2辺を
  * 外へ延長する2方向(L字)でビームの根元を置く。位置・向きは定数だけから
@@ -325,6 +374,8 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
         heightNorm,
         azimuth,
         isTower: !isCastle,
+        cx: t.cx,
+        cz: t.cz,
       });
     }
     if (qz === 0 || signZ === qz) {
@@ -335,6 +386,8 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
         heightNorm,
         azimuth,
         isTower: !isCastle,
+        cx: t.cx,
+        cz: t.cz,
       });
     }
     return spots;
@@ -563,6 +616,12 @@ type BeamLightProps = {
  * 首振り・チェイス・色は全部あちら側で、ここはその結果をインスタンス属性へ
  * 書き込むだけ。破風の WashLight.tsx と同じリグを共有しているので、軒の
  * ビームと破風のウォッシュは必ず揃って動く。
+ *
+ * **例外: イントロ2(intro-B / 11.05〜23秒)だけ「レーザー」モード**
+ * (ユーザー指定。INTRO2_LASER_* / useFrame の isIntro2 分岐参照):面の右端と
+ * 左端の灯を交差させて X をつくり、点滅のたびに X の傾きをスナップで切り替える
+ * (合間は完全消灯)。この区間だけ castleBeamRig の首振り・チェイスを無視する
+ * (色・本数フロントはそのまま)。
  */
 export function BeamLight({
   position = [0, 0, 0],
@@ -752,6 +811,23 @@ export function BeamLight({
     const raw = songTimeRef?.current ?? clock.elapsedTime;
     const s = sampleCastleRig(raw, scratch.sample);
 
+    /*
+      イントロ2(intro-B)だけ「レーザー」モード(INTRO2_LASER_* のコメント参照):
+      右端/左端の灯を交差させた X + 点滅ごとに X の傾きを切り替える。ここで
+      その区間かどうかと、拍のブリンク係数・X の傾き向き(全灯共通)を1回求める。
+    */
+    const isIntro2 = REPLY_SECTIONS[s.sectionIndex]?.name === "intro-B";
+    let intro2Blink = 1;
+    /** 偶数拍 +1 / 奇数拍 -1。点滅のたびに X の傾きをこの符号で反転する */
+    let intro2BeatDir = 0;
+    if (isIntro2) {
+      const beatPos = (raw - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
+      const beat = Math.floor(beatPos);
+      const beatPhase = beatPos - beat;
+      intro2Blink = beatPhase < INTRO2_BLINK_ON ? 1 : INTRO2_BLINK_FLOOR;
+      intro2BeatDir = (((beat % 2) + 2) % 2) === 0 ? 1 : -1;
+    }
+
     const follow = 1 - Math.exp(-s.slew * delta);
     const colors = attrs.colors.array as Float32Array;
     const levels = attrs.levels.array as Float32Array;
@@ -776,36 +852,76 @@ export function BeamLight({
       /* --- 3. チェイス。位相を引くと決まった順に光が渡っていく --- */
       const wave = 0.5 + 0.5 * Math.cos(Math.PI * 2 * (s.chasePos - phase));
       const chase = 1 - s.chaseDepth + s.chaseDepth * Math.pow(wave, 3);
-      const level = Math.max(s.base * gate * chase, 0);
+      /*
+        レーザー時はチェイスを殺して**全灯いっせいに拍でチカチカ**
+        (intro2Blink)。密度フロント(gate)は残すので、まだ点いてない
+        高さの灯は光らない。
+      */
+      const level = isIntro2
+        ? Math.max(s.base * gate * intro2Blink * INTRO2_LASER_LEVEL, 0)
+        : Math.max(s.base * gate * chase, 0);
       levels[i] = level;
 
       /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */
-      const swing = Math.PI * 2 * (s.swingPos + phase);
-      /*
-        **基準の仰角(s.lift)を中心に振る。** 水平を中心にすると、引きの画で
-        ビームが画面を横切るただの細い線になってしまう(参照映像のビームは
-        常に斜め上を向いて夜空に扇を作っている。castleBeamRig.ts の lift の
-        コメント参照)。
-      */
-      const targetLift = s.lift + s.liftSwing * Math.cos(swing);
-      /*
-        軒ビームの横の首振りを大きくして扇状に振らせる(天守・隅櫓で別ゲイン、
-        破風は cue.yaw のまま)。上下(liftSwing)には手を付けないので、
-        横長の楕円軌道になる。*_YAW_* のコメント参照。
-      */
-      const yawAmp = spot.isTower
-        ? Math.max(s.yaw * TOWER_YAW_GAIN, TOWER_YAW_MIN)
-        : Math.max(s.yaw * CASTLE_YAW_GAIN, CASTLE_YAW_MIN);
-      const targetYaw = yawAmp * Math.sin(swing);
+      let targetLift: number;
+      let targetYaw: number;
+      if (isIntro2) {
+        /*
+          レーザーモード: 仰角は INTRO2_LASER_LIFT 固定。yaw は「交差」:
+          その灯が面の中心のどちら側か(進行方向と直交する軸の座標 ―― **棟の
+          中心 (cx,cz) からの相対**で見る。隅櫓は棟がまるごと城の隅にあるので
+          ワールド座標の符号では全灯同じ側になり交差しない)。lateralSign は
+          右端 +1 / 左端 -1。右端は左へ・左端は右へ振るので向きは -lateralSign。
+          振り角の大きさは CROSS を基準に、点滅ごとに ±SWAY で深い側・浅い側が
+          入れ替わる(lateralSign*beatDir で符号)→ 拍ごとに X が左寄り ↔ 右寄り
+          へスナップで切り替わる。
+        */
+        targetLift = INTRO2_LASER_LIFT;
+        const pointsAlongX =
+          spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
+        const lateral = pointsAlongX
+          ? spot.position[2] - spot.cz
+          : spot.position[0] - spot.cx;
+        const lateralSign = lateral >= 0 ? 1 : -1;
+        targetYaw =
+          -lateralSign *
+          (INTRO2_LASER_CROSS +
+            lateralSign * intro2BeatDir * INTRO2_LASER_SWAY);
+      } else {
+        const swing = Math.PI * 2 * (s.swingPos + phase);
+        /*
+          **基準の仰角(s.lift)を中心に振る。** 水平を中心にすると、引きの画で
+          ビームが画面を横切るただの細い線になってしまう(参照映像のビームは
+          常に斜め上を向いて夜空に扇を作っている。castleBeamRig.ts の lift の
+          コメント参照)。
+        */
+        targetLift = s.lift + s.liftSwing * Math.cos(swing);
+        /*
+          軒ビームの横の首振りを大きくして扇状に振らせる(天守・隅櫓で別ゲイン、
+          破風は cue.yaw のまま)。上下(liftSwing)には手を付けないので、
+          横長の楕円軌道になる。*_YAW_* のコメント参照。
+        */
+        const yawAmp = spot.isTower
+          ? Math.max(s.yaw * TOWER_YAW_GAIN, TOWER_YAW_MIN)
+          : Math.max(s.yaw * CASTLE_YAW_GAIN, CASTLE_YAW_MIN);
+        targetYaw = yawAmp * Math.sin(swing);
+      }
 
       /*
-        実機のムービングヘッドは首の回る速さに限りがあるので、目標へ
-        瞬間移動させると作り物に見える。ここで一段なまらせることで、
-        キューが切り替わって位相が飛んでも「ヘッドが向きを変えた」動きとして
-        繋がる(Searchlight の tiltRef と同じ手当て)。
+        通常時: 実機のムービングヘッドは首の回る速さに限りがあるので、目標へ
+        瞬間移動させると作り物に見える。ここで一段なまらせることで、キューが
+        切り替わって位相が飛んでも「ヘッドが向きを変えた」動きとして繋がる
+        (Searchlight の tiltRef と同じ手当て)。
+        レーザーモード: なまさずスナップ。点滅と同時に可動域の反対端へパッと
+        飛ばしたい(ユーザー指定)。scratch も更新しておくので、intro-B を
+        抜けた最初のフレームから通常のなましがそこから再開する。
       */
-      const nextLift = scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
-      const nextYaw = scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;
+      const nextLift = isIntro2
+        ? targetLift
+        : scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
+      const nextYaw = isIntro2
+        ? targetYaw
+        : scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;
       scratch.lift[i] = nextLift;
       scratch.yaw[i] = nextYaw;
 

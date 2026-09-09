@@ -215,7 +215,7 @@ Aメロ/Bメロ 0.48–0.59 カット/秒 (1カット 1.7–2.1秒)
 | 呼び名 | 場所 | 灯数 | 実装 | 動きの出どころ |
 |---|---|---|---|---|
 | **サーチライト**(Searchlight) | 足元(水面すぐ上)から空へ | 12 | [Searchlight.tsx](Searchlight.tsx) の `CUES` | reply.mp4 実測。ただし**イントロ2だけ** 4〜9秒のシザース交差(`crossX`、6灯だけ点灯)に差し替え(ユーザー指定) |
-| **ビームライト**(BeamLight) | 屋根の端(軒)から | 80 | [BeamLight.tsx](BeamLight.tsx) | ↓ castleBeamRig(下記) |
+| **ビームライト**(BeamLight) | 屋根の端(軒)から | 80 | [BeamLight.tsx](BeamLight.tsx) | ↓ castleBeamRig。ただし**イントロ2だけ**「レーザー」モード（固定方向のV字照射 + 拍でチカチカ。`INTRO2_LASER_*`）に切り替え（ユーザー指定） |
 | **ウォッシュライト**(WashLight) | 天守四面の破風から | 16 | [WashLight.tsx](WashLight.tsx) | ↓ castleBeamRig(下記) |
 
 ビームライト=細い光条、ウォッシュライト=広がりで面を染める光（参考画像の
