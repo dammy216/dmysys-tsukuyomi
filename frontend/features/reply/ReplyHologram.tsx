@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import {
   AdditiveBlending,
@@ -13,6 +13,7 @@ import {
   SRGBColorSpace,
   VideoTexture,
 } from "three";
+import { sampleCastleProjection } from "./castleProjectionPalette";
 import {
   HOLOGRAM_HEIGHT,
   REPLY_GLOW_COLOR,
@@ -43,6 +44,19 @@ const GLOW_MARGIN = 0.7;
  */
 const TINT = new Color(REPLY_HOLOGRAM_TINT);
 
+/**
+ * 映像tintをどれだけ天守の演出色(sampleCastleProjection の多数派A)へ
+ * 寄せるか(0=常にTINTのまま、1=完全にセクション色)。
+ *
+ * 縁の光(glowEdgeMaterialRef)はConcertStage/ToriiGateと同じく完全に
+ * セクション色へ連動させるが、映像本体は実写素材なので話が別
+ * ―― サビの暖色やAメロの寒色を強くかけると色情報が潰れて視認性が
+ * 落ちるリスクがある(TINTが「赤を残しつつ緑青を落とす程度」に
+ * 留めているのと同じ理由)。赤みを軸にしつつ、セクションの空気だけ
+ * ほんのり乗る程度の弱いブレンドに留める(ユーザー指定)。
+ */
+const TINT_SECTION_BLEND = 0.35;
+
 /*
   映像のすぐ後ろに敷く半透明の黒い板。ホログラムらしい透過感を保ったまま、
   背後(城・鳥居・夜空)が画面を透けて騒がしくなるのを抑える。
@@ -61,6 +75,13 @@ type ReplyHologramProps = {
    * 各マテリアルの不透明度へ反映する(数値 prop だと親ごと毎フレーム再レンダー)。
    */
   activationRef?: RefObject<number>;
+  /**
+   * 曲の再生位置(秒)を持つ ref。縁の光をConcertStage/ToriiGateと同じ
+   * castleProjectionPaletteのセクション配色に連動させ、映像tintもごく
+   * 弱く(TINT_SECTION_BLEND)そちらへ寄せるために使う。渡さなければ
+   * 0秒として扱う(常にイントロの配色)。
+   */
+  songTimeRef?: RefObject<number>;
 };
 
 /**
@@ -75,12 +96,24 @@ export function ReplyHologram({
   position = [0, 0, 0],
   videoRef,
   activationRef,
+  songTimeRef,
 }: ReplyHologramProps) {
   const groupRef = useRef<Group>(null);
   const materialRef = useRef<MeshBasicMaterial>(null);
   const glowEdgeMaterialRef = useRef<MeshBasicMaterial>(null);
   const backdropMaterialRef = useRef<MeshBasicMaterial>(null);
   const textureRef = useRef<VideoTexture | null>(null);
+  /*
+    sampleCastleProjection は3色ぶんの出力を要求する in-place API だが、
+    ここでは多数派のAしか使わない。B/Cは使わないがuseFrameの中でnewしない
+    ための使い回し用として一緒に確保しておく(ConcertStage.tsxと同じ手当て)。
+    tint用のscratchも同様にここで確保する(TINT自体を直接lerpで書き換えると
+    共有定数が壊れてしまうため)。
+  */
+  const projection = useMemo(
+    () => ({ a: new Color(), b: new Color(), c: new Color(), tint: new Color() }),
+    [],
+  );
 
   // テクスチャはGPU資源を持つので、外れるときに解放する
   useEffect(() => {
@@ -113,12 +146,29 @@ export function ReplyHologram({
 
     // 進行度はref経由(数値propだと親ごと毎フレーム再レンダー)
     const activation = activationRef?.current ?? 0;
+    /*
+      天守のプロジェクションマッピングと同じ配色(多数派のoutA)を、
+      ConcertStage/ToriiGateと同じ関数・同じ曲の再生位置で独立に算出する
+      (WashLight.tsxがBeamLight.tsxと同じ考え方でセクション色を独立に
+      算出しているのと同じ理屈。同じsongTimeなら必ず結果が一致する)。
+    */
+    const songTime = songTimeRef?.current ?? 0;
+    sampleCastleProjection(songTime, projection.a, projection.b, projection.c);
     if (material && textureRef.current) {
-      // 赤みの色そのものが映像への乗算になる
-      material.color.copy(TINT);
+      /*
+        映像tintは赤みを軸に、セクション色をTINT_SECTION_BLENDぶんだけ
+        弱く混ぜる(実写素材なので完全にセクション色へ振ると色情報が
+        潰れて視認性が落ちるため。ReplyHologram.tsx冒頭のコメント参照)。
+        TINT自体は複数フレーム・複数インスタンスで共有する定数なので、
+        書き換え用のscratch(projection.tint)へ複製してから混ぜる。
+      */
+      projection.tint.copy(TINT).lerp(projection.a, TINT_SECTION_BLEND);
+      material.color.copy(projection.tint);
       material.opacity = activation;
     }
     if (glowEdgeMaterialRef.current) {
+      // 縁の光は純粋な合成光なので、他の演出と同じく完全にセクション色へ揃える
+      glowEdgeMaterialRef.current.color.copy(projection.a);
       glowEdgeMaterialRef.current.opacity = 0.22 * activation;
     }
     if (backdropMaterialRef.current) {

@@ -1076,6 +1076,7 @@ export function SceneContents({
                 ]}
                 videoRef={replyVideoRef}
                 activationRef={replyStageRef}
+                songTimeRef={replySongTimeRef}
               />
             </group>
           </>
