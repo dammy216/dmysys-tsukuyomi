@@ -6,7 +6,21 @@ import { useFrame } from "@react-three/fiber";
 import { REPLY_GLOW_COLOR, STAGE_RADIUS, STAGE_THICKNESS } from "./constants";
 
 /** 縁のライトアップの最大の明るさ。強すぎると黒い甲板の質感が消えるので控えめに */
-const RIM_OPACITY_MAX = 0.45;
+const RIM_OPACITY_MAX = 0.7;
+/**
+ * 縁のリングを甲板の外側へどれだけ張り出させるか(STAGE_RADIUSに対する倍率)。
+ * 以前は1.005(甲板の縁とほぼ面一)で、ほとんど目立たなかった。ユーザー指定
+ * 「赤い枠の部分を前に出す」を、外側へはっきり張り出す縁取りとして実装する。
+ */
+const RIM_RADIUS_SCALE = 0.8;
+/**
+ * 縁のリングを南(ワールド+Z)へどれだけずらすか。カメラは初期姿勢で
+ * -Zを向く(=北。cameraHeading.tsコメント参照)ので、+Z側(南)がカメラの
+ * 手前側になる。リングの中心だけを南へオフセットすることで、南側は
+ * 甲板の縁からさらに張り出し、北側は逆に控えめになる(ユーザー指定
+ * 「赤い枠は南方向に動かして」)。
+ */
+const RIM_SOUTH_OFFSET = STAGE_RADIUS * 1.2
 
 type ConcertStageProps = {
   /** 甲板の上面を置くワールド座標 */
@@ -52,12 +66,12 @@ export function ConcertStage({
         <meshStandardMaterial color="#0a0a0a" roughness={0.8} metalness={0} />
       </mesh>
 
-      {/* 縁を一周する淡いライン。真っ黒な甲板を夜空から浮かせる程度のライトアップ */}
-      <mesh position={[0, -STAGE_THICKNESS / 2, 0]}>
+      {/* 縁を一周するライン。甲板の外側へ張り出させ、赤い枠として南(手前)へ出す */}
+      <mesh position={[0, -STAGE_THICKNESS / 2, RIM_SOUTH_OFFSET]}>
         <cylinderGeometry
           args={[
-            STAGE_RADIUS * 1.005,
-            STAGE_RADIUS * 1.005,
+            STAGE_RADIUS * RIM_RADIUS_SCALE,
+            STAGE_RADIUS * RIM_RADIUS_SCALE,
             STAGE_THICKNESS * 0.45,
             64,
             1,
