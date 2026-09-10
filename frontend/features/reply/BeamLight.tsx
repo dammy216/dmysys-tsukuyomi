@@ -273,8 +273,8 @@ const CASTLE_YAW_MIN = 0.35;
 
 /**
  * 横(yaw)の首振りの可動域の上限(ラジアン)。正面(0)から片側にこの角度まで
- * しか振れない(左右合計 2倍 = 120°)。**ユーザー指定: 場面(通常時/イントロ2の
- * 隅櫓シザース/拍同期の左右スナップ)によらず、ビームというオブジェクト自体が
+ * しか振れない(左右合計 2倍 = 120°)。**ユーザー指定: 場面(通常時/イントロ2・
+ * 拍同期の左右スナップ)によらず、ビームというオブジェクト自体が
  * 持つ物理的な可動域の上限**なので、useFrame内でどの分岐を通っても
  * 最後にこれで一度だけクランプする(演出側の値が将来変わっても超えない)。
  * 60° = Math.PI/3。
@@ -294,32 +294,25 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
 
 /* ------------------------------------------------------------------ *
  * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
- * **天守と隅櫓で動きが違う**(ユーザー指定「やぐらは以前のように交差のまま」):
+ * **天守も隅櫓も同じ動き**(ユーザー指定「櫓も天守みたいなビームの動きに」)。
+ * **outro(イントロ2再現)の拍同期ビームと同じ動き**(ユーザーが 1:48 = 再生
+ * 109秒 の見た目を指定):
+ *   ・上下: 仰角を cos で **20°〜90°** スイープ。周期・角度域・駆動・カーブ
+ *     すべて outro 天守と同値 ―― s.swingPos(小節グリッド、intro-B cue の
+ *     swingBars=4 で 4小節 ≒ 5.6秒)+ 灯ごとの位相(rise 波が扇を駆け上がる)。
+ *   ・左右: 拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ(鏡像ペアが逆向き)。
  *
- *   天守(spot.isTower=false): **outro(イントロ2再現)の拍同期ビームと同じ動き**
- *     (ユーザーが 1:48 = 再生109秒 の見た目を指定)。フェーズ2で
- *     ・上下: 仰角を cos で **20°〜90°** スイープ。周期・角度域・駆動・カーブ
- *       すべて outro 天守と同値 ―― s.swingPos(小節グリッド、intro-B cue の
- *       swingBars=4 で 4小節 ≒ 5.6秒)+ 灯ごとの位相(rise 波)。
- *     ・左右: 拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ(鏡像ペアが逆向き)
- *   隅櫓(spot.isTower=true): 以前どおりの左右シザース交差。フェーズ2は
- *     仰角 INTRO2_LASER_LIFT 固定 + 拍ごとに yaw を ±BEAM_YAW_LIMIT へ
- *     スナップ(鏡像ペアが逆向き。lateralSign / intro2BeatDir 参照)。
- *
- * どちらも:
  *  1) intro-B 開始 〜 INTRO2_BLINK_START_SECONDS(カメラの引きが終わるまで):
- *     点滅させず、真上寄り(INTRO2_OPEN_LIFT)からそれぞれの基準の向きへ
- *     ease-out で倒しながら現れる(隅櫓は yaw も 0→±BEAM_YAW_LIMIT へ開く)。
+ *     点滅させず yaw=0 のまま、真上寄り(INTRO2_OPEN_LIFT)から真上へ
+ *     ease-out で立てながら現れる(スイープ上端に繋がる)。
  *  2) それ以降: 拍で点滅(合間は完全消灯 INTRO2_BLINK_FLOOR = 0)+ 上の動き。
  * 色は城のパレットではなく **サーチライトのイントロ2と同じ3色**
  * (INTRO2_LASER_COLORS。取り付け高さで3バンド。ユーザー指定)。
  * castleBeamRig からは本数フロント(density/gate)と明るさのベースだけ
  * 引き継ぐ ―― 首振り・チェイス・色は無視。
  * ------------------------------------------------------------------ */
-/** 隅櫓のレーザーの仰角(ラジアン)。水平から。0.8 ≒ 46°(外向き)。フェーズ2の固定値 */
-const INTRO2_LASER_LIFT = 0.6;
 /**
- * 天守のフェーズ2の上下スイープの端。**真上(90°=BEAM_LIFT_MAX)〜約20°**を
+ * フェーズ2の上下スイープの端。**真上(90°=BEAM_LIFT_MAX)〜約20°**を
  * cos で往復する。**アウトロ天守と同じ角度域**(ユーザー指定):下端 0.35 ≒ 20°
  * は outro cue の castleLiftFromRange(0.35) の下限そのもの。ここから作る
  * CENTER/AMP は outro の s.lift / s.liftSwing と一致する(周期・カーブも
@@ -332,17 +325,16 @@ const INTRO2_SWEEP_LIFT_CENTER =
 const INTRO2_SWEEP_LIFT_AMP =
   (INTRO2_SWEEP_LIFT_TOP - INTRO2_SWEEP_LIFT_BOTTOM) / 2;
 /**
- * 天守のフェーズ2で、上下スイープに加えて**拍ごとに左右へパッと振る**振り幅
+ * フェーズ2で、上下スイープに加えて**拍ごとに左右へパッと振る**振り幅
  * (ラジアン)。outro(アウトロ=イントロ2再現)の拍同期ビームと同じノリに
- * したいというユーザー指定(「1:48みたいにちょっと左右に交互に点滅」)。
- * 鏡像ペア(灯の左右位置)× 拍の符号(beatSyncDir)で左右対称に開閉。
- * BEAM_YAW_LIMIT(60°)まで。小さくすれば「ちょっと」寄りになる。
+ * したいというユーザー指定。鏡像ペア(灯の左右位置)× 拍の符号(beatSyncDir)
+ * で左右対称に開閉。BEAM_YAW_LIMIT(60°)まで。小さくすれば控えめになる。
  */
 const INTRO2_SWEEP_YAW = BEAM_YAW_LIMIT;
 /**
- * フェーズ1の**開き始め**の仰角(ラジアン)。1.45 ≒ 83°(ほぼ真上)。天守・隅櫓
- * 共通。intro-B 開始時はここ(真上寄りの束)→ INTRO2_BLINK_START_SECONDS までに
- * それぞれの基準の仰角へ倒れていく = カメラの引きに合わせて外へ「開く」。
+ * フェーズ1の**開き始め**の仰角(ラジアン)。1.45 ≒ 83°(ほぼ真上)。
+ * intro-B 開始時はここ(真上寄りの束)→ INTRO2_BLINK_START_SECONDS までに
+ * 真上(スイープ上端)へ立ちながら現れる = カメラの引きに合わせて。
  */
 const INTRO2_OPEN_LIFT = 1.45;
 /** レーザー時の明るさ倍率。細い光条をくっきり見せるため少し持ち上げる */
@@ -682,12 +674,12 @@ type BeamLightProps = {
  * ビームと破風のウォッシュは必ず揃って動く。
  *
  * **例外: イントロ2(intro-B / 11.05〜23秒)だけ「レーザー」モード**
- * (ユーザー指定。INTRO2_SWEEP_* / INTRO2_LASER_* / useFrame の isIntro2 分岐
- * 参照)。**天守と隅櫓で動きが違う**:天守は yaw=0 で平行外向き + 扇全体が
- * なめらかに上下スイープ、隅櫓は以前どおり左右シザース交差(拍ごとに ±SWAY)。
- * どちらもカメラの引きが終わってから拍で点滅(合間は完全消灯)。色はサーチ
- * ライトのイントロ2と同じ3色(高さ3バンド)。この区間だけ castleBeamRig の
- * 首振り・チェイス・色を無視する(本数フロントはそのまま)。
+ * (ユーザー指定。INTRO2_SWEEP_* / useFrame の isIntro2 分岐参照)。**天守も
+ * 隅櫓も同じ動き**:扇全体が上下スイープ(仰角 20〜90° / 4小節)+ 拍ごとに
+ * 左右へパッとスナップ + 拍で点滅(合間は完全消灯)。アウトロ(イントロ2再現)
+ * の拍同期ビームと同じ動きで、色だけサーチライトのイントロ2と同じ3色
+ * (高さ3バンド)。この区間だけ castleBeamRig の首振り・チェイス・色を無視
+ * する(本数フロントはそのまま)。
  *
  * **例外2: B・SABI・LATTER・outro は「拍同期」モード**(ユーザー指定。
  * useFrame の isBeatSync 分岐 / constants.ts の REPLY_BEAT_SYNC_* 参照):
@@ -911,9 +903,7 @@ export function BeamLight({
     const sectionName = REPLY_SECTIONS[s.sectionIndex]?.name;
     const isIntro2 = sectionName === "intro-B";
     let intro2Blink = 1;
-    /** 偶数拍 +1 / 奇数拍 -1。隅櫓のシザースで拍ごとに yaw の向きを反転する */
-    let intro2BeatDir = 0;
-    /** フェーズ2(天守=上下スイープ / 隅櫓=交差、どちらも点滅)に入ったか */
+    /** フェーズ2(上下スイープ + 左右スナップ + 点滅)に入ったか */
     let intro2Crossing = false;
     /**
      * フェーズ1の開き具合 0〜1(0 = 真上寄りの束、1 = 外向きに開ききった)。
@@ -927,15 +917,6 @@ export function BeamLight({
     if (isIntro2 && raw >= INTRO2_BLINK_START_SECONDS) {
       intro2Crossing = true;
       intro2Blink = beatPhase < INTRO2_BLINK_ON ? 1 : INTRO2_BLINK_FLOOR;
-      /*
-        隅櫓のシザース用の拍の符号。**偶奇と符号の対応をあえて反転(奇数拍=+1)。**
-        INTRO2_BLINK_START_SECONDS(11.8秒)が33拍目の点灯ON(beatPhase<0.38)を
-        わずかに過ぎた地点なので、開き終わり(+1側)の直後に見える最初の点滅は
-        34拍目。偶数拍を+1にすると34拍目が+1になり開き終わりと重複して
-        「+1 +1 -1 …」に見えた(ユーザー指摘)。奇数拍=+1なら34拍目が-1になり
-        「+1 -1 +1 -1」ときれいに交互になる。
-      */
-      intro2BeatDir = (((beat % 2) + 2) % 2) === 0 ? -1 : 1;
     } else if (isIntro2) {
       const start = REPLY_SECTIONS[s.sectionIndex].start;
       const span = INTRO2_BLINK_START_SECONDS - start;
@@ -1010,10 +991,11 @@ export function BeamLight({
       /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */
       let targetLift: number;
       let targetYaw: number;
-      if (isIntro2 && !spot.isTower) {
+      if (isIntro2) {
         /*
-          天守のレーザー(outro=イントロ2再現 の拍同期ビームと同じノリ。
-          ユーザーが 1:48(=再生109秒)の見た目を指して「こういうの」)。
+          イントロ2のレーザー ―― **天守も隅櫓も同じ動き**(ユーザー指定
+          「櫓も天守みたいなビームの動きにして」)。outro(イントロ2再現)の
+          拍同期ビームと同じノリ(ユーザーが 1:48 = 再生109秒 の見た目を指定)。
           intro2Crossing=false(カメラの引きが終わるまで): yaw=0 のまま、仰角を
             INTRO2_OPEN_LIFT(真上寄り)から真上(BEAM_LIFT_MAX)へ
             intro2OpenP(ease-out)で立てながら現れる。スイープの上端に繋がる。
@@ -1039,37 +1021,6 @@ export function BeamLight({
           targetLift =
             INTRO2_OPEN_LIFT + (BEAM_LIFT_MAX - INTRO2_OPEN_LIFT) * intro2OpenP;
           targetYaw = 0;
-        }
-      } else if (isIntro2) {
-        /*
-          隅櫓のレーザー: **以前どおりの左右シザース交差**(ユーザー指定
-          「やぐらは以前のように交差のままでいい」)。
-          intro2Crossing=true: 仰角 INTRO2_LASER_LIFT 固定 + 拍ごとに yaw を
-            ±BEAM_YAW_LIMIT へスナップ(鏡像ペアが逆向き)。
-          intro2Crossing=false(フェーズ1): 真上寄りの束 → 仰角も yaw も
-            intro2OpenP で同時に開ききる。
-
-          **鏡像の判定軸は面の向きで変える。** 前後面(rotationY=0/π、南北向き)は
-          yaw が東西(X)へ効くのでワールドXの符号で判定。東西面(rotationY=±π/2)は
-          yaw が南北(Z)へ効くので Z の符号で判定する(pointsAlongX。X符号のままだと
-          東西面の2本が同じ向きになり交差しないバグ)。さらに前面と背面/東と西は
-          ベースの向きが180°違うので cos(rotationY)/sin(rotationY) を掛けて
-          ワールド空間で同じ向きに揃える(ユーザー指定)。intro2BeatDir は全灯
-          共通なので鏡像ペアは常に逆向きのまま同じ拍で切り替わる。
-        */
-        const pointsAlongX =
-          spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
-        const lateralSign = pointsAlongX
-          ? (spot.position[2] < 0 ? 1 : -1) * Math.sin(spot.rotationY)
-          : (spot.position[0] < 0 ? -1 : 1) * Math.cos(spot.rotationY);
-        if (intro2Crossing) {
-          targetLift = INTRO2_LASER_LIFT;
-          targetYaw = lateralSign * intro2BeatDir * BEAM_YAW_LIMIT;
-        } else {
-          targetLift =
-            INTRO2_OPEN_LIFT +
-            (INTRO2_LASER_LIFT - INTRO2_OPEN_LIFT) * intro2OpenP;
-          targetYaw = lateralSign * BEAM_YAW_LIMIT * intro2OpenP;
         }
       } else {
         const swing = Math.PI * 2 * (s.swingPos + phase);
@@ -1109,9 +1060,9 @@ export function BeamLight({
       /*
         場面(通常時/イントロ2レーザー)によらず、ビームというオブジェクト
         自体の可動域として最後に一度だけクランプする(BEAM_YAW_LIMIT
-        のコメント参照)。イントロ2の隅櫓シザースは ±BEAM_YAW_LIMIT そのもの・
-        天守は yaw=0 なので実質ノーオペレーションだが、演出側の値が将来
-        変わっても超えないようにここでも止めておく。
+        のコメント参照)。イントロ2の左右スナップは ±INTRO2_SWEEP_YAW
+        (≤ BEAM_YAW_LIMIT)なので実質ノーオペレーションだが、演出側の値が
+        将来変わっても超えないようにここでも止めておく。
       */
       targetYaw = Math.max(-BEAM_YAW_LIMIT, Math.min(BEAM_YAW_LIMIT, targetYaw));
       // 縦(仰角)も同様に、上限=真上固定・そこから150°ぶんでクランプ(BEAM_LIFT_MAX/MIN参照)
