@@ -232,23 +232,25 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     slew: 7,
   },
   /*
-    歌前の間。**全灯まっすぐ上に立てて静止**(ユーザー指定「赤も城も真上を
-    向いてるんだからオレンジ(辺の5・6)も真上」)。
-    円軌道の辺の灯は polar = MAX_SWING*spread の一定の傾きで回り続けるので、
-    spread をいくら下げても真上には来ない(十字の隅の灯は polar が 0 を
-    通過するので上を向いて見える ← この左右差が「オレンジだけ斜め」の正体)。
-    そこで breath は下の useFrame で standUp 分岐に入れ、軌道の種類に関係なく
-    polar=0(真上)へ向ける。イントロ2レーザーからの向き替えは slew の
-    slerp が 0.3 秒ほどで滑らかに繋ぐ。色は castle パレットへ替えず
-    イントロ2の色のまま(色の分岐の (crossX || prevCrossX) 参照)。
-    Aメロは level:0 でサーチライト消灯。
+    歌前の間。イントロ2レーザーの6本を **(1) まっすぐ上に立てて (2) 城の
+    ビームと同じ 1.4秒の ramp でフェードアウト** させる(ユーザー指定)。
+    - (1): 円軌道の辺の灯は polar = MAX_SWING*spread の一定の傾きで回り続け、
+      spread を下げても真上に来ない(十字の隅の灯は polar が 0 を通過するので
+      上を向いて見える ← この左右差が「オレンジ(辺の5・6)だけ斜め」の正体)。
+      下の useFrame の standUp 分岐で軌道に関係なく polar=0 へ向ける。
+      イントロ2レーザーからの向き替えは slew の slerp が滑らかに繋ぐ。
+    - (2): level:0 なので level0 = mix(1, 0, k) が castleBeamRig の density/level
+      と同じ k(= smoothstep(since/1.4))で落ちる = 城のビームと同時に消える。
+    色は castle パレットへ替えずイントロ2の色のまま(色の分岐の
+    (crossX || prevCrossX) 参照)。図に無い6灯は breath では点け直さない
+    (下の solo 参照)。
   */
   breath: {
     pattern: "unison",
     sweepBars: 4,
     chaseBars: 4,
     chaseDepth: 0.1,
-    level: 0.4,
+    level: 0,
     spread: 0.22,
     strobe: 0.04,
     colorBars: 4,
@@ -976,9 +978,9 @@ export function Searchlight({
         /*
           crossX(イントロ2)と、その直後の breath(prevCrossX): 図に合わせた
           固定色(INTRO2_SOLO_COLORS)を保持する(-1)。23秒で城のセクション色へ
-          切り替えず、イントロ2の色(赤/橙/白)のまま柱に立てる
-          (ユーザー指定「城に変えないで」)。図に無い6灯は breath で
-          castle パレット側の2色で点く(ユーザーからの指摘は solo の6灯だけ)。
+          切り替えず、イントロ2の色(赤/橙/白)のまま立てて、そのまま
+          フェードアウトさせる(ユーザー指定「城に変えないで」)。図に無い6灯は
+          breath では点かない(下の solo)ので色は効かない。
           ringColors: 2本ひと組で色を変えながら円周を一周させる。1本ずつ
           色を変えると点描になって色が読めないので、組にして帯にする。
           スロットごとに起点をずらすので、小節ごとに色の帯が回って見える。
@@ -1154,14 +1156,16 @@ export function Searchlight({
       const chase = 1 - chaseDepth + chaseDepth * Math.pow(wave, 3);
       /*
         イントロ2は図の6灯だけ(INTRO2_SOLO)。intro-B の間はハードに0、
-        breath へ移るあいだ(prevCrossX)は section の ramp で 0→1 に戻す。
+        直後の breath でも点け直さない(prevCrossX)。breath は「6本を立てて
+        フェードアウト」する区間なので、残り6本を戻すと逆に増えて見える
+        (CUES.breath 参照)。breath を抜ければ prevCrossX が偽になり通常へ。
       */
       const solo = crossX
         ? INTRO2_SOLO[beam.order]
           ? 1
           : 0
         : prevCrossX && !INTRO2_SOLO[beam.order]
-          ? k
+          ? 0
           : 1;
       /*
         拍同期モードは通常の chase(走る光)パターンを無効化し、拍のON/OFF
