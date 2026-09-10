@@ -293,11 +293,12 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
  * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
  * 2フェーズある:
  *  1) intro-B 開始 〜 INTRO2_BLINK_START_SECONDS(カメラの引きが終わるまで):
- *     交差も点滅もさせず、平行照射のまま **仰角を真上寄り→外向きへ倒して
- *     「開いていく」**(INTRO2_OPEN_LIFT → INTRO2_LASER_LIFT。カメラの引きに
- *     合わせる。ユーザー指定)。開きカーブは ease-out ―― 現れた瞬間から一番
- *     大きく動く(smoothstep だと束のまま一瞬止まって見えた)。明るさの
- *     フェードは通常どおり(サーチライトと同時に出る)。
+ *     交差(左右ペアでの逆位相)も点滅もさせず、**仰角(真上寄り→外向き)と
+ *     左右(0→±BEAM_YAW_LIMIT)を同時に開ききる**(INTRO2_OPEN_LIFT →
+ *     INTRO2_LASER_LIFT、カメラの引きに合わせる。ユーザー指定「11.8で広がる
+ *     ときは横方向にも最大まで広げて」)。開きカーブは ease-out ―― 現れた
+ *     瞬間から一番大きく動く(smoothstep だと束のまま一瞬止まって見えた)。
+ *     明るさのフェードは通常どおり(サーチライトと同時に出る)。
  *  2) それ以降: 拍ごとに可動域の限界(±BEAM_YAW_LIMIT)へスナップする点滅。
  *     鏡像ペアが逆向きになるようにしてあり、左が+60度を向くとき右は-60度を
  *     向く(ユーザー指定。以前あった建物ごとのX字交差のロジックはいったん
@@ -889,7 +890,17 @@ export function BeamLight({
       const beat = Math.floor(beatPos);
       const beatPhase = beatPos - beat;
       intro2Blink = beatPhase < INTRO2_BLINK_ON ? 1 : INTRO2_BLINK_FLOOR;
-      intro2BeatDir = (((beat % 2) + 2) % 2) === 0 ? 1 : -1;
+      /*
+        **偶奇と符号の対応をあえて反転させてある(奇数拍=+1)。**
+        INTRO2_BLINK_START_SECONDS(11.8秒)は33拍目の点灯ON時間
+        (beatPhase<INTRO2_BLINK_ON=0.38)をわずかに過ぎた地点にあたるため、
+        開いた瞬間(intro2OpenPで+1側=フェーズ1の見た目)の直後に**見える**
+        最初の点滅は34拍目になる。偶数拍を+1にすると34拍目が+1になり、
+        開き終わりの+1と重複して「+1 +1 -1 +1 -1 +1」に見えてしまっていた
+        (ユーザー指摘)。奇数拍を+1にすることで、見える最初の点滅(34拍目)が
+        -1になり、開き終わり(+1)からきちんと交互(+1 -1 +1 -1 +1)になる。
+      */
+      intro2BeatDir = (((beat % 2) + 2) % 2) === 0 ? -1 : 1;
     } else if (isIntro2) {
       const start = REPLY_SECTIONS[s.sectionIndex].start;
       const span = INTRO2_BLINK_START_SECONDS - start;
@@ -979,25 +990,34 @@ export function BeamLight({
             east/westが揃う(sin(rotationY)補正)ことだけを保証する。
             intro2BeatDirは全灯共通の拍の符号なので、鏡像ペアは常に逆向きの
             まま同じ拍で切り替わる(=対称に開閉して見える)。
+
+            **フェーズ1でも同じ lateralSign を使い、intro2OpenP で 0 から
+            ±BEAM_YAW_LIMIT まで一緒に開かせる**(ユーザー指定:「11.8で
+            広がるときは横方向に最大まで広げて」)。以前は yaw=0 のまま
+            仰角(lift)だけが開いていたので、フェーズ2に入った瞬間に
+            初めて左右へパッと開くという段差があった。今は「真上の束→
+            斜め外向き・左右いっぱい」まで、上下・左右が同時に開ききる。
         */
+        const pointsAlongX =
+          spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
+        const lateralSign = pointsAlongX
+          ? // 東面(rotationY=π/2)と西面(rotationY=-π/2)もベースの向きが
+            // 180°違うので、前後面と同じ理屈でsin(rotationY)で補正する
+            // (ユーザー指定「東がXの時は西もXにして」)。前面/背面の
+            // cos(rotationY)に対応する東西版がsin(rotationY)になる。
+            (spot.position[2] < 0 ? 1 : -1) * Math.sin(spot.rotationY)
+          : // ユーザー指定: 11.8での開き方向が逆だったので前後面(北南)の符号を反転
+            (spot.position[0] < 0 ? -1 : 1) * Math.cos(spot.rotationY);
         if (intro2Crossing) {
           targetLift = INTRO2_LASER_LIFT;
-          const pointsAlongX =
-            spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
-          const lateralSign = pointsAlongX
-            ? // 東面(rotationY=π/2)と西面(rotationY=-π/2)もベースの向きが
-              // 180°違うので、前後面と同じ理屈でsin(rotationY)で補正する
-              // (ユーザー指定「東がXの時は西もXにして」)。前面/背面の
-              // cos(rotationY)に対応する東西版がsin(rotationY)になる。
-              (spot.position[2] < 0 ? 1 : -1) * Math.sin(spot.rotationY)
-            : (spot.position[0] < 0 ? 1 : -1) * Math.cos(spot.rotationY);
           targetYaw = lateralSign * intro2BeatDir * BEAM_YAW_LIMIT;
         } else {
-          // フェーズ1: 真上寄り(束)→ 外向きへ「開いていく」。yaw は 0(平行)
+          // フェーズ1: 真上寄り(束)→ 外向きへ「開いていく」。上下(lift)と
+          // 左右(yaw)を intro2OpenP で同時に開ききる
           targetLift =
             INTRO2_OPEN_LIFT +
             (INTRO2_LASER_LIFT - INTRO2_OPEN_LIFT) * intro2OpenP;
-          targetYaw = 0;
+          targetYaw = lateralSign * BEAM_YAW_LIMIT * intro2OpenP;
         }
       } else {
         const swing = Math.PI * 2 * (s.swingPos + phase);
