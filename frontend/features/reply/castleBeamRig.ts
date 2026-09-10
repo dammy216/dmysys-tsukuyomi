@@ -295,13 +295,18 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     11.05秒のベース入り = 会場の照明が一斉に入る瞬間。ここは**全点灯**で
     「バッと点いた」を見せる(density を下げると点灯の瞬間が弱くなる)。
     動きは浅く、色も地の暖色寄り。ここで色まで散らすと後のサビで上が無くなる。
+    towerDensity 0 = イントロ2は隅櫓のレーザーを消す(いったん。ユーザー指定)。
+    swingBars 4 = 天守レーザーの上下スイープ周期をアウトロ天守(outro cue も
+    swingBars 4)と揃えるため(BeamLight の s.swingPos で回している。ユーザー指定)。
+    イントロ2は laser モードなので pattern/chase などこの区間では未使用。
   */
   "intro-B": {
     level: 1,
     density: 1,
+    towerDensity: 0,
     ...castleLiftFromRange(0.6),
     yaw: 0.08,
-    swingBars: 2,
+    swingBars: 4,
     pattern: "rise",
     waveSpread: 0.5,
     chaseBars: 4,

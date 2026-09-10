@@ -296,10 +296,11 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
  * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
  * **天守と隅櫓で動きが違う**(ユーザー指定「やぐらは以前のように交差のまま」):
  *
- *   天守(spot.isTower=false): outro(イントロ2再現)の拍同期ビームと同じノリ
+ *   天守(spot.isTower=false): **outro(イントロ2再現)の拍同期ビームと同じ動き**
  *     (ユーザーが 1:48 = 再生109秒 の見た目を指定)。フェーズ2で
- *     ・上下: 仰角を sin で **真上(90°)〜約10°** まで大きくスイープ
- *       (1往復 INTRO2_SWEEP_BEATS 拍。速さの調整はそこ)
+ *     ・上下: 仰角を cos で **20°〜90°** スイープ。周期・角度域・駆動・カーブ
+ *       すべて outro 天守と同値 ―― s.swingPos(小節グリッド、intro-B cue の
+ *       swingBars=4 で 4小節 ≒ 5.6秒)+ 灯ごとの位相(rise 波)。
  *     ・左右: 拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ(鏡像ペアが逆向き)
  *   隅櫓(spot.isTower=true): 以前どおりの左右シザース交差。フェーズ2は
  *     仰角 INTRO2_LASER_LIFT 固定 + 拍ごとに yaw を ±BEAM_YAW_LIMIT へ
@@ -318,22 +319,18 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
 /** 隅櫓のレーザーの仰角(ラジアン)。水平から。0.8 ≒ 46°(外向き)。フェーズ2の固定値 */
 const INTRO2_LASER_LIFT = 0.6;
 /**
- * 天守のフェーズ2の上下スイープの端。**真上(90°)〜約10°(水平すぐ上)**を
- * sin で往復する(ユーザー指定「90から10度くらい」)。中央を速く・両端を
- * ゆっくり通る。上端はクランプ値ちょうどなので張り付きは出ない。
+ * 天守のフェーズ2の上下スイープの端。**真上(90°=BEAM_LIFT_MAX)〜約20°**を
+ * cos で往復する。**アウトロ天守と同じ角度域**(ユーザー指定):下端 0.35 ≒ 20°
+ * は outro cue の castleLiftFromRange(0.35) の下限そのもの。ここから作る
+ * CENTER/AMP は outro の s.lift / s.liftSwing と一致する(周期・カーブも
+ * 揃えたので、実質アウトロ天守の上下と同じ式)。上端はクランプ値ちょうど。
  */
 const INTRO2_SWEEP_LIFT_TOP = BEAM_LIFT_MAX;
-const INTRO2_SWEEP_LIFT_BOTTOM = (30 * Math.PI) / 180;
+const INTRO2_SWEEP_LIFT_BOTTOM = 0.35;
 const INTRO2_SWEEP_LIFT_CENTER =
   (INTRO2_SWEEP_LIFT_TOP + INTRO2_SWEEP_LIFT_BOTTOM) / 2;
 const INTRO2_SWEEP_LIFT_AMP =
   (INTRO2_SWEEP_LIFT_TOP - INTRO2_SWEEP_LIFT_BOTTOM) / 2;
-/**
- * 上下スイープ1往復(上→下→上)にかける拍数。**大きいほどゆっくり。**
- * 16拍 ≒ 5.6秒(BPM170)。ユーザーが「1:48のビームより速い」と感じたので
- * 8拍(2小節)から遅くした。上下の速さの調整はここ。
- */
-const INTRO2_SWEEP_BEATS = 14;
 /**
  * 天守のフェーズ2で、上下スイープに加えて**拍ごとに左右へパッと振る**振り幅
  * (ラジアン)。outro(アウトロ=イントロ2再現)の拍同期ビームと同じノリに
@@ -1021,17 +1018,20 @@ export function BeamLight({
             INTRO2_OPEN_LIFT(真上寄り)から真上(BEAM_LIFT_MAX)へ
             intro2OpenP(ease-out)で立てながら現れる。スイープの上端に繋がる。
           intro2Crossing=true:
-            ・上下: 仰角を INTRO2_SWEEP_LIFT_CENTER 中心に ±INTRO2_SWEEP_LIFT_AMP
-              で sin 振る(周期 INTRO2_SWEEP_BEATS 拍。ユーザー指定「90から10度」)。
+            ・上下: **アウトロ天守と完全に同じ式**(ユーザー指定「秒数・角度域・
+              駆動・カーブもあわせて」)。s.lift/s.liftSwing の代わりに
+              INTRO2_SWEEP_LIFT_CENTER/AMP(= outro cue と同値になるよう作った)
+              を使い、swing も outro と同じ 2π(s.swingPos + phase)。
+              s.swingPos は小節グリッド(intro-B cue の swingBars=4 → 4小節
+              ≒ 5.6秒で1往復)、phase は灯ごとの位相(rise 波が扇を駆け上がる)。
             ・左右: **拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ**(鏡像ペアが
               逆向き。outro の isBeatSync と同じ式)。
             ・点滅は明るさ側(intro2Blink)で別に掛かる。
         */
         if (intro2Crossing) {
+          const swing = Math.PI * 2 * (s.swingPos + phase);
           targetLift =
-            INTRO2_SWEEP_LIFT_CENTER +
-            INTRO2_SWEEP_LIFT_AMP *
-              Math.sin((Math.PI * 2 * beatPos) / INTRO2_SWEEP_BEATS);
+            INTRO2_SWEEP_LIFT_CENTER + INTRO2_SWEEP_LIFT_AMP * Math.cos(swing);
           const lateralSign = spot.position[0] < 0 ? -1 : 1;
           targetYaw = lateralSign * beatSyncDir * INTRO2_SWEEP_YAW;
         } else {
