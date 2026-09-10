@@ -3,6 +3,8 @@
  * 星降る海(features/root/timings.ts)と同じ役割のものをこちらへまとめてある。
  */
 
+import type { ReplySectionName } from "./songStructure";
+
 /**
  * ホログラムに映すライブ映像(CPK - Reply)。音声トラック付きで、その音を鳴らす。
  * 長さ 約127.5秒 / 1920x1080(16:9)。
@@ -398,3 +400,32 @@ export const REPLY_BEAT_OFFSET = 0.018;
  * 0.34→0.67 に跳ねる点)の実測は 12.06秒で、小節頭にぴったり乗る。
  */
 export const REPLY_BAR_ORIGIN = REPLY_BEAT_OFFSET + REPLY_BEAT_SECONDS * 2;
+
+/*
+ * ------------------------------------------------------------------
+ * 拍同期モード(ユーザー指定)。イントロ2(intro-B)のレーザーで先に作った
+ * 「拍ごとのON/OFF点滅 + 首振りを可動域の限界へスナップ」を、B・SABI・
+ * LATTER・outro の4セクションでも有効にする。BeamLight.tsx と
+ * Searchlight.tsx の両方が参照する ―― **対象セクションの一覧はここ1箇所で
+ * 持つ**(片方だけ対象セクションがずれると、建物のビームと足元の
+ * サーチライトが違う拍で点滅する破綻になるため)。
+ * ------------------------------------------------------------------
+ */
+/** 拍同期モードを適用するセクション。BeamLight.tsx / Searchlight.tsx で共有 */
+export const REPLY_BEAT_SYNC_SECTIONS: ReadonlySet<ReplySectionName> = new Set([
+  "B",
+  "SABI",
+  "LATTER",
+  "outro",
+]);
+/**
+ * 拍同期モードで1拍のうち点灯している割合(0〜1)。イントロ2レーザーの
+ * INTRO2_BLINK_ON(BeamLight.tsx)と同じ考え方。
+ */
+export const REPLY_BEAT_SYNC_BLINK_ON = 0.38;
+/**
+ * 拍同期モードの消灯側の残光。**0 = 完全に消す。** イントロ2レーザーの
+ * INTRO2_BLINK_FLOOR と同じ理由 ―― 合間に光が見えると、拍ごとに位置が
+ * 変わるぶんが「スイングしている」ように見えてしまう。
+ */
+export const REPLY_BEAT_SYNC_BLINK_FLOOR = 0;

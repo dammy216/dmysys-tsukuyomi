@@ -15,6 +15,10 @@ import {
   type SpriteMaterial,
 } from "three";
 import {
+  createSearchlightPaletteBuffer,
+  sampleSearchlightSectionPalette,
+} from "./beamSectionPalette";
+import {
   BEAM_COLORS,
   CASTLE_HALF_DEPTH,
   CASTLE_HALF_WIDTH,
@@ -22,6 +26,9 @@ import {
   REPLY_BAR_SECONDS,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
+  REPLY_BEAT_SYNC_BLINK_FLOOR,
+  REPLY_BEAT_SYNC_BLINK_ON,
+  REPLY_BEAT_SYNC_SECTIONS,
   REPLY_INTRO2_LASER_HIGH,
   REPLY_INTRO2_LASER_LOW,
   REPLY_INTRO2_LASER_MID,
@@ -343,6 +350,15 @@ const INTRO2_SOLO: Readonly<Record<number, string>> = {
   7: REPLY_INTRO2_LASER_LOW,
   10: REPLY_INTRO2_LASER_HIGH,
 };
+
+/**
+ * INTRO2_SOLO の hex を Color にパースして持つ(毎フレーム new しないため)。
+ * ここだけは常に固定色(セクション別パレットのクロスフェード対象ではない)
+ * なので、beamSectionPalette.ts のバッファとは別に一度だけ作る。
+ */
+const INTRO2_SOLO_COLORS: Readonly<Record<number, Color>> = Object.fromEntries(
+  Object.entries(INTRO2_SOLO).map(([order, hex]) => [order, new Color(hex)]),
+);
 
 /**
  * crossX のシザース周期(既定 cue.sweepBars=2小節)を灯ごとに引き伸ばす倍率。
@@ -702,6 +718,14 @@ type SearchlightProps = {
  * レイヤーを重ねる(色替えの COLOR_BARS がその例)。**リグ自体は固定位置で
  * 回転させない**(以前はゆっくり1周させていたが、天守の周りを回っている
  * ように見えて不自然なので廃止した)。
+ *
+ * **例外: B・SABI・LATTER・outro は「拍同期」モード**(ユーザー指定。
+ * useFrame の isBeatSync 分岐 / constants.ts の REPLY_BEAT_SYNC_* 参照。
+ * BeamLight.tsx と同じ4セクション・同じ拍グリッドで揃って動く)。この
+ * 4セクションでは通常の chase パターンを無効化して拍ごとのON/OFF点滅に、
+ * 首振りは連続的な sin ではなく拍ごとに可動域の限界(MAX_SWING)へパッと
+ * スナップする動きに置き換える。色はセクション別パレット
+ * (beamSectionPalette.ts)から取る。
  */
 export function Searchlight({
   position = [0, 0, 0],
@@ -813,6 +837,21 @@ export function Searchlight({
   /** 今どのキューで塗ったか。セクションが変わったら塗り直す */
   const colorCueRef = useRef(Number.NaN);
   /**
+   * セクション別パレット(beamSectionPalette.ts)の3色バッファ。中身は毎フレーム
+   * sampleSearchlightSectionPalette が上書きする(useFrame内でnewしないため
+   * useRefの初期値として一度だけ作る。swingDirRef と同じパターン)。
+   */
+  const paletteRef = useRef(createSearchlightPaletteBuffer());
+  /**
+   * 灯ごとに「パレットの何番目を表示するか」(0〜2)。-1 は特別扱いで
+   * INTRO2_SOLO_COLORS(固定のイントロ2色)を使う合図。**この添字自体は
+   * colorSlot/セクションが変わったときだけ選び直す**(何小節ごとに色を
+   * 替えるか、という従来の頻度を保つため)。選んだ添字の実際のRGBは
+   * paletteRef.current[idx] を毎フレーム見るので、セクション境界の
+   * クロスフェード中でも自然に色が動く。
+   */
+  const colorIndexRef = useRef<number[]>(beams.map(() => 0));
+  /**
    * 首振り(十字/円)の計算で使い回すスクラッチ。useFrame の中で
    * new すると R3F の禁止ルールに触れるので、ref の初期値として一度だけ
    * 作る(tiltRef 時代と同じ「useRefの初期値に直接 new を渡す」パターン)。
@@ -874,12 +913,41 @@ export function Searchlight({
       : 0;
     const spreadNow = spread + (1 - spread) * hit;
 
-    /* --- 色。ringColors なら円周へ全色を配り、そうでなければ従来の2色 --- */
+    // セクション別の色をこのフレームの値へ更新(BeamLight/WashLightと同じ
+    // 関数群(beamSectionPalette.ts)を使うので、配色コンセプトは共通)
+    sampleSearchlightSectionPalette(t, paletteRef.current);
+
+    /*
+      拍同期モード(B/SABI/LATTER/outro。ユーザー指定)。BeamLight.tsx の
+      isBeatSync と対象セクションを共有する(REPLY_BEAT_SYNC_SECTIONS。片方
+      だけ対象がずれると、建物のビームと足元のサーチライトが違う拍で
+      点滅する破綻になるため)。拍のグリッドは下の「拍の明滅」ブロックと
+      同じ式(REPLY_BEAT_OFFSET / REPLY_BEAT_SECONDS、曲全体を通した連番)を
+      先取りして計算し、beatPhase は下のブロックへそのまま渡す。
+    */
+    const isBeatSync = REPLY_BEAT_SYNC_SECTIONS.has(section.name);
+    const beatPosForSync = (t - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
+    const beatForSync = Math.floor(beatPosForSync);
+    const beatPhaseForSync = beatPosForSync - beatForSync;
+    const beatSyncBlink =
+      beatPhaseForSync < REPLY_BEAT_SYNC_BLINK_ON
+        ? 1
+        : REPLY_BEAT_SYNC_BLINK_FLOOR;
+    /** 偶数拍+1/奇数拍-1。BeamLightのbeatSyncDirと同じ素直な対応 */
+    const beatSyncDir = ((beatForSync % 2) + 2) % 2 === 0 ? 1 : -1;
+
+    /*
+      --- 色。ringColors なら円周へ全色を配り、そうでなければ従来の2色 ---
+      **ここで決めるのは「パレットの何番目を見るか」という添字だけ**
+      (colorIndexRef)。実際のRGBは paletteRef.current[idx] を毎フレーム
+      参照する側(下の materialsRef.current.forEach)で反映するので、
+      セクション境界のクロスフェード中でも自然に色が動く。
+    */
     const colorSlot = Math.floor(barPos / cue.colorBars);
     if (colorSlot !== colorSlotRef.current || si !== colorCueRef.current) {
       colorSlotRef.current = colorSlot;
       colorCueRef.current = si;
-      const partners = BEAM_COLORS.length - 1;
+      const partners = paletteRef.current.length - 1;
       /*
         剰余は必ず正に丸める。曲頭(barPos<0)では colorSlot が負になり、
         JS の % は負を返すので、そのまま添字にすると undefined になる。
@@ -887,31 +955,28 @@ export function Searchlight({
       const partner = 1 + (((colorSlot % partners) + partners) % partners);
       beams.forEach((beam, i) => {
         /*
-          crossX(イントロ2): 図に合わせた固定色。図に無い灯は消灯するので
-          色は効かないが、breath へ戻るときの1フレームだけ変な色が出ないよう
-          通常の2色ロジックを当てておく。
+          crossX(イントロ2): 図に合わせた固定色(INTRO2_SOLO_COLORS)。図に
+          無い灯は消灯するので色は効かないが、breath へ戻るときの1フレーム
+          だけ変な色が出ないよう通常の2色ロジックを当てておく(-1にしない)。
           ringColors: 2本ひと組で色を変えながら円周を一周させる。1本ずつ
           色を変えると点描になって色が読めないので、組にして帯にする。
           スロットごとに起点をずらすので、小節ごとに色の帯が回って見える。
           それ以外: 鏡像ペアには同じ色。並び順の偶奇で2色を交互に差す。
         */
         const soloHex = INTRO2_SOLO[beam.order];
-        const hex =
+        colorIndexRef.current[i] =
           crossX && soloHex
-            ? soloHex
+            ? -1
             : cue.ringColors
-              ? BEAM_COLORS[
-                  (Math.floor(beam.order / 2) + colorSlot) % BEAM_COLORS.length
-                ]
-              : BEAM_COLORS[beam.half % 2 === 0 ? 0 : partner];
-        materialsRef.current[i]?.uniforms.uColor.value.set(hex);
-        flaresRef.current[i]?.color.set(hex);
+              ? (Math.floor(beam.order / 2) + colorSlot) % paletteRef.current.length
+              : beam.half % 2 === 0
+                ? 0
+                : partner;
       });
     }
 
-    /* --- 拍の明滅。小節頭だけ一段上げる --- */
-    const beatPos = (t - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
-    const beatPhase = beatPos - Math.floor(beatPos);
+    /* --- 拍の明滅。小節頭だけ一段上げる(beatPhaseは上のbeatSync計算と同じ式) --- */
+    const beatPhase = beatPhaseForSync;
     const pulse = 1 - strobe * (1 - Math.pow(1 - beatPhase, 2.5));
     const accent = BAR_ACCENT * Math.pow(1 - barPhase, 5);
     const base = activation * level0 * (pulse + accent) + activation * hit * HIT_LEVEL;
@@ -947,7 +1012,22 @@ export function Searchlight({
 
         let azimuth: number;
         let polar: number;
-        if (crossX) {
+        if (isBeatSync) {
+          /*
+            拍同期(B/SABI/LATTER/outro)。intro-Bのcrossingと違い、連続的な
+            sinで開閉するのではなく、拍が変わった瞬間にパッと可動域の限界
+            (MAX_SWING)へ切り替える(ユーザー指定「拍ごとに可動域の限界へ
+            スナップする」)。方位は鏡像ペア(beam.xの符号)と拍の符号
+            (beatSyncDir)の積で決め、常に左右対称に開閉させる ―― BeamLightの
+            lateralSign * beatSyncDir と同じ考え方。polar/azimuthは1本の
+            クォータニオンに合成される都合上、BeamLightのようにlift/yawを
+            別々になますことができないため、この2軸をまとめてスナップさせる
+            (下のslerpバイパスとセットで運用)。
+          */
+          const side = beam.x >= 0 ? 1 : -1;
+          azimuth = side * beatSyncDir >= 0 ? 0 : Math.PI;
+          polar = MAX_SWING;
+        } else if (crossX) {
           /*
             シザース交差(reply.mp4 4〜9秒)。図の左右(=ワールド X)方向へ
             首を振り、中央線をまたいで往復する。
@@ -1007,13 +1087,34 @@ export function Searchlight({
         targetQuat.setFromUnitVectors(UP, dir);
         targetQuat.premultiply(beam.groupQuatInverse);
 
-        // ヘッドの首振りをなまして追従させる(以前の tiltRef と同じ考え方)
-        mesh.quaternion.slerp(targetQuat, follow);
+        if (isBeatSync) {
+          // 拍ごとに可動域の限界へ瞬間移動(なましをバイパス。BeamLightの
+          // yawスナップと同じ考え方。follow を通すと瞬間切り替えに見えない)
+          mesh.quaternion.copy(targetQuat);
+        } else {
+          // ヘッドの首振りをなまして追従させる(以前の tiltRef と同じ考え方)
+          mesh.quaternion.slerp(targetQuat, follow);
+        }
       });
     }
 
     materialsRef.current.forEach((mat, i) => {
       const beam = beams[i];
+      const flare = flaresRef.current[i];
+
+      /*
+        色。colorIndexRef で決めた「どの枠を見るか」を、セクション別パレット
+        (毎フレーム sampleSearchlightSectionPalette が更新する paletteRef)
+        から引く。-1 は固定のイントロ2色(INTRO2_SOLO_COLORS)。
+      */
+      const idx = colorIndexRef.current[i];
+      const color =
+        idx === -1 ? INTRO2_SOLO_COLORS[beam.order] : paletteRef.current[idx];
+      if (color) {
+        mat.uniforms.uColor.value.copy(color);
+        if (flare) flare.color.copy(color);
+      }
+
       /*
         走る光。位相を引くと「番号の若い灯から順に」光が渡っていく。
         cos を鋭くして、明るい山が1点に集まるようにする。
@@ -1032,10 +1133,13 @@ export function Searchlight({
         : prevCrossX && !INTRO2_SOLO[beam.order]
           ? k
           : 1;
-      const level = base * chase * solo;
+      /*
+        拍同期モードは通常の chase(走る光)パターンを無効化し、拍のON/OFF
+        点滅(beatSyncBlink)に置き換える(ユーザー指定)。
+      */
+      const level = isBeatSync ? base * beatSyncBlink : base * chase * solo;
 
       mat.uniforms.uOpacity.value = Math.max(level * BEAM_OPACITY_MAX, 0);
-      const flare = flaresRef.current[i];
       if (flare) {
         flare.opacity = Math.min(
           Math.max(level * FLARE_OPACITY_MAX, 0),

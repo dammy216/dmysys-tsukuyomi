@@ -18,7 +18,6 @@ import {
   Vector3,
 } from "three";
 import {
-  CASTLE_BEAM_PALETTE,
   CASTLE_BEAM_WARM,
   castleBeamPhase,
   castleRigHeightNorm,
@@ -26,11 +25,15 @@ import {
   heightGate,
   sampleCastleRig,
 } from "./castleBeamRig";
+import { createBeamPaletteBuffer, sampleBeamSectionPalette } from "./beamSectionPalette";
 import {
   CASTLE_ROOF_TIERS,
   CASTLE_TOP_Y,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
+  REPLY_BEAT_SYNC_BLINK_FLOOR,
+  REPLY_BEAT_SYNC_BLINK_ON,
+  REPLY_BEAT_SYNC_SECTIONS,
   REPLY_INTRO2_LASER_HIGH,
   REPLY_INTRO2_LASER_LOW,
   REPLY_INTRO2_LASER_MID,
@@ -674,6 +677,16 @@ type BeamLightProps = {
  * X + 点滅(合間は完全消灯)+ 点滅ごとに全灯まとめて逆向きへ ±SWAY 回す。
  * 色はサーチライトのイントロ2と同じ3色(高さ3バンド)。この区間だけ
  * castleBeamRig の首振り・チェイス・色を無視する(本数フロントはそのまま)。
+ *
+ * **例外2: B・SABI・LATTER・outro は「拍同期」モード**(ユーザー指定。
+ * useFrame の isBeatSync 分岐 / constants.ts の REPLY_BEAT_SYNC_* 参照):
+ * イントロ2レーザーのフェーズ2(拍ごとのON/OFF点滅 + 可動域限界へのスナップ)
+ * と同じ考え方を、開き演出(フェーズ1)無しでこの4セクション全体に適用する。
+ * 通常の chase パターンの代わりに拍のブリンクで明るさを作り、横(yaw)の
+ * なましをバイパスして拍ごとに ±BEAM_YAW_LIMIT へ瞬間移動する。仰角(lift)・
+ * 本数(density)・色(セクション別パレット)は通常どおり CUES 表 /
+ * beamSectionPalette.ts の値を引き継ぐ。Searchlight.tsx も同じ4セクション・
+ * 同じ拍グリッドで揃って動く。
  */
 export function BeamLight({
   position = [0, 0, 0],
@@ -817,7 +830,10 @@ export function BeamLight({
       one: new Vector3(1, 1, 1),
       color: new Color(),
       warm: new Color(CASTLE_BEAM_WARM),
-      palette: CASTLE_BEAM_PALETTE.map((hex) => new Color(hex)),
+      // セクション別の色。中身は毎フレーム sampleBeamSectionPalette が上書きする
+      // (beamSectionPalette.ts。WashLight.tsx も同じ関数を同じ時刻で呼ぶので、
+      // 2つのリグの色は独立に計算しても必ず一致する)
+      palette: createBeamPaletteBuffer(),
       /** 灯ごとの現在の首の向き。目標へなまして追従させる(下のコメント参照) */
       lift: new Float32Array(BEAM_COUNT),
       yaw: new Float32Array(BEAM_COUNT),
@@ -859,6 +875,18 @@ export function BeamLight({
     */
     const raw = songTimeRef?.current ?? clock.elapsedTime;
     const s = sampleCastleRig(raw, scratch.sample);
+    // セクション別の色をこのフレームの値へ更新(WashLight.tsx も同じ関数・
+    // 同じ raw を使うので、2つのリグの色は独立に計算しても必ず一致する)
+    sampleBeamSectionPalette(raw, scratch.palette);
+
+    /*
+      拍のグリッド(**曲全体を通した連番**。セクションが変わってもリセット
+      しない)。isIntro2 のフェーズ2と、下の拍同期(isBeatSync)が同じ式を
+      共有する ―― セクション境界で位相が飛ぶと不自然になるため。
+    */
+    const beatPos = (raw - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
+    const beat = Math.floor(beatPos);
+    const beatPhase = beatPos - beat;
 
     /*
       イントロ2(intro-B)だけ「レーザー」モード(INTRO2_LASER_* のコメント参照):
@@ -869,7 +897,8 @@ export function BeamLight({
       **交差もさせず**、真上寄りの束から外向きへ「開いていく」。
       引き切ってから、交差の X + 拍の点滅 + 傾きの切り替えを始める。
     */
-    const isIntro2 = REPLY_SECTIONS[s.sectionIndex]?.name === "intro-B";
+    const sectionName = REPLY_SECTIONS[s.sectionIndex]?.name;
+    const isIntro2 = sectionName === "intro-B";
     let intro2Blink = 1;
     /** 偶数拍 +1 / 奇数拍 -1。点滅のたびに X の傾きをこの符号で反転する */
     let intro2BeatDir = 0;
@@ -886,9 +915,6 @@ export function BeamLight({
     let intro2OpenP = 1;
     if (isIntro2 && raw >= INTRO2_BLINK_START_SECONDS) {
       intro2Crossing = true;
-      const beatPos = (raw - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
-      const beat = Math.floor(beatPos);
-      const beatPhase = beatPos - beat;
       intro2Blink = beatPhase < INTRO2_BLINK_ON ? 1 : INTRO2_BLINK_FLOOR;
       /*
         **偶奇と符号の対応をあえて反転させてある(奇数拍=+1)。**
@@ -908,6 +934,20 @@ export function BeamLight({
       const c = p < 0 ? 0 : p > 1 ? 1 : p;
       intro2OpenP = 1 - (1 - c) * (1 - c); // ease-out
     }
+
+    /*
+      拍同期モード(B/SABI/LATTER/outro。ユーザー指定)。intro-B に限っていた
+      isIntro2 のフェーズ2(拍ごとのON/OFF点滅 + 可動域限界へのスナップ)と
+      同じ考え方を、この4セクションでは「フェーズ1」抜きで常時有効にする。
+      対象セクションの一覧は Searchlight.tsx と共有(REPLY_BEAT_SYNC_SECTIONS。
+      片方だけ対象がずれると2つのリグが違う拍で点滅する破綻になるため)。
+    */
+    const isBeatSync =
+      sectionName !== undefined && REPLY_BEAT_SYNC_SECTIONS.has(sectionName);
+    const beatSyncBlink =
+      beatPhase < REPLY_BEAT_SYNC_BLINK_ON ? 1 : REPLY_BEAT_SYNC_BLINK_FLOOR;
+    /** 偶数拍+1/奇数拍-1。intro2BeatDir と違い反転トリックは無し(素直な対応) */
+    const beatSyncDir = ((beat % 2) + 2) % 2 === 0 ? 1 : -1;
 
     mat.uniforms.uOpacity.value = lit * EAVE_BEAM_OPACITY_MAX;
     flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
@@ -939,11 +979,16 @@ export function BeamLight({
       /*
         レーザー時はチェイスを殺して**全灯いっせいに拍でチカチカ**
         (intro2Blink)。密度フロント(gate)は残すので、まだ点いてない
-        高さの灯は光らない。
+        高さの灯は光らない。拍同期(B/SABI/LATTER/outro)も同じ理屈で
+        chase の代わりに beatSyncBlink を掛ける ―― 「通常のchase/wave/
+        unisonパターンを無効化する」の実体はここ(明るさの作り方)で、
+        本数(gate = CUES表の density)はそのまま引き継ぐ。
       */
       const level = isIntro2
         ? Math.max(s.base * gate * intro2Blink * INTRO2_LASER_LEVEL, 0)
-        : Math.max(s.base * gate * chase, 0);
+        : isBeatSync
+          ? Math.max(s.base * gate * beatSyncBlink, 0)
+          : Math.max(s.base * gate * chase, 0);
       levels[i] = level;
 
       /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */
@@ -1028,15 +1073,30 @@ export function BeamLight({
           コメント参照)。
         */
         targetLift = s.lift + s.liftSwing * Math.cos(swing);
-        /*
-          軒ビームの横の首振りを大きくして扇状に振らせる(天守・隅櫓で別ゲイン、
-          破風は cue.yaw のまま)。上下(liftSwing)には手を付けないので、
-          横長の楕円軌道になる。*_YAW_* のコメント参照。
-        */
-        const yawAmp = spot.isTower
-          ? Math.max(s.yaw * TOWER_YAW_GAIN, TOWER_YAW_MIN)
-          : Math.max(s.yaw * CASTLE_YAW_GAIN, CASTLE_YAW_MIN);
-        targetYaw = yawAmp * Math.sin(swing);
+        if (isBeatSync) {
+          /*
+            拍同期(B/SABI/LATTER/outro)。**横(yaw)だけ**を isIntro2 のフェーズ2
+            と同じ「拍ごとに可動域の限界へスナップ」に置き換える(仰角(lift)は
+            ユーザー指定で「点滅・首振り以外の既存の演出値」として CUES表の
+            計算をそのまま引き継ぐ対象なので、上の targetLift は触らない)。
+            isIntro2 は「隅から中心へX字に交差する」見た目を出すため面の向き
+            (前後/東西)ごとに符号を作り込んでいたが、ここは単に全灯が拍ごとに
+            逆位相へパッと開閉するだけでよいので、灯の元の左右位置
+            (spot.position[0] の符号)だけで鏡像ペアを作る。
+          */
+          const lateralSign = spot.position[0] < 0 ? -1 : 1;
+          targetYaw = lateralSign * beatSyncDir * BEAM_YAW_LIMIT;
+        } else {
+          /*
+            軒ビームの横の首振りを大きくして扇状に振らせる(天守・隅櫓で別ゲイン、
+            破風は cue.yaw のまま)。上下(liftSwing)には手を付けないので、
+            横長の楕円軌道になる。*_YAW_* のコメント参照。
+          */
+          const yawAmp = spot.isTower
+            ? Math.max(s.yaw * TOWER_YAW_GAIN, TOWER_YAW_MIN)
+            : Math.max(s.yaw * CASTLE_YAW_GAIN, CASTLE_YAW_MIN);
+          targetYaw = yawAmp * Math.sin(swing);
+        }
       }
 
       /*
@@ -1062,9 +1122,17 @@ export function BeamLight({
       const nextLift = isIntro2
         ? targetLift
         : scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
-      const nextYaw = isIntro2
-        ? targetYaw
-        : scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;
+      /*
+        yaw は isIntro2 に加えて isBeatSync でもなましをバイパスする
+        (ユーザー指定「拍ごとに可動域の限界へスナップ」。follow を通すと
+        瞬間切り替えに見えなくなる)。lift は isBeatSync でも通常どおり
+        なます ―― 仰角は「点滅・首振り以外の既存の演出値」として引き継ぐ
+        対象なので、ここでは触らない。
+      */
+      const nextYaw =
+        isIntro2 || isBeatSync
+          ? targetYaw
+          : scratch.yaw[i] + (targetYaw - scratch.yaw[i]) * follow;
       scratch.lift[i] = nextLift;
       scratch.yaw[i] = nextYaw;
 

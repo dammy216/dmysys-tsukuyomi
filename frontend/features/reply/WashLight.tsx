@@ -19,7 +19,6 @@ import {
 } from "three";
 import { CASTLE_ROOF_TIERS } from "./constants";
 import {
-  CASTLE_BEAM_PALETTE,
   CASTLE_BEAM_WARM,
   castleBeamPhase,
   castleRigHeightNorm,
@@ -27,6 +26,7 @@ import {
   heightGate,
   sampleCastleRig,
 } from "./castleBeamRig";
+import { createBeamPaletteBuffer, sampleBeamSectionPalette } from "./beamSectionPalette";
 
 /*
   天守の**破風**(その段の屋根の上に乗っている、小さな三角の飾り屋根)から
@@ -516,7 +516,10 @@ export function WashLight({
       one: new Vector3(1, 1, 1),
       color: new Color(),
       warm: new Color(CASTLE_BEAM_WARM),
-      palette: CASTLE_BEAM_PALETTE.map((hex) => new Color(hex)),
+      // セクション別の色。中身は毎フレーム sampleBeamSectionPalette が上書き
+      // する(beamSectionPalette.ts。BeamLight.tsx も同じ関数を同じ時刻で
+      // 呼ぶので、2つのリグの色は独立に計算しても必ず一致する)
+      palette: createBeamPaletteBuffer(),
       lift: new Float32Array(WASH_COUNT),
       yaw: new Float32Array(WASH_COUNT),
     }),
@@ -553,6 +556,8 @@ export function WashLight({
 
     const raw = songTimeRef?.current ?? clock.elapsedTime;
     const s = sampleCastleRig(raw, scratch.sample);
+    // セクション別の色をこのフレームの値へ更新(BeamLight.tsx と揃える)
+    sampleBeamSectionPalette(raw, scratch.palette);
 
     const follow = 1 - Math.exp(-s.slew * delta);
     const colors = attrs.colors.array as Float32Array;
