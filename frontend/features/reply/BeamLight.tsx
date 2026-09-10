@@ -970,8 +970,15 @@ export function BeamLight({
         spot.azimuth,
       );
 
-      /* --- 1. 本数。点灯フロントより高い灯だけが灯る --- */
-      const gate = heightGate(spot.heightNorm, s.density);
+      /* --- 1. 本数。点灯フロントより高い灯だけが灯る。
+         隅櫓のビームは天守と別のフロント(s.towerDensity)で数える ――
+         天守下層と隅櫓上層は heightNorm が重なるので同じ density では
+         「天守だけ」「隅櫓だけ」を作れない(castleBeamRig の towerDensity 参照。
+         breath=0 で隅櫓ゼロ・天守そのまま / A=1 で隅櫓全階層) --- */
+      const gate = heightGate(
+        spot.heightNorm,
+        spot.isTower ? s.towerDensity : s.density,
+      );
 
       /* --- 3. チェイス。位相を引くと決まった順に光が渡っていく --- */
       const wave = 0.5 + 0.5 * Math.cos(Math.PI * 2 * (s.chasePos - phase));

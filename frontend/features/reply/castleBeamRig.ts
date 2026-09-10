@@ -220,6 +220,14 @@ export type CastleBeamCue = {
   tint: number;
   /** ヘッドの首振りの追従速度(1/秒)。大きいほど機敏に向きを変える */
   slew: number;
+  /**
+   * **隅櫓(isTower)のビームだけに使う点灯フロント。省略すると density と同じ。**
+   * 天守の下層と隅櫓の上層は heightNorm が重なるので、ひとつの density では
+   * 「天守は4層・隅櫓は最上層だけ」といった作り分けができない。隅櫓側を
+   * これで別に指定する。今は breath だけ 0(隅櫓を全消灯 = 天守だけ残す。
+   * ユーザー指定)。他のセクションは未指定 = density と同じ。
+   */
+  towerDensity?: number;
 };
 
 /**
@@ -252,11 +260,14 @@ function castleLiftFromRange(lower: number): { lift: number; liftSwing: number }
  * カット割りではなく「密度」で盛り上がりを作っている。ここもそれに倣って
  * 静→動の落差を本数で付ける:
  *
- *   intro-B 1.00(11秒の一斉点灯) → breath 0.12(ほぼ消灯) → A 0.30 →
+ *   intro-B 1.00(11秒の一斉点灯) → breath 0.68 → A 0.68 →
  *   B 0.55(サビへ溜める) → SABI 1.00(全点灯) → LATTER 0.85 → outro 0.40 → fade 0.08
  *
- * breath で一度ほぼ全部落とすのが要点。ここで落とさないとサビで増えても
- * 「増えた」と分からない(= ドーパミンが出ない)。
+ * 天守と隅櫓は別々に効かせられる(towerDensity。省略時は density と同じ)。
+ * 今は breath だけ density 0.68 / towerDensity 0 = 天守だけ残す(櫓は消灯)。
+ * 以前 breath は density 0.12 で天守のてっぺん8本だけ残していたが、
+ * 「レーザーが消えたあと天守の上だけになる」のを嫌ってやめた。
+ * サビの落差は SABI 1.00(全点灯)と、A/B より上げた明るさ・速さで付ける。
  */
 export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
   /*
@@ -302,12 +313,17 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     slew: 9,
   },
   /*
-    歌前の間。**ここが一番暗い。** 天守のてっぺんの8本だけ残して落とす
-    (参照映像 3:27 の「青一色・ビーム1本」に相当)。動きもほぼ止める。
+    歌前の間。**天守だけビームを残す**(ユーザー指定「レーザーが消えて
+    天守の上だけになるのを、天守全体残して。ただし櫓からは出さない」)。
+    density 0.68 で天守の4層すべてに点灯フロントが届く。隅櫓は heightNorm が
+    天守下層と重なるので同じ density だと一緒に出てしまう ―― towerDensity 0 で
+    隅櫓のビームだけ全消灯。静けさは level を落とし、動き(swingBars 8 /
+    strobe 0.02)と色(colorSpread 0)をほぼ止めて出す。
   */
   breath: {
-    level: 0.5,
-    density: 0.12,
+    level: 0.42,
+    density: 0.68,
+    towerDensity: 0,
     ...castleLiftFromRange(0.75),
     yaw: 0.02,
     swingBars: 8,
@@ -325,7 +341,8 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     Aメロ。ゆっくり上下して歌の邪魔をしない。
     density は 0.3(上から2層ほど)だったが、ユーザー指定で **天守の4層すべて**
     ビームを出すため 0.68 へ。天守の一番下のビーム層(heightNorm≈0.35)まで
-    点灯フロントが届く値。隅櫓の最上層・破風も少し増えるが、天守の見え方優先。
+    点灯フロントが届く値。隅櫓は towerDensity 未指定=density と同じなので
+    最上層だけ(ユーザー指定「櫓は前と同じ一番上だけ」)。
   */
   A: {
     level: 0.68,
@@ -503,6 +520,8 @@ export type CastleRigSample = {
   slew: number;
   /** 今のセクションの添字(色の塗り直し判定に使う) */
   sectionIndex: number;
+  /** 隅櫓のビームだけに使う点灯フロント。CastleBeamCue.towerDensity 参照 */
+  towerDensity: number;
 };
 
 /** 使い回す入れ物を1つ作る。コンポーネント側で useMemo して持つ */
@@ -523,6 +542,7 @@ export function createCastleRigSample(): CastleRigSample {
     tint: 0,
     slew: 4,
     sectionIndex: 0,
+    towerDensity: 0,
   };
 }
 
@@ -581,6 +601,11 @@ export function sampleCastleRig(
   out.colorSpread = mix(prev.colorSpread, cue.colorSpread, k);
   out.tint = mix(prev.tint, cue.tint, k);
   out.slew = mix(prev.slew, cue.slew, k);
+  out.towerDensity = mix(
+    prev.towerDensity ?? prev.density,
+    cue.towerDensity ?? cue.density,
+    k,
+  );
   out.waveSpread = mix(prev.waveSpread, cue.waveSpread, k);
   out.pattern = cue.pattern;
   out.sectionIndex = si;
