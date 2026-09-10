@@ -170,14 +170,6 @@ type EaveBeamSpot = {
    * 横(yaw)の首振りゲインを天守/隅櫓で切り替えるのに使う(*_YAW_* 参照)。
    */
   isTower: boolean;
-  /**
-   * この灯が属する棟の中心(ワールド x, z)。天守は (0, 0)、隅櫓は
-   * CORNER_TOWER_XZ の各棟。イントロ2のレーザーで「面の右端/左端」を
-   * **棟ローカル**に判定する(棟がまるごと城の隅にある隅櫓でも、その棟の
-   * 2本が正しく交差するように)ためだけに使う。
-   */
-  cx: number;
-  cz: number;
 };
 
 /**
@@ -276,6 +268,27 @@ const TOWER_YAW_MIN = 0.35;
 const CASTLE_YAW_GAIN = 5;
 const CASTLE_YAW_MIN = 0.35;
 
+/**
+ * 横(yaw)の首振りの可動域の上限(ラジアン)。正面(0)から片側にこの角度まで
+ * しか振れない(左右合計 2倍 = 120°)。**ユーザー指定: 場面(通常時/イントロ2
+ * レーザーの交差)によらず、ビームというオブジェクト自体が持つ物理的な
+ * 可動域の上限**なので、useFrame内でどちらの分岐(isIntro2の有無)を通っても
+ * 最後にこれで一度だけクランプする(演出側の値が将来変わっても超えない)。
+ * 60° = Math.PI/3。
+ */
+const BEAM_YAW_LIMIT = Math.PI / 3;
+
+/**
+ * 縦(仰角/lift)の可動域。**上限は必ず真上(90°)固定**、そこから150°ぶん
+ * 下まで振れる(ユーザーが横から見た可動域の図で指定。上限=真上・そこから
+ * 150°で下限=水平より下60°)。BEAM_YAW_LIMIT と同じく、場面(通常時/
+ * イントロ2レーザー)によらずビームというオブジェクト自体の可動域として
+ * useFrame内で最後に一度だけクランプする。
+ */
+const BEAM_LIFT_MAX = Math.PI / 2;
+const BEAM_LIFT_RANGE = (5 * Math.PI) / 6;
+const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
+
 /* ------------------------------------------------------------------ *
  * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
  * 2フェーズある:
@@ -285,15 +298,23 @@ const CASTLE_YAW_MIN = 0.35;
  *     合わせる。ユーザー指定)。開きカーブは ease-out ―― 現れた瞬間から一番
  *     大きく動く(smoothstep だと束のまま一瞬止まって見えた)。明るさの
  *     フェードは通常どおり(サーチライトと同時に出る)。
- *  2) それ以降: 各建物ごと、灯を**その建物の中心の右側/左側**で分けて、
- *     中心をまたぐ向きへ振り空中で X に交差させる(INTRO2_LASER_CROSS。
- *     天守は4面それぞれ、隅櫓は各棟で X)。振る向きは進行方向(rotationY)で
- *     +yaw の世界向きが反転するので **crossSign** で補正する ―― 無いと
- *     「南は交差するのに北は開く」になる(ユーザー指摘)。**点滅のたびに
- *     全灯まとめて逆向きへ ±SWAY 回して X の交点を左右へ振る**
- *     (INTRO2_LASER_SWAY。= 1回目と2回目で逆方向。スナップ)。点滅の合間は
- *     完全消灯(INTRO2_BLINK_FLOOR = 0)なので移動の途中は見えず、点いた一瞬
- *     だけ X が現れて消える = 「パッパと切り替わる」。
+ *  2) それ以降: 拍ごとに可動域の限界(±BEAM_YAW_LIMIT)へスナップする点滅。
+ *     鏡像ペアが逆向きになるようにしてあり、左が+60度を向くとき右は-60度を
+ *     向く(ユーザー指定。以前あった建物ごとのX字交差のロジックはいったん
+ *     撤去し、単純な2値の鏡像に置き換えた)。**判定軸は面の向きで切り替える**
+ *     ―― 前後面(南北向き)はワールドXの符号、東西面(東西向き)はワールドZの
+ *     符号(pointsAlongX。X符号のままだと東西面の2本が同じ向きになり
+ *     交差しないバグになっていた)。さらに前面(rotationY=0)と背面
+ *     (rotationY=π)はベースの向きが180°違うぶん、同じ符号でもワールド
+ *     空間では逆に振れてしまうため cos(rotationY) で背面側だけ反転し、
+ *     前面と背面が同じ向きに見えるようにしている(ユーザー指定)。加えて
+ *     東西面は前後面と常に逆の符号になるようにしてあり(ユーザー指定)、
+ *     さらに東面(rotationY=π/2)と西面(rotationY=-π/2)も前後面と同じ理屈で
+ *     sin(rotationY)により補正し、東と西が同じ向きに見えるようにしている
+ *     (ユーザー指定)。
+ *     点滅の合間は完全消灯(INTRO2_BLINK_FLOOR = 0)なので移動の途中は
+ *     見えず、点いた一瞬だけ限界いっぱいの光が現れて消える = 「パッパと
+ *     切り替わる」。
  * 色は城のパレットではなく **サーチライトのイントロ2と同じ3色**
  * (INTRO2_LASER_COLORS。取り付け高さで3バンド。ユーザー指定)。
  * castleBeamRig からは本数フロント(density/gate)と明るさのベースだけ
@@ -307,19 +328,6 @@ const INTRO2_LASER_LIFT = 0.8;
  * INTRO2_LASER_LIFT へ倒れていく = カメラの引きに合わせて外へ「開いていく」。
  */
 const INTRO2_OPEN_LIFT = 1.45;
-/**
- * **ビームを交差させる yaw(ラジアン)。** 面の右端の灯を左へ、左端の灯を右へ
- * 振って、空中で X に交わらせる(ユーザー指定「右端の光と左端の光を交差」)。
- * 0.7 ≒ 40°。
- */
-const INTRO2_LASER_CROSS = 0.7;
-/**
- * 点滅のたびに X を左右へ傾ける量(ラジアン)。0.4 ≒ 23°。
- * 偶数拍は X が左寄り(右端の灯が深く・左端が浅く)、奇数拍はその鏡像。
- * **なまさずスナップ**するので「左右左右とスウィング」ではなく拍ごとに
- * パッと切り替わる。CROSS + SWAY ≒ 63° が可動域の端(*_YAW_GAIN のコメント参照)。
- */
-const INTRO2_LASER_SWAY = 0.4;
 /** レーザー時の明るさ倍率。細い光条をくっきり見せるため少し持ち上げる */
 const INTRO2_LASER_LEVEL = 1.35;
 /**
@@ -417,8 +425,6 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
         heightNorm,
         azimuth,
         isTower: !isCastle,
-        cx: t.cx,
-        cz: t.cz,
       });
     }
     if (qz === 0 || signZ === qz) {
@@ -429,8 +435,6 @@ const EAVE_BEAM_SPOTS: readonly EaveBeamSpot[] = EAVE_TIERS.flatMap((t) => {
         heightNorm,
         azimuth,
         isTower: !isCastle,
-        cx: t.cx,
-        cz: t.cz,
       });
     }
     return spots;
@@ -937,34 +941,52 @@ export function BeamLight({
           intro2Crossing=false(カメラの引きが終わるまで): yaw=0 で各面の
             法線方向へ平行照射。仰角は INTRO2_OPEN_LIFT(真上寄り)から
             INTRO2_LASER_LIFT へ intro2OpenP で倒れていく = 外へ開いていく。
-          intro2Crossing=true: 仰角は INTRO2_LASER_LIFT 固定。「交差」――
-            その灯が面の中心のどちら側か
-            (進行方向と直交する軸の座標。**棟の中心 (cx,cz) からの相対**。
-            隅櫓は棟がまるごと城の隅にあるのでワールド座標の符号では全灯同じ側
-            になり交差しない)。lateralSign は +1 / -1。
+          intro2Crossing=true: 仰角は INTRO2_LASER_LIFT 固定。拍ごとに可動域の
+            限界(±BEAM_YAW_LIMIT)へパッと切り替える点滅で、鏡像ペアが逆向きに
+            なるようにする(ユーザー指定:「左が+60度を向いているとき右は
+            -60度を向く」)。
 
-            **crossSign(= sin(rotationY) - cos(rotationY) ∈ {±1})が必須。**
-            +yaw が世界のどちら向きに首を振るかは進行方向(rotationY)で反転する
-            (+Z 面なら +yaw→+X、-Z 面なら +yaw→-X …)。これを掛けないと
-            「南側は交差するのに北側は開く(交差しない)」になる(ユーザー指摘)。
+            **首振り軸は面の向きで変わる。** 前後面(rotationY=0/π、南北向き)は
+            yawが東西(X)方向に効くので、鏡像の判定もワールドXの符号でよい。
+            だが東西面(rotationY=±π/2、東西向き)はyawが南北(Z)方向に効くため、
+            X符号で判定すると同じ面の2本が常に同じ符号になり、鏡像にならず
+            「東西面だけ交差しない」バグになる(ユーザー指摘)。pointsAlongX で
+            面の向きを見て、判定に使う軸をX/Zで切り替える。
 
-            SWAY: 拍ごとに全灯まとめて世界Y軸まわりに ±SWAY 回す(X の交点が
-            左右へ振れる = 「1回目と2回目で逆方向」)。crossSign を掛けないので
-            全面いっせいに同じ向きへ回る。
+            **前面(rotationY=0)と背面(rotationY=π)はベースの向きが180°
+            違うので、同じワールドXの符号でも実際にワールド空間で見ると
+            逆方向へ振れる。** ローカルの+yawは前面ではワールド+X寄りに
+            効くが、背面では-X寄りに効くため(180°回っているので当然)。
+            ユーザー指定「片方の面がXの符号を向いているとき、反対の面も
+            同じXの符号に見えるようにしたい(今は逆になっていた)」を
+            満たすには、背面側のローカルyawの符号をあらかじめ反転しておけば
+            よい ― cos(rotationY)は前面で+1・背面で-1になるので、これを
+            掛けると前面・背面がワールド空間で同じ向きに揃う(同じ面の中の
+            東西2本が互いに逆向き=交差する関係はcosが両者に同じ値で掛かる
+            だけなので崩れない)。東西面には影響しない(pointsAlongXがtrueの
+            ときはこのcos補正を通らない)。
+
+            **東西面は前後面と常に逆の符号にする**(ユーザー指定:「前後面が
+            Xの符号のとき、東西面はYの符号(逆)にして」)。東西面の式全体に
+            -1を掛けるだけでよい ― 面の中の2本の相対関係(北寄り/南寄りで
+            逆向き=交差)はそのまま保たれ、前後面全体との親子関係だけが
+            反転する。
+            intro2BeatDirは全灯共通の拍の符号なので、鏡像ペアは常に逆向きの
+            まま同じ拍で切り替わる(=対称に開閉して見える)。
         */
         if (intro2Crossing) {
           targetLift = INTRO2_LASER_LIFT;
           const pointsAlongX =
             spot.rotationY === Math.PI / 2 || spot.rotationY === -Math.PI / 2;
-          const lateral = pointsAlongX
-            ? spot.position[2] - spot.cz
-            : spot.position[0] - spot.cx;
-          const lateralSign = lateral >= 0 ? 1 : -1;
-          const crossSign =
-            Math.sin(spot.rotationY) - Math.cos(spot.rotationY) >= 0 ? 1 : -1;
-          targetYaw =
-            crossSign * lateralSign * INTRO2_LASER_CROSS +
-            intro2BeatDir * INTRO2_LASER_SWAY;
+          const lateralSign = pointsAlongX
+            ? // 東面(rotationY=π/2)と西面(rotationY=-π/2)もベースの向きが
+              // 180°違うので、前後面と同じ理屈でsin(rotationY)で補正する
+              // (ユーザー指定「東がXの時は西もXにして」)。前面/背面の
+              // cos(rotationY)に対応する東西版がsin(rotationY)になる。
+              // 先頭の-1は前後面と常に逆の符号にする既存の指定を維持する。
+              -(spot.position[2] < 0 ? 1 : -1) * Math.sin(spot.rotationY)
+            : (spot.position[0] < 0 ? 1 : -1) * Math.cos(spot.rotationY);
+          targetYaw = lateralSign * intro2BeatDir * BEAM_YAW_LIMIT;
         } else {
           // フェーズ1: 真上寄り(束)→ 外向きへ「開いていく」。yaw は 0(平行)
           targetLift =
@@ -991,6 +1013,17 @@ export function BeamLight({
           : Math.max(s.yaw * CASTLE_YAW_GAIN, CASTLE_YAW_MIN);
         targetYaw = yawAmp * Math.sin(swing);
       }
+
+      /*
+        場面(通常時/イントロ2レーザー)によらず、ビームというオブジェクト
+        自体の可動域として最後に一度だけクランプする(BEAM_YAW_LIMIT
+        のコメント参照)。isIntro2の点滅は intro2BeatDir * BEAM_YAW_LIMIT
+        そのものなので実質ノーオペレーションだが、演出側の値が将来変わっても
+        超えないようにここでも止めておく。
+      */
+      targetYaw = Math.max(-BEAM_YAW_LIMIT, Math.min(BEAM_YAW_LIMIT, targetYaw));
+      // 縦(仰角)も同様に、上限=真上固定・そこから150°ぶんでクランプ(BEAM_LIFT_MAX/MIN参照)
+      targetLift = Math.max(BEAM_LIFT_MIN, Math.min(BEAM_LIFT_MAX, targetLift));
 
       /*
         通常時: 実機のムービングヘッドは首の回る速さに限りがあるので、目標へ
