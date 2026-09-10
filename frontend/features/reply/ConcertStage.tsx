@@ -33,8 +33,8 @@ const RIM_CHASE_TAIL_LENGTH = 0.2;
  * 同じ尾の長さで、位相だけ 1/RIM_CHASE_HEAD_COUNT ずつずらして周回する。
  */
 const RIM_CHASE_HEAD_COUNT = 2;
-/** 光の帯が通り過ぎたあとの地の明るさ(1=素の色そのまま) */
-const RIM_CHASE_FLOOR = 0.4;
+/** 光の帯が通り過ぎたあとの地の明るさ(1=素の色そのまま)。もう少し暗くしたい指定で0.4から下げた */
+const RIM_CHASE_FLOOR = 0.1;
 /** 光の帯のピークの明るさ倍率。1を超えてブルームに沈み込む強さにする */
 const RIM_CHASE_PEAK = 2.6;
 
