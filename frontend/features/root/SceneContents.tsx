@@ -118,16 +118,6 @@ const REPLY_MOON = {
 };
 
 /**
- * Replyが終わったとき、天守のまわりに集まった灯籠が水面へ戻るのにかける秒数。
- * replyBuildRef は reply を止めた瞬間に0へ飛ぶ(天守の組み上げ演出はそれで
- * 問題ないが、灯籠がワープして見えると目立つ)ので、戻すときだけこの秒数で
- * ゆっくり追従させる(下の lanternGatherRef 参照)。曲の終わり(replyInOutro)で
- * 城と一緒に静かに水面へ降ろすので、outro の長さ(REPLY_OUTRO_LEAD_SECONDS=6)
- * にほぼ合わせてある。
- */
-const LANTERN_GATHER_RELEASE_SECONDS = 8;
-
-/**
  * 灯籠の総数。Lanterns.tsx 側のデフォルト(900)より増やす指定なので、
  * root(この SceneContents.tsx)側で明示的に渡す(Lanterns 自体のデフォルト
  * は変えない)。箱2つ・2ドローコールなので、この程度の増加は描画コストに
@@ -295,8 +285,8 @@ export function SceneContents({
   const replyCastleBuildRef = useRef(0);
   /*
     灯籠が天守のまわりへ集まる進み具合(0〜1)。タイムラインの lanterns
-    トラックから来る。ただし reply を止めたときだけは0へ瞬断せず、
-    LANTERN_GATHER_RELEASE_SECONDS かけてゆっくり水面へ戻す(下のuseFrame参照)。
+    トラックから来る(曲の終盤、城が消えるのと同時にゆっくり水面へ沈む
+    カーブをキーフレームで持たせてあるので、ここでは時刻から引くだけ)。
   */
   const lanternGatherRef = useRef(0);
   /*
@@ -648,24 +638,18 @@ export function SceneContents({
     }
 
     /*
-      灯籠の集合(Lanterns.tsx の gatherRef)。上がるときはタイムラインの
-      lanterns トラックに即追従。下がるとき ―― reply 終了、または
-      **曲の終わりで城がフェードアウトする(replyInOutro)とき** ―― は
-      LANTERN_GATHER_RELEASE_SECONDS で緩めて水面へ戻す。城が消えたのに
-      灯籠だけ空に浮いたままにしない。
+      灯籠の集合(Lanterns.tsx の gatherRef)。タイムラインの lanterns
+      トラックにそのまま従う ―― ゆっくり水面へ沈む動きも曲の終盤の
+      キーフレームとして表現してあるので、ここでは時刻から引くだけでよい。
 
-      **この戻りだけはタイムラインに乗せていない。** 曲の再生位置ではなく
-      「止めた/曲が終わった」という状態から来る動きで、時刻に紐づけられない。
+      **以前は「止めたとき」に runtime で LANTERN_GATHER_RELEASE_SECONDS
+      かけて減衰させていたが、これだと曲の再生位置を巻き戻す(シークする)
+      だけでも同じ減衰が発動し、編集モードで頭から見返すたびに灯籠だけ
+      ゆっくり降りてくる不便な挙動になっていた**(ユーザー指摘)。曲の
+      再生位置だけで決まる形にすることでその問題を消す(他のトラックと
+      同じ扱いに揃った)。
     */
-    const lanternUp = replyPlaying && !replyInOutro ? timeline.lanterns : 0;
-    if (lanternUp >= lanternGatherRef.current) {
-      lanternGatherRef.current = lanternUp;
-    } else {
-      lanternGatherRef.current = Math.max(
-        lanternGatherRef.current - delta / LANTERN_GATHER_RELEASE_SECONDS,
-        lanternUp,
-      );
-    }
+    lanternGatherRef.current = replyPlaying ? timeline.lanterns : 0;
 
     /*
       ステージから上(ステージ・鳥居・ホログラム)。タイムラインの stage

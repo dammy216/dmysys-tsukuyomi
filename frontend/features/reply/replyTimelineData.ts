@@ -68,15 +68,23 @@ export const REPLY_TIMELINE: ReplyTimelineKeys = {
   ],
 
   /*
-    灯籠が天守のまわりへ集まる進み具合。旧 lanternGatherRef。
-    11秒に向けて集まるので組み上げと同じ立ち上がり。
-    **止めたときのゆっくりした戻り(旧 LANTERN_GATHER_RELEASE_SECONDS)は
-    タイムラインではなく SceneContents 側に残してある** ―― あれは曲の再生位置
-    ではなく「再生を止めた/曲が終わった」という状態から来る動きのため。
+    灯籠が天守のまわりへ集まる進み具合。11秒に向けて集まるので組み上げと
+    同じ立ち上がり。**曲の終盤、城が消える(replyActivationRef が
+    REPLY_OUTRO_LEAD_SECONDS 手前からフェードし始める)のとほぼ同時に、
+    ゆっくり水面へ沈み始める。**
+    (ユーザー指定: 以前は「止めたとき」に LANTERN_GATHER_RELEASE_SECONDS
+    かけて戻す runtime の減衰処理だったが、これだと**曲の再生位置を巻き戻す
+    (シークする)だけでも同じ減衰が発動してしまい**、編集モードで頭から
+    見返すたびに灯籠だけゆっくり降りてくる不便な挙動になっていた。曲の
+    再生位置だけで決まる形にすることでその問題を消す。)
+    124.03 = 映像の長さ(130.03秒。TRACK_NOTES.md参照) - REPLY_OUTRO_LEAD_SECONDS(6)。
+    130.03 = 映像の終わり。
   */
   lanterns: [
     { t: 0, gather: 0 },
     { t: 11, gather: 1, note: "天守のまわりに集まりきる" },
+    { t: 124.03, gather: 1, note: "アウトロ開始。城のフェードと同時に沈み始める" },
+    { t: 130.03, gather: 0, note: "映像の終わりまでにゆっくり水面へ戻りきる" },
   ],
 
   /*
