@@ -19,7 +19,7 @@ import {
 } from "./constants";
 
 /* ------------------------------------------------------------------ *
- * 打ち上げ花火。**曲の小節グリッドに乗せて**、Bメロ後半〜サビ〜後半だけ上げる。
+ * 打ち上げ花火。**曲の小節グリッドに乗せて**、サビ〜後半だけ上げる。
  *
  * TRACK_NOTES.md §4.3 の通り、元映像の編集はビートに同期していない。なので
  * 「拍ごとにパッパッと弾ける」花火にはしない。2小節(2.82秒)に1発という
@@ -34,17 +34,14 @@ const RISE_SECONDS = 1.05;
 const LIFE_SECONDS = 2.6;
 /** 何小節ごとに1発上げるか。サビ/後半はこの間隔 */
 const SHELL_INTERVAL_BARS = 2;
-/** Bメロ後半の「溜め」で上げる間隔(小節)。サビより疎にして差を作る */
-const BUILD_INTERVAL_BARS = 4;
 
 /**
  * 花火を上げる区間(秒)。TRACK_NOTES.md §3 のセクション境界に合わせてある。
- * - Bメロ後半(55〜62): サビへの溜め。疎に上げる
- * - サビ(62〜83) / 後半(83〜106.5): 本番。2小節に1発
- * アウトロ(107〜)以降は上げない。音が引くところで絵だけ残ると浮くため。
+ * サビ(62〜83) / 後半(83〜106.5) だけ、2小節に1発。
+ * **サビ頭から上げる**(以前は Bメロ後半 55〜62 も「溜め」で疎に上げていたが、
+ * ユーザー指定でサビからに変更)。アウトロ(107〜)以降は上げない
+ * ―― 音が引くところで絵だけ残ると浮くため。
  */
-const BUILD_FROM = 55.0;
-const BUILD_TO = 62.0;
 const MAIN_FROM = 62.0;
 const MAIN_TO = 106.5;
 
@@ -100,14 +97,12 @@ function buildBurstTimes(): number[] {
 
   for (const t of FINALE_TIMES) push(t);
 
-  // 小節頭を走査して、区間ごとの間隔で拾う
+  // 小節頭を走査して、2小節ごとに拾う(サビ〜後半だけ)
   const totalBars = Math.ceil((MAIN_TO - REPLY_BAR_ORIGIN) / REPLY_BAR_SECONDS);
   for (let bar = 0; bar <= totalBars; bar++) {
     const t = REPLY_BAR_ORIGIN + bar * REPLY_BAR_SECONDS;
-    if (t >= BUILD_FROM && t < BUILD_TO) {
-      if (bar % BUILD_INTERVAL_BARS === 0) push(t);
-    } else if (t >= MAIN_FROM && t <= MAIN_TO) {
-      if (bar % SHELL_INTERVAL_BARS === 0) push(t);
+    if (t >= MAIN_FROM && t <= MAIN_TO && bar % SHELL_INTERVAL_BARS === 0) {
+      push(t);
     }
   }
 
