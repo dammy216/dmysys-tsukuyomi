@@ -231,7 +231,18 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ringColors: false,
     slew: 7,
   },
-  // 音が落ち着く区間。ほぼ柱に立てて、明滅も止める
+  /*
+    歌前の間。**全灯まっすぐ上に立てて静止**(ユーザー指定「赤も城も真上を
+    向いてるんだからオレンジ(辺の5・6)も真上」)。
+    円軌道の辺の灯は polar = MAX_SWING*spread の一定の傾きで回り続けるので、
+    spread をいくら下げても真上には来ない(十字の隅の灯は polar が 0 を
+    通過するので上を向いて見える ← この左右差が「オレンジだけ斜め」の正体)。
+    そこで breath は下の useFrame で standUp 分岐に入れ、軌道の種類に関係なく
+    polar=0(真上)へ向ける。イントロ2レーザーからの向き替えは slew の
+    slerp が 0.3 秒ほどで滑らかに繋ぐ。色は castle パレットへ替えず
+    イントロ2の色のまま(色の分岐の (crossX || prevCrossX) 参照)。
+    Aメロは level:0 でサーチライト消灯。
+  */
   breath: {
     pattern: "unison",
     sweepBars: 4,
@@ -895,6 +906,14 @@ export function Searchlight({
       si > 0 && REPLY_SECTIONS[si - 1].name === "intro-B";
 
     /*
+      breath(歌前の間)は軌道の種類に関係なく全灯まっすぐ上へ立てる
+      (CUES.breath のコメント参照)。十字/円の首振り計算をバイパスして
+      polar=0 を渡すだけ ―― イントロ2レーザーからの向き替えは slerp(slew)が
+      滑らかに繋ぐ。
+    */
+    const standUp = section.name === "breath";
+
+    /*
       連続量だけ混ぜる。パターン・色・周期は離散のまま切り替える
       (周期を補間すると位相が飛ぶ。飛びは下の首振りのなまし(slew)が吸収する)。
     */
@@ -955,9 +974,11 @@ export function Searchlight({
       const partner = 1 + (((colorSlot % partners) + partners) % partners);
       beams.forEach((beam, i) => {
         /*
-          crossX(イントロ2): 図に合わせた固定色(INTRO2_SOLO_COLORS)。図に
-          無い灯は消灯するので色は効かないが、breath へ戻るときの1フレーム
-          だけ変な色が出ないよう通常の2色ロジックを当てておく(-1にしない)。
+          crossX(イントロ2)と、その直後の breath(prevCrossX): 図に合わせた
+          固定色(INTRO2_SOLO_COLORS)を保持する(-1)。23秒で城のセクション色へ
+          切り替えず、イントロ2の色(赤/橙/白)のまま柱に立てる
+          (ユーザー指定「城に変えないで」)。図に無い6灯は breath で
+          castle パレット側の2色で点く(ユーザーからの指摘は solo の6灯だけ)。
           ringColors: 2本ひと組で色を変えながら円周を一周させる。1本ずつ
           色を変えると点描になって色が読めないので、組にして帯にする。
           スロットごとに起点をずらすので、小節ごとに色の帯が回って見える。
@@ -965,7 +986,7 @@ export function Searchlight({
         */
         const soloHex = INTRO2_SOLO[beam.order];
         colorIndexRef.current[i] =
-          crossX && soloHex
+          (crossX || prevCrossX) && soloHex
             ? -1
             : cue.ringColors
               ? (Math.floor(beam.order / 2) + colorSlot) % paletteRef.current.length
@@ -1012,7 +1033,16 @@ export function Searchlight({
 
         let azimuth: number;
         let polar: number;
-        if (isBeatSync) {
+        if (standUp) {
+          /*
+            breath: 軌道に関係なくまっすぐ上(polar=0)。十字の隅は元々
+            polar が 0 を通過するので上を向いて見えるが、円の辺は
+            polar = MAX_SWING*spread の一定の傾きで回り続けて真上に来ない
+            (ユーザー指摘「オレンジ(辺の5・6)だけ斜め」)。ここで両方畳む。
+          */
+          azimuth = 0;
+          polar = 0;
+        } else if (isBeatSync) {
           /*
             拍同期(B/SABI/LATTER/outro)。intro-Bのcrossingと違い、連続的な
             sinで開閉するのではなく、拍が変わった瞬間にパッと可動域の限界
