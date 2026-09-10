@@ -296,10 +296,11 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
  * イントロ2(intro-B / 11.05〜23秒)だけの「レーザー」モード。ユーザー指定。
  * **天守と隅櫓で動きが違う**(ユーザー指定「やぐらは以前のように交差のまま」):
  *
- *   天守(spot.isTower=false): 左右(yaw)は 0 固定で各面から平行外向き。
- *     フェーズ2で扇全体が **真上(90°)〜約10°まで** 仰角を sin 振り = 大きく
- *     上下スイープ(ユーザー指定「1:48あたりの上下に動きながら点滅」
- *     「90から10度くらい」)。1往復 INTRO2_SWEEP_BEATS 拍(速さの調整はそこ)。
+ *   天守(spot.isTower=false): outro(イントロ2再現)の拍同期ビームと同じノリ
+ *     (ユーザーが 1:48 = 再生109秒 の見た目を指定)。フェーズ2で
+ *     ・上下: 仰角を sin で **真上(90°)〜約10°** まで大きくスイープ
+ *       (1往復 INTRO2_SWEEP_BEATS 拍。速さの調整はそこ)
+ *     ・左右: 拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ(鏡像ペアが逆向き)
  *   隅櫓(spot.isTower=true): 以前どおりの左右シザース交差。フェーズ2は
  *     仰角 INTRO2_LASER_LIFT 固定 + 拍ごとに yaw を ±BEAM_YAW_LIMIT へ
  *     スナップ(鏡像ペアが逆向き。lateralSign / intro2BeatDir 参照)。
@@ -315,7 +316,7 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
  * 引き継ぐ ―― 首振り・チェイス・色は無視。
  * ------------------------------------------------------------------ */
 /** 隅櫓のレーザーの仰角(ラジアン)。水平から。0.8 ≒ 46°(外向き)。フェーズ2の固定値 */
-const INTRO2_LASER_LIFT = 0.8;
+const INTRO2_LASER_LIFT = 0.6;
 /**
  * 天守のフェーズ2の上下スイープの端。**真上(90°)〜約10°(水平すぐ上)**を
  * sin で往復する(ユーザー指定「90から10度くらい」)。中央を速く・両端を
@@ -332,7 +333,15 @@ const INTRO2_SWEEP_LIFT_AMP =
  * 16拍 ≒ 5.6秒(BPM170)。ユーザーが「1:48のビームより速い」と感じたので
  * 8拍(2小節)から遅くした。上下の速さの調整はここ。
  */
-const INTRO2_SWEEP_BEATS = 16;
+const INTRO2_SWEEP_BEATS = 14;
+/**
+ * 天守のフェーズ2で、上下スイープに加えて**拍ごとに左右へパッと振る**振り幅
+ * (ラジアン)。outro(アウトロ=イントロ2再現)の拍同期ビームと同じノリに
+ * したいというユーザー指定(「1:48みたいにちょっと左右に交互に点滅」)。
+ * 鏡像ペア(灯の左右位置)× 拍の符号(beatSyncDir)で左右対称に開閉。
+ * BEAM_YAW_LIMIT(60°)まで。小さくすれば「ちょっと」寄りになる。
+ */
+const INTRO2_SWEEP_YAW = BEAM_YAW_LIMIT;
 /**
  * フェーズ1の**開き始め**の仰角(ラジアン)。1.45 ≒ 83°(ほぼ真上)。天守・隅櫓
  * 共通。intro-B 開始時はここ(真上寄りの束)→ INTRO2_BLINK_START_SECONDS までに
@@ -1006,27 +1015,30 @@ export function BeamLight({
       let targetYaw: number;
       if (isIntro2 && !spot.isTower) {
         /*
-          天守のレーザー: 左右(yaw)はどちらのフェーズでも 0 固定 ―― 各面の
-          法線方向へ平行照射(ユーザー指定でシザース交差はやめた)。
-          intro2Crossing=false(カメラの引きが終わるまで): 仰角を
+          天守のレーザー(outro=イントロ2再現 の拍同期ビームと同じノリ。
+          ユーザーが 1:48(=再生109秒)の見た目を指して「こういうの」)。
+          intro2Crossing=false(カメラの引きが終わるまで): yaw=0 のまま、仰角を
             INTRO2_OPEN_LIFT(真上寄り)から真上(BEAM_LIFT_MAX)へ
             intro2OpenP(ease-out)で立てながら現れる。スイープの上端に繋がる。
-          intro2Crossing=true: 仰角を INTRO2_SWEEP_LIFT_CENTER 中心に
-            ±INTRO2_SWEEP_LIFT_AMP で sin 振る = 扇全体が大きく上下する
-            (ユーザー指定「90から10度くらい」)。周期は INTRO2_SWEEP_BEATS 拍
-            (曲全体を通した beatPos で回す。速さの調整はそこ)。
-            点滅は明るさ側(intro2Blink)で別に掛かる。
+          intro2Crossing=true:
+            ・上下: 仰角を INTRO2_SWEEP_LIFT_CENTER 中心に ±INTRO2_SWEEP_LIFT_AMP
+              で sin 振る(周期 INTRO2_SWEEP_BEATS 拍。ユーザー指定「90から10度」)。
+            ・左右: **拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ**(鏡像ペアが
+              逆向き。outro の isBeatSync と同じ式)。
+            ・点滅は明るさ側(intro2Blink)で別に掛かる。
         */
-        targetYaw = 0;
         if (intro2Crossing) {
           targetLift =
             INTRO2_SWEEP_LIFT_CENTER +
             INTRO2_SWEEP_LIFT_AMP *
               Math.sin((Math.PI * 2 * beatPos) / INTRO2_SWEEP_BEATS);
+          const lateralSign = spot.position[0] < 0 ? -1 : 1;
+          targetYaw = lateralSign * beatSyncDir * INTRO2_SWEEP_YAW;
         } else {
           // フェーズ1: 真上寄り(束)→ 真上へ立てながら現れる(スイープ上端へ接続)
           targetLift =
             INTRO2_OPEN_LIFT + (BEAM_LIFT_MAX - INTRO2_OPEN_LIFT) * intro2OpenP;
+          targetYaw = 0;
         }
       } else if (isIntro2) {
         /*
