@@ -31,6 +31,19 @@ const GLOW_COLOR_TOP = new Color("#ff2410");
 const GLOW_INTENSITY_MAX = 3.5;
 
 /*
+  **このコンポーネントは星降る海(赤い鳥居)と Reply(ステージの宮島鳥居×2)の
+  両方から呼ばれる共有コンポーネント。星降る海側の固定橙→赤は絶対に変えない
+  制約がある。** onBeforeCompile はマウント時に1回だけ走るので、ここで
+  モジュール共有の GLOW_COLOR_BOTTOM/TOP をそのまま uniform の value にすると、
+  全呼び出し箇所(星降る海の鳥居も含む)が同じ Color オブジェクトを握り合う
+  ことになり、Reply 側のどれか1本を毎フレーム書き換えると星降る海の鳥居まで
+  一緒に色が変わってしまう。マテリアルごとに clone した専用インスタンスを
+  value にし、glowColorRefs を渡さない呼び出し側(星降る海)は今までどおり
+  固定色のまま(初期値が同じ色の clone なので見た目は1ピクセルも変わらない)
+  にする。
+*/
+
+/*
   グラデーションの基準にする高さの範囲。
   下端は水面(y=0)。鳥居の土台はそこより下にあるが水面下は常に見えないため、
   「見えている柱の根本」を橙色の基準にする。
@@ -83,8 +96,9 @@ function usePreparedTorii(): PreparedTorii {
           useFrame側からshader.uniforms経由で更新する。
         */
         next.onBeforeCompile = (shader) => {
-          shader.uniforms.uGlowBottom = { value: GLOW_COLOR_BOTTOM };
-          shader.uniforms.uGlowTop = { value: GLOW_COLOR_TOP };
+          // clone する理由は定数側のコメント参照(星降る海と Reply の間の共有事故を防ぐ)
+          shader.uniforms.uGlowBottom = { value: GLOW_COLOR_BOTTOM.clone() };
+          shader.uniforms.uGlowTop = { value: GLOW_COLOR_TOP.clone() };
           shader.uniforms.uGlowStrength = { value: 0 };
           shader.uniforms.uHeightMin = { value: TORII_LOCAL_HEIGHT_MIN };
           shader.uniforms.uHeightMax = { value: TORII_LOCAL_HEIGHT_MAX };
@@ -139,6 +153,15 @@ type MiyajimaToriiProps = {
    * ref で受け取り、useFrame の中で glow に掛ける。
    */
   dimRef?: RefObject<number>;
+  /**
+   * 発光グラデーションの下端/上端の色を差し替える ref。Reply のステージに
+   * 載せる宮島鳥居(小)だけが、城のプロジェクションマッピング配色
+   * (castleProjectionPalette.sampleCastleProjection)と連動させるために渡す。
+   * **渡さなければ今までどおり固定の橙→赤**(GLOW_COLOR_BOTTOM/TOP)のまま
+   * (後方互換。星降る海側は絶対にこれを渡さない ―― 定数のコメント参照)。
+   */
+  glowBottomRef?: RefObject<Color>;
+  glowTopRef?: RefObject<Color>;
 };
 
 /**
@@ -152,6 +175,8 @@ export function MiyajimaTorii({
   scale = 1,
   glowRef,
   dimRef,
+  glowBottomRef,
+  glowTopRef,
 }: MiyajimaToriiProps) {
   const { scene, glowMaterials } = usePreparedTorii();
   // useFrame内でuseMemoの戻り値を直接書き換えるとreact-hooks/immutabilityに
@@ -166,11 +191,17 @@ export function MiyajimaTorii({
     // 発光強度・転調直前の暗転はどちらもref経由(数値propだと親ごと毎フレーム再レンダー)
     const intensity =
       (glowRef?.current ?? 0) * (dimRef?.current ?? 1) * GLOW_INTENSITY_MAX;
+    const bottom = glowBottomRef?.current;
+    const top = glowTopRef?.current;
     materialsRef.current.forEach((mat) => {
       // シェーダーはWebGLが初回コンパイルするまで生成されない(マウント直後の
       // 数フレームは未生成のことがある)ため、存在チェックしてから触る
       const shader = mat.userData.shader;
-      if (shader) shader.uniforms.uGlowStrength.value = intensity;
+      if (!shader) return;
+      shader.uniforms.uGlowStrength.value = intensity;
+      // ref が渡されたときだけ書き換える。無ければ clone した固定色のまま
+      if (bottom) shader.uniforms.uGlowBottom.value.copy(bottom);
+      if (top) shader.uniforms.uGlowTop.value.copy(top);
     });
   });
 

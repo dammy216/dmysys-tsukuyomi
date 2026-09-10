@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, type RefObject } from "react";
-import { AdditiveBlending, DoubleSide, type MeshBasicMaterial } from "three";
+import { useMemo, useRef, type RefObject } from "react";
+import { AdditiveBlending, Color, DoubleSide, type MeshBasicMaterial } from "three";
 import { useFrame } from "@react-three/fiber";
+import { sampleCastleProjection } from "./castleProjectionPalette";
 import { REPLY_GLOW_COLOR, STAGE_RADIUS, STAGE_THICKNESS } from "./constants";
 
 /** 縁のライトアップの最大の明るさ。強すぎると黒い甲板の質感が消えるので控えめに */
@@ -17,6 +18,12 @@ type ConcertStageProps = {
    * useFrame で読む(数値 prop だと親ごと毎フレーム再レンダー)。
    */
   activationRef?: RefObject<number>;
+  /**
+   * 曲の再生位置(秒)を持つ ref。縁のリングの色を castleProjectionPalette の
+   * セクション配色(EdoCastle/CornerTowers が天守に纏わせているのと同じ色)に
+   * 連動させるために使う。渡さなければ 0 秒として扱う(常にイントロの配色)。
+   */
+  songTimeRef?: RefObject<number>;
 };
 
 /**
@@ -31,14 +38,34 @@ type ConcertStageProps = {
 export function ConcertStage({
   position = [0, 0, 0],
   activationRef,
+  songTimeRef,
 }: ConcertStageProps) {
   const rimMaterialRef = useRef<MeshBasicMaterial>(null);
+  /*
+    sampleCastleProjection は3色ぶんの出力を要求する in-place API だが、
+    このリングは1色(多数派のA)しか使わない。B/Cは使わないが useFrame の
+    中で new しないための使い回し用として一緒に確保しておく。
+  */
+  const projection = useMemo(
+    () => ({ a: new Color(), b: new Color(), c: new Color() }),
+    [],
+  );
 
   useFrame(() => {
     // 進行度はref経由(数値propだと親ごと毎フレーム再レンダー)
     const activation = activationRef?.current ?? 0;
     if (rimMaterialRef.current) {
       rimMaterialRef.current.opacity = activation * RIM_OPACITY_MAX;
+      /*
+        縁のリングは天守のプロジェクションマッピングと同じ配色(多数派の
+        outA)で揃える。EdoCastle/CornerTowers と同じ関数・同じ曲の再生位置
+        (songTimeRef)で呼ぶので、独立に計算しても天守側の色と必ず一致する
+        (WashLight.tsx が BeamLight.tsx と同じ考え方でセクション色を独立に
+        算出しているのと同じ理屈)。
+      */
+      const songTime = songTimeRef?.current ?? 0;
+      sampleCastleProjection(songTime, projection.a, projection.b, projection.c);
+      rimMaterialRef.current.color.copy(projection.a);
     }
   });
 

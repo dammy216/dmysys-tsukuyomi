@@ -49,6 +49,16 @@ const LOCAL_HEIGHT_MAX = 1.0881;
 */
 const GLOW_COLOR_BOTTOM = new Color("#ff7a28");
 const GLOW_COLOR_TOP = new Color("#ff2410");
+/*
+  ステージの城のプロジェクションマッピングと発光色を揃える指定
+  (glowColorRefs prop)。onBeforeCompile はマウント時に1回だけ走るので、
+  ここでモジュール共有の GLOW_COLOR_BOTTOM/TOP をそのまま uniform の value に
+  すると、複数の ToriiGate インスタンスが同じ Color オブジェクトを握り合う
+  ことになり、どれか1つを毎フレーム書き換えると他のインスタンスの固定色
+  まで一緒に変わってしまう。マテリアルごとに clone した専用インスタンスを
+  value にし、色を渡さない呼び出し側は今までどおり固定色のまま(初期値が
+  同じ色の clone なので見た目は変わらない)にする。
+*/
 /** 発光の最大強度。activation(0〜1)にこれを掛けてシェーダーのuGlowStrengthへ渡す */
 const GLOW_INTENSITY_MAX = 3.5;
 
@@ -82,8 +92,9 @@ function usePreparedGate(): PreparedGate {
         const glow = mat.clone() as GlowMaterial;
 
         glow.onBeforeCompile = (shader) => {
-          shader.uniforms.uGlowBottom = { value: GLOW_COLOR_BOTTOM };
-          shader.uniforms.uGlowTop = { value: GLOW_COLOR_TOP };
+          // clone する理由は定数側のコメント参照(複数インスタンス間の共有事故を防ぐ)
+          shader.uniforms.uGlowBottom = { value: GLOW_COLOR_BOTTOM.clone() };
+          shader.uniforms.uGlowTop = { value: GLOW_COLOR_TOP.clone() };
           shader.uniforms.uGlowStrength = { value: 0 };
 
           shader.vertexShader = shader.vertexShader
@@ -132,6 +143,14 @@ type ToriiGateProps = {
   glowRef?: RefObject<number>;
   /** 減光係数(1=そのまま, <1=暗い)を持つ ref。省略時は常に1(減光なし) */
   dimRef?: RefObject<number>;
+  /**
+   * 発光グラデーションの下端/上端の色を差し替える ref。城のプロジェクション
+   * マッピング(castleProjectionPalette.sampleCastleProjection)と連動させたい
+   * 呼び出し側だけが渡す。**渡さなければ今までどおり固定の橙→赤**
+   * (GLOW_COLOR_BOTTOM/TOP)のまま(後方互換。定数のコメント参照)。
+   */
+  glowBottomRef?: RefObject<Color>;
+  glowTopRef?: RefObject<Color>;
 };
 
 /**
@@ -144,6 +163,8 @@ export function ToriiGate({
   scale = 1,
   glowRef,
   dimRef,
+  glowBottomRef,
+  glowTopRef,
 }: ToriiGateProps) {
   const { scene, glowMaterials } = usePreparedGate();
   // useFrame内でuseMemoの戻り値を直接書き換えるとreact-hooks/immutabilityに
@@ -157,11 +178,17 @@ export function ToriiGate({
   useFrame(() => {
     const intensity =
       (glowRef?.current ?? 0) * (dimRef?.current ?? 1) * GLOW_INTENSITY_MAX;
+    const bottom = glowBottomRef?.current;
+    const top = glowTopRef?.current;
     materialsRef.current.forEach((mat) => {
       // シェーダーはWebGLが初回コンパイルするまで生成されない(マウント直後の
       // 数フレームは未生成のことがある)ため、存在チェックしてから触る
       const shader = mat.userData.shader;
-      if (shader) shader.uniforms.uGlowStrength.value = intensity;
+      if (!shader) return;
+      shader.uniforms.uGlowStrength.value = intensity;
+      // ref が渡されたときだけ書き換える。無ければ clone した固定色のまま
+      if (bottom) shader.uniforms.uGlowBottom.value.copy(bottom);
+      if (top) shader.uniforms.uGlowTop.value.copy(top);
     });
   });
 

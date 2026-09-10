@@ -1,6 +1,13 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
@@ -16,7 +23,7 @@ import type {
   DepthOfFieldEffect,
   VignetteEffect,
 } from "postprocessing";
-import { Vector2, Vector3 } from "three";
+import { Color, Vector2, Vector3 } from "three";
 import type { Group } from "three";
 import {
   MiyajimaTorii,
@@ -50,6 +57,7 @@ import {
   ToriiGate,
   WashLight,
   createReplyTimelineSample,
+  sampleCastleProjection,
   sampleReplyTimeline,
   useReplyTimelineStore,
   REPLY_BASE_POSITION,
@@ -322,6 +330,29 @@ export function SceneContents({
   */
   const replySongTimeRef = useRef(0);
   /*
+    ステージの鳥居(ToriiGate・MiyajimaTorii×2)の発光グラデーションを、天守の
+    プロジェクションマッピング(EdoCastle/CornerTowers の uProjA/B/C)と同じ
+    配色で揃えるための共有 Color。EdoCastle 側は建物ごとに専用インスタンスへ
+    clone して持っているので、ここでも別インスタンスを1組だけ用意し、同じ
+    sampleCastleProjection を同じ songTime で呼ぶ(結果は必ず一致する。
+    BeamLight.tsx / WashLight.tsx が同じ考え方でセクション色を独立に算出
+    しているのと同じ理屈)。鳥居3体でこの1組を使い回す(見た目は全部同じ色
+    で揃えばよく、鳥居ごとに別インスタンスを持つ理由が無い)。
+  */
+  /*
+    各成分を { current: Color } の形(RefObject<Color> と互換)で持つ ―― こうすると
+    ToriiGate/MiyajimaTorii の glowBottomRef/glowTopRef prop にオブジェクトを
+    そのまま渡せて、レンダーのたびに新しい ref ラッパーを作らずに済む。
+  */
+  const replyProjectionColorsRef = useMemo(
+    () => ({
+      a: { current: new Color() },
+      b: { current: new Color() },
+      c: { current: new Color() },
+    }),
+    [],
+  );
+  /*
     曲の演出強度(0〜1)。タイムラインの energy トラックから来る。
     セクションの段(イントロ→Aメロ→サビ→アウトロ)をここ1本で持ち、カメラの
     巡航速度・レンズ効果・花火の量を全部これで振る。11秒までは ReplyCamera 側の
@@ -580,6 +611,18 @@ export function SceneContents({
     const replyTime = Number.isFinite(replyTimeRaw) ? replyTimeRaw : 0;
     // ステージ照明のビートグリッド用。曲の時計そのものを子へ渡す
     replySongTimeRef.current = replyTime;
+    /*
+      ステージの鳥居(ToriiGate・MiyajimaTorii×2)の発光色を、天守の投影
+      マッピングと同じセクション配色に更新する。EdoCastle/CornerTowers 側の
+      uProjA/B/C とは別インスタンスだが、同じ関数・同じ replyTime で呼ぶので
+      値は必ず一致する(上のコメント参照)。
+    */
+    sampleCastleProjection(
+      replyTime,
+      replyProjectionColorsRef.a.current,
+      replyProjectionColorsRef.b.current,
+      replyProjectionColorsRef.c.current,
+    );
     /*
       **演出タイムラインを曲の再生位置で標本化する**
       (features/reply/replyTimelineData.ts。キーフレームは編集モードから
@@ -975,6 +1018,7 @@ export function SceneContents({
               <ConcertStage
                 position={[REPLY_BASE_POSITION[0], STAGE_Y, REPLY_BASE_POSITION[2]]}
                 activationRef={replyStageRef}
+                songTimeRef={replySongTimeRef}
               />
               {/*
                 ステージに載せる鳥居は3つ。中央奥に主役の大鳥居(ToriiGate)、
@@ -998,6 +1042,8 @@ export function SceneContents({
                 rotation={[0, -REPLY_TORII_SIDE_ROTATION, 0]}
                 scale={REPLY_TORII_SIDE_SCALE}
                 glowRef={replyStageRef}
+                glowBottomRef={replyProjectionColorsRef.a}
+                glowTopRef={replyProjectionColorsRef.b}
               />
               <ToriiGate
                 position={[
@@ -1007,6 +1053,8 @@ export function SceneContents({
                 ]}
                 scale={REPLY_TORII_GATE_HEIGHT}
                 glowRef={replyStageRef}
+                glowBottomRef={replyProjectionColorsRef.a}
+                glowTopRef={replyProjectionColorsRef.b}
               />
               <MiyajimaTorii
                 position={[
@@ -1017,6 +1065,8 @@ export function SceneContents({
                 rotation={[0, REPLY_TORII_SIDE_ROTATION, 0]}
                 scale={REPLY_TORII_SIDE_SCALE}
                 glowRef={replyStageRef}
+                glowBottomRef={replyProjectionColorsRef.a}
+                glowTopRef={replyProjectionColorsRef.b}
               />
               <ReplyHologram
                 position={[

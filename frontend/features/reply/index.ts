@@ -1,4 +1,5 @@
 export { EdoCastle } from "./EdoCastle";
+export { sampleCastleProjection } from "./castleProjectionPalette";
 export { CastleAssembly } from "./CastleAssembly";
 export { CornerTowers } from "./CornerTowers";
 export { ConcertStage } from "./ConcertStage";
