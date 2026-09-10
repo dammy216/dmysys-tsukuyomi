@@ -541,7 +541,8 @@ function mix(a: number, b: number, k: number) {
  *
  * セクションの段は ramp 秒かけてクロスフェードする(段差のまま使うと
  * 境界のフレームで本数と明るさが跳ねて「カットが入った」ように見える。
- * songStructure.ts の replySectionEnergyAt と同じ考え方)。
+ * 演出強度 energy のタイムライン(replyTimelineData.ts)が、セクションの
+ * 境界に2点ずつキーを打って同じ形を作っているのと同じ考え方)。
  *
  * **周期(swingBars / chaseBars / colorBars)とパターンは離散のまま切り替える。**
  * 補間すると位相が飛ぶ。飛びは呼び出し側の首振りのなまし(slew)が吸収する。

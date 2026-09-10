@@ -1,15 +1,18 @@
 "use client";
 
 import {
+  cloneReplyTimeline,
   useCameraFeelStore,
   useDronePathStore,
+  useReplyTimelineStore,
   type CameraFeelParams,
   type DroneKey,
+  type ReplyTimelineKeys,
 } from "@/features/reply";
 import { useSceneStore } from "@/features/root/store";
 
 /**
- * 編集モードのUndo/Redo。DronePath・CameraFeel の2ストアを
+ * 編集モードのUndo/Redo。DronePath・ReplyTimeline・CameraFeel の3ストアを
  * ひとまとまりの「ドキュメント」として、Ctrl+Z(戻す)/Ctrl+Y または
  * Ctrl+Shift+Z(進める)でまとめて操作できるようにする。
  *
@@ -34,6 +37,7 @@ import { useSceneStore } from "@/features/root/store";
 
 type Snapshot = {
   dronePath: DroneKey[];
+  replyTimeline: ReplyTimelineKeys;
   cameraFeel: CameraFeelParams;
 };
 
@@ -60,6 +64,7 @@ let gestureDepth = 0;
 function cloneSnapshot(): Snapshot {
   return {
     dronePath: useDronePathStore.getState().keyframes.map((k) => ({ ...k })),
+    replyTimeline: cloneReplyTimeline(useReplyTimelineStore.getState().tracks),
     cameraFeel: { ...useCameraFeelStore.getState().values },
   };
 }
@@ -71,6 +76,9 @@ function snapshotsEqual(a: Snapshot, b: Snapshot) {
 function applySnapshot(snap: Snapshot) {
   applying = true;
   useDronePathStore.getState().setKeyframes(snap.dronePath.map((k) => ({ ...k })));
+  useReplyTimelineStore
+    .getState()
+    .setTracks(cloneReplyTimeline(snap.replyTimeline));
   useCameraFeelStore.getState().setValues({ ...snap.cameraFeel });
   applying = false;
 }
@@ -161,6 +169,7 @@ export function initEditorHistory() {
 
   present = cloneSnapshot();
   useDronePathStore.subscribe(scheduleCommit);
+  useReplyTimelineStore.subscribe(scheduleCommit);
   useCameraFeelStore.subscribe(scheduleCommit);
   window.addEventListener("keydown", onKeyDown);
 }

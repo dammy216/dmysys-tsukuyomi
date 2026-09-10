@@ -9,19 +9,16 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
-import {
-  DRONE_PATH,
-  keyframeIsDirty,
-  useDronePathStore,
-  type DroneKeyField,
-} from "@/features/reply";
-import { EDITOR_OBJECTS, useEditorStore } from "./editorStore";
+import { useEditorStore } from "./editorStore";
+import { DRONE_FALLBACK_DURATION, useKeyframeTarget } from "./keyframeTarget";
 import { beginGesture, endGesture } from "./editorHistory";
 import { EditorToolbar } from "./EditorToolbar";
 
 /**
  * 下パネル(Sequence Editor)。Theatre.js Studio のシーケンスエディタと同じ
- * 役割で、Drone Path のキーフレームを曲の時間軸の上に並べる。
+ * 役割で、**Outline で選んだオブジェクトの**キーフレームを曲の時間軸の上に
+ * 並べる(Drone Path のほか、天守の組み上げ・照明・灯籠・花火などの
+ * 演出タイムラインのトラック。keyframeTarget.ts で同じ形に均してある)。
  *
  * - 目盛り/トラックをクリック・ドラッグ → 映像をその位置へシーク(=カメラも追従)
  * - 菱形をクリック → そのキーフレームを選択(右の Details が切り替わる)
@@ -48,15 +45,6 @@ import { EditorToolbar } from "./EditorToolbar";
  * (シーク位置・再生ヘッドの現在地はどのみちタイムライン側の概念のため)。
  */
 
-/** 行に並べるプロパティ。Details の並びと揃える */
-const ROWS: { field: DroneKeyField; label: string }[] = [
-  { field: "turn", label: "turn" },
-  { field: "radius", label: "radius" },
-  { field: "y", label: "y" },
-  { field: "lookY", label: "lookY" },
-  { field: "fov", label: "fov" },
-];
-
 /** 目盛りの間隔(秒) */
 const TICK_SECONDS = 10;
 /** 左側のラベル列の幅 */
@@ -77,18 +65,17 @@ export function EditorTimeline({
   const selectedObject = useEditorStore((s) => s.selectedObject);
   const selectedKeyIndex = useEditorStore((s) => s.selectedKeyIndex);
   const selectKeyIndex = useEditorStore((s) => s.selectKeyIndex);
-  const keyframes = useDronePathStore((s) => s.keyframes);
-  const setTime = useDronePathStore((s) => s.setTime);
+  const target = useKeyframeTarget(selectedObject);
 
   const trackRef = useRef<HTMLDivElement | null>(null);
   const playheadRef = useRef<HTMLDivElement | null>(null);
 
   /*
-    尺は映像の長さ。読み込み前は NaN/0 になるので、その間は航路の最後の
-    キーフレーム(=作った時点で想定している曲の長さ)で代用する。
+    尺は映像の長さ。読み込み前は NaN/0 になるので、その間はドローン航路の
+    最後のキーフレーム(=作った時点で想定している曲の長さ)で代用する。
     毎フレーム読むが、変わったときだけ state を更新して再レンダーを抑える。
   */
-  const fallbackDuration = DRONE_PATH[DRONE_PATH.length - 1].t;
+  const fallbackDuration = DRONE_FALLBACK_DURATION;
   const [duration, setDuration] = useState(fallbackDuration);
 
   useEffect(() => {
@@ -158,9 +145,9 @@ export function EditorTimeline({
   /** トラックの右クリックで、その時刻に新しいキーフレームを追加する */
   const onTrackContextMenu = (e: MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (!keyframed) return;
+    if (!target) return;
     const t = timeFromClientX(e.clientX);
-    const newIndex = useDronePathStore.getState().insertKeyframe(t);
+    const newIndex = target.insertKeyframe(t);
     selectKeyIndex(newIndex);
   };
 
@@ -180,9 +167,9 @@ export function EditorTimeline({
     };
   const onKeyPointerMove =
     (index: number) => (e: PointerEvent<HTMLButtonElement>) => {
-      if (dragKeyRef.current !== index) return;
+      if (dragKeyRef.current !== index || !target) return;
       e.stopPropagation();
-      setTime(index, timeFromClientX(e.clientX));
+      target.setTime(index, timeFromClientX(e.clientX));
     };
   const onKeyPointerUp = (e: PointerEvent<HTMLButtonElement>) => {
     if (dragKeyRef.current == null) return;
@@ -194,26 +181,24 @@ export function EditorTimeline({
 
   /**
    * 菱形の右クリックでそのキーフレームを削除する。
-   * 航路には最低2点必要なので、それ以下では dronePathStore 側が無視する
-   * (下の canDeleteKeyframe と同じ基準)。トラック側の onTrackContextMenu
+   * 成立に必要な最低数(minKeyCount)を割る場合はストア側が無視するので、
+   * 実際に減ったときだけ選択位置を詰め直す。トラック側の onTrackContextMenu
    * (追加)へ伝播させないよう stopPropagation する。
    */
   const onKeyContextMenu =
     (index: number) => (e: MouseEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
-      const before = keyframes.length;
-      useDronePathStore.getState().removeKeyframe(index);
-      const after = useDronePathStore.getState().keyframes.length;
-      // 実際に削除できたときだけ選択位置を詰め直す(下限で無視された場合は何もしない)
-      if (after < before) selectKeyIndex(Math.min(index, after - 1));
+      if (!target || target.keys.length <= target.minKeyCount) return;
+      target.removeKeyframe(index);
+      selectKeyIndex(Math.min(index, target.keys.length - 2));
     };
 
   const ticks: number[] = [];
   for (let t = 0; t <= duration; t += TICK_SECONDS) ticks.push(t);
 
-  const keyframed =
-    EDITOR_OBJECTS.find((o) => o.id === selectedObject)?.keyframed ?? false;
+  const keys = target?.keys ?? [];
+  const rows = target?.channels ?? [];
 
   return (
     <div className="flex size-full flex-col overflow-hidden">
@@ -227,15 +212,14 @@ export function EditorTimeline({
           style={{ width: LABEL_WIDTH }}
         >
           <div className="h-6 border-b border-ed-line" />
-          {keyframed &&
-            ROWS.map(({ field, label }) => (
-              <div
-                key={field}
-                className="flex h-6 items-center px-2.5 text-[0.65rem] text-ed-dim"
-              >
-                {label}
-              </div>
-            ))}
+          {rows.map(({ key }) => (
+            <div
+              key={key}
+              className="flex h-6 items-center px-2.5 text-[0.65rem] text-ed-dim"
+            >
+              {key}
+            </div>
+          ))}
         </div>
 
         {/* 右: 時間軸 */}
@@ -246,7 +230,7 @@ export function EditorTimeline({
           onPointerUp={onTrackPointerUp}
           onPointerCancel={onTrackPointerUp}
           onContextMenu={onTrackContextMenu}
-          title={keyframed ? "右クリックでキーフレームを追加" : undefined}
+          title={target ? "右クリックでキーフレームを追加" : undefined}
           className="relative min-w-0 flex-1 cursor-col-resize touch-none select-none"
         >
           {/* 目盛り */}
@@ -265,10 +249,10 @@ export function EditorTimeline({
           </div>
 
           {/* キーフレームの行 */}
-          {keyframed ? (
-            ROWS.map(({ field }) => (
+          {target ? (
+            rows.map(({ key: channel }) => (
               <div
-                key={field}
+                key={channel}
                 className="relative h-6 border-b border-ed-line/40"
               >
                 {ticks.map((t) => (
@@ -278,20 +262,20 @@ export function EditorTimeline({
                     style={{ left: `${(t / duration) * 100}%` }}
                   />
                 ))}
-                {keyframes.map((k, index) => {
+                {keys.map((k, index) => {
                   const active = index === selectedKeyIndex;
-                  const moved = keyframeIsDirty(keyframes, index);
+                  const moved = target.keyIsDirty(index);
                   return (
                     <button
-                      key={`${field}-${index}`}
+                      key={`${channel}-${index}`}
                       type="button"
                       onPointerDown={onKeyPointerDown(index)}
                       onPointerMove={onKeyPointerMove(index)}
                       onPointerUp={onKeyPointerUp}
                       onPointerCancel={onKeyPointerUp}
                       onContextMenu={onKeyContextMenu(index)}
-                      title={`t = ${k.t}s / ${field} = ${k[field]}(右クリックで削除)`}
-                      aria-label={`${field} キーフレーム t=${k.t}`}
+                      title={`t = ${k.t}s / ${channel} = ${k[channel]}(右クリックで削除)`}
+                      aria-label={`${channel} キーフレーム t=${k.t}`}
                       className={
                         "absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 " +
                         "cursor-ew-resize border transition-colors " +

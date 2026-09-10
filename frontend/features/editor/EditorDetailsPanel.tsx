@@ -4,14 +4,12 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   CAMERA_FEEL_DEFAULTS,
   CAMERA_FEEL_SPECS,
-  keyframesAreDirty,
-  sampleDrone,
+  sampleTimeline,
   useCameraFeelStore,
-  useDronePathStore,
-  type DroneKeyField,
   type ParamSpec,
 } from "@/features/reply";
 import { EDITOR_OBJECTS, useEditorStore } from "./editorStore";
+import { useKeyframeTarget, type KeyframeTarget } from "./keyframeTarget";
 import { EditorNumberField } from "./EditorNumberField";
 
 /**
@@ -65,16 +63,11 @@ function PanelSection({
 }
 
 /* ------------------------------------------------------------------ *
- * Drone Path(キーフレームを持つオブジェクト)
+ * キーフレームを持つオブジェクト(Drone Path / Reply の演出タイムライン)
+ *
+ * どちらも keyframeTarget.ts で同じ形(KeyframeTarget)に均してあるので、
+ * ここではオブジェクトの種類を区別しない。
  * ------------------------------------------------------------------ */
-
-const DRONE_FIELDS: { field: DroneKeyField; label: string; step: number }[] = [
-  { field: "turn", label: "turn(回転数)", step: 0.01 },
-  { field: "radius", label: "radius(半径)", step: 0.5 },
-  { field: "y", label: "y(高さ)", step: 0.5 },
-  { field: "lookY", label: "lookY(注視点)", step: 0.5 },
-  { field: "fov", label: "fov(画角)", step: 1 },
-];
 
 /**
  * 再生位置での**補間後の値**をそのまま出す読み取り専用の欄。
@@ -82,24 +75,38 @@ const DRONE_FIELDS: { field: DroneKeyField; label: string; step: number }[] = [
  * (state にすると Details パネル全体が 60fps で再レンダーされる)。
  */
 function LiveReadout({
+  target,
   videoRef,
 }: {
+  target: KeyframeTarget;
   videoRef: RefObject<HTMLVideoElement | null>;
 }) {
   const timeRef = useRef<HTMLSpanElement | null>(null);
   const valueRefs = useRef<Record<string, HTMLSpanElement | null>>({});
+  /*
+    rAF のループから読む用。target は毎レンダー作り直されるので、
+    ループの依存に入れると毎レンダー貼り直しになる。ref に最新を写して
+    ループ側はそれを読むだけにする(レンダー中に ref を書くと
+    react-hooks/refs に弾かれるので、書き込みは effect でやる)。
+  */
+  const targetRef = useRef(target);
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
 
   useEffect(() => {
-    const sample = { turn: 0, radius: 0, y: 0, lookY: 0, fov: 0 };
+    const sample: Record<string, number> = {};
     let raf = 0;
     const tick = () => {
       const raw = videoRef.current?.currentTime ?? 0;
       const t = Number.isFinite(raw) ? raw : 0;
-      sampleDrone(useDronePathStore.getState().keyframes, t, sample);
+      const current = targetRef.current;
+      const channels = current.channels.map((c) => c.key);
+      sampleTimeline(current.keys, channels, t, sample);
       if (timeRef.current) timeRef.current.textContent = `${t.toFixed(2)}s`;
-      for (const { field } of DRONE_FIELDS) {
-        const node = valueRefs.current[field];
-        if (node) node.textContent = sample[field].toFixed(2);
+      for (const channel of channels) {
+        const node = valueRefs.current[channel];
+        if (node) node.textContent = (sample[channel] ?? 0).toFixed(2);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -115,15 +122,15 @@ function LiveReadout({
           0.00s
         </span>
       </div>
-      {DRONE_FIELDS.map(({ field, label }) => (
+      {target.channels.map(({ key, label }) => (
         <div
-          key={field}
+          key={key}
           className="flex items-center justify-between text-[0.68rem]"
         >
           <span className="text-ed-dim">{label}</span>
           <span
             ref={(node) => {
-              valueRefs.current[field] = node;
+              valueRefs.current[key] = node;
             }}
             className="font-mono text-ed-text tabular-nums"
           >
@@ -135,49 +142,31 @@ function LiveReadout({
   );
 }
 
-function DronePathDetails({
+function KeyframeDetails({
+  target,
   videoRef,
 }: {
+  target: KeyframeTarget;
   videoRef: RefObject<HTMLVideoElement | null>;
 }) {
-  const keyframes = useDronePathStore((s) => s.keyframes);
-  const setField = useDronePathStore((s) => s.setField);
-  const setTime = useDronePathStore((s) => s.setTime);
-  const removeKeyframe = useDronePathStore((s) => s.removeKeyframe);
-  const reset = useDronePathStore((s) => s.reset);
   const selectedKeyIndex = useEditorStore((s) => s.selectedKeyIndex);
   const selectKeyIndex = useEditorStore((s) => s.selectKeyIndex);
   const { copied, copy } = useCopyToClipboard();
 
+  const keyframes = target.keys;
   const index = Math.min(selectedKeyIndex, keyframes.length - 1);
   const key = keyframes[index];
 
-  const dirty = keyframesAreDirty(keyframes);
-  // 航路として成立する最低数(始点・終点)は残す。タイムラインのダブル
-  // クリックで際限なく増やせる一方、消しすぎて破綻しないための下限。
-  const canDelete = keyframes.length > 2;
+  const dirty = target.isDirty;
+  // 成立する最低数(始点・終点)は残す。タイムラインの右クリックで際限なく
+  // 増やせる一方、消しすぎて破綻しないための下限。
+  const canDelete = keyframes.length > target.minKeyCount;
 
-  const handleCopy = () => {
-    /*
-      note(サビ・Aメロ等の区間コメント)は貼り付け先ファイルへ
-      `// {note}` として書き出す。全選択→貼り付けでファイルを丸ごと
-      置き換えても、この区間コメントだけは消えないようにするため。
-    */
-    const body = keyframes
-      .map((k) => {
-        const note = k.note ? `  // ${k.note}\n` : "";
-        return `${note}  { t: ${k.t}, turn: ${k.turn}, radius: ${k.radius}, y: ${k.y}, lookY: ${k.lookY}, fov: ${k.fov} },`;
-      })
-      .join("\n");
-    copy(
-      'import type { DroneKey } from "./dronePathType";\n\n' +
-        `export const DRONE_PATH: readonly DroneKey[] = [\n${body}\n] as const;\n`,
-    );
-  };
+  const handleCopy = () => copy(target.toCode());
 
   const handleDelete = () => {
     if (!canDelete) return;
-    removeKeyframe(index);
+    target.removeKeyframe(index);
     // 削除後の配列(長さ-1)に収まるよう選択位置を詰め直す
     selectKeyIndex(Math.min(index, keyframes.length - 2));
   };
@@ -216,7 +205,7 @@ function DronePathDetails({
             title={
               canDelete
                 ? "このキーフレームを削除"
-                : "航路には最低2点必要なため、これ以上は削除できない"
+                : `最低${target.minKeyCount}点必要なため、これ以上は削除できない`
             }
             aria-label="このキーフレームを削除"
             className={`${BUTTON} w-7 hover:border-red-400/60 hover:text-red-300`}
@@ -238,22 +227,22 @@ function DronePathDetails({
             label="t(時刻 秒)"
             value={key.t}
             step={0.1}
-            onChange={(value) => setTime(index, value)}
+            onChange={(value) => target.setTime(index, value)}
           />
-          {DRONE_FIELDS.map(({ field, label, step }) => (
+          {target.channels.map(({ key: channel, label, step }) => (
             <EditorNumberField
-              key={field}
+              key={channel}
               label={label}
-              value={key[field]}
+              value={key[channel]}
               step={step}
-              onChange={(value) => setField(index, field, value)}
+              onChange={(value) => target.setField(index, channel, value)}
             />
           ))}
         </div>
       </PanelSection>
 
       <PanelSection title="LIVE(補間後の現在値)">
-        <LiveReadout videoRef={videoRef} />
+        <LiveReadout target={target} videoRef={videoRef} />
       </PanelSection>
 
       <PanelSection title="COMMIT">
@@ -263,14 +252,14 @@ function DronePathDetails({
           </button>
           <button
             type="button"
-            onClick={reset}
+            onClick={target.reset}
             disabled={!dirty}
             className={`${BUTTON} w-full`}
           >
             コードの値に戻す
           </button>
           <p className="text-[0.6rem] leading-relaxed text-ed-dim">
-            貼り付け先: features/reply/dronePathData.ts(全選択→貼り付けでOK)
+            貼り付け先: {target.codePath}(全選択→貼り付けでOK)
           </p>
         </div>
       </PanelSection>
@@ -375,6 +364,7 @@ export function EditorDetailsPanel({
 }) {
   const selectedObject = useEditorStore((s) => s.selectedObject);
   const cameraFeel = useCameraFeelStore((s) => s.values);
+  const target = useKeyframeTarget(selectedObject);
   const label =
     EDITOR_OBJECTS.find((o) => o.id === selectedObject)?.label ?? "";
 
@@ -388,8 +378,8 @@ export function EditorDetailsPanel({
         <span className="text-[0.7rem] text-ed-accent">{label}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {selectedObject === "drone-path" && (
-          <DronePathDetails videoRef={replyVideoRef} />
+        {target && (
+          <KeyframeDetails target={target} videoRef={replyVideoRef} />
         )}
         {selectedObject === "camera-feel" && (
           <ParamDetails

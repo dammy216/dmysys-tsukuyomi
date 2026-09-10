@@ -49,15 +49,12 @@ import {
   Searchlight,
   ToriiGate,
   WashLight,
-  replyFadeGainAt,
-  replySectionEnergyAt,
+  createReplyTimelineSample,
+  sampleReplyTimeline,
+  useReplyTimelineStore,
   REPLY_BASE_POSITION,
-  REPLY_BUILD_END_SECONDS,
-  REPLY_CASTLE_BUILD_END_SECONDS,
   REPLY_FADE_SECONDS,
   REPLY_FLASH_EXPOSURE,
-  REPLY_FLASH_SECONDS,
-  REPLY_LIGHTS_FADE_SECONDS,
   REPLY_MOON_ALTITUDE,
   REPLY_MOON_AZIMUTH,
   REPLY_MOON_SIZE,
@@ -282,31 +279,31 @@ export function SceneContents({
   */
   const replyActivationRef = useRef(0);
   /*
-    組み上げ進行度(0〜1)。押した瞬間から REPLY_BUILD_END_SECONDS(11秒)かけて
-    0→1 まで上がる。隅櫓(CornerTowers)・隅櫓ぶんの飛来ブロック・灯籠の集合・
-    レンズ効果・11秒の閃光トリガーなど、天守本体**以外**の「11秒を基準にする」
-    ものはこれを使う。毎フレーム変わるので ref。
+    組み上げ進行度(0〜1)。**値はタイムラインの castle トラックの assembly
+    チャンネルから来る**(既定では曲の頭から11秒で 0→1)。隅櫓(CornerTowers)・
+    隅櫓ぶんの飛来ブロック・レンズ効果など、天守本体**以外**の「11秒を
+    基準にする」ものはこれを使う。毎フレーム変わるので ref。
   */
   const replyBuildRef = useRef(0);
   /*
-    天守**本体**だけの組み上げ進行度(0〜1)。REPLY_CASTLE_BUILD_END_SECONDS
-    (11秒-0.8=10.2秒)かけて0→1になる別の ref。指定で「天守のブロックが
-    飛来する演出だけ0.8秒早く終わらせる、周りはそのまま」なので、
-    EdoCastle のシェーダーと CastleAssembly の天守ぶんのブロックだけこちらを
-    渡し、隅櫓・カメラの引き・照明点灯は上の replyBuildRef(11秒)のまま触らない。
+    天守**本体**だけの組み上げ進行度(0〜1)。タイムラインの castle トラックの
+    build チャンネルから来る。EdoCastle のシェーダーと CastleAssembly の
+    天守ぶんのブロックだけこちらを渡す。上の assembly と別チャンネルに
+    してあるのは、天守本体だけ先に組み上げ終わらせたい指定が過去にあり、
+    また出せるようにしてあるため(既定では同じ値)。
   */
   const replyCastleBuildRef = useRef(0);
   /*
-    灯籠が天守のまわりへ集まる進み具合(0〜1)。指定で「11秒に向けて集まる」
-    なので replyBuildRef(=曲の再生位置/11秒)の立ち上がりをそのまま使うが、
-    reply を止めたときは replyBuildRef のように0へ瞬断せず、
+    灯籠が天守のまわりへ集まる進み具合(0〜1)。タイムラインの lanterns
+    トラックから来る。ただし reply を止めたときだけは0へ瞬断せず、
     LANTERN_GATHER_RELEASE_SECONDS かけてゆっくり水面へ戻す(下のuseFrame参照)。
   */
   const lanternGatherRef = useRef(0);
   /*
-    ステージ・鳥居・ホログラム用の進行度(0〜1)。天守が STAGE_IN_FROM まで
-    組み上がってから 0→1 へ上げる。組み上げと同時に出すと、まだ何も無い空中に
-    ステージだけが浮いた画になってしまう。
+    ステージ・鳥居・ホログラム用の進行度(0〜1)。タイムラインの stage
+    トラックに、再生/停止のフェード(replyActivation)を掛けたもの。
+    組み上げと同時に出すと、まだ何も無い空中にステージだけが浮いた画に
+    なってしまうので、既定のキーは照明の点灯に合わせてある。
   */
   const replyStageRef = useRef(0);
   /*
@@ -321,10 +318,10 @@ export function SceneContents({
   const replyStageGroupRef = useRef<Group>(null);
   const replyBeamsGroupRef = useRef<Group>(null);
   /*
-    11秒でのステージ照明の点灯具合(0〜1)。投影光・ビーム・ステージ・鳥居・
-    ホログラムをこれで一斉に点ける。カメラの引きと違い REPLY_LIGHTS_FADE_SECONDS
-    で素早く上げる(組み上げ中の光る帯が消えるのと入れ違いにするため。
-    ここを遅くすると天守が数秒真っ黒に沈む)。
+    11秒でのステージ照明の点灯具合(0〜1)。タイムラインの lights トラックから
+    来る。投影光・ビーム・ウォッシュ・サーチライトをこれで一斉に点ける。
+    既定のキーは11秒から0.45秒で素早く上げる形(組み上げ中の光る帯が消えるのと
+    入れ違いにするため。ここを緩めると天守が数秒真っ黒に沈む)。
   */
   const replyLightsRef = useRef(0);
   /*
@@ -335,28 +332,34 @@ export function SceneContents({
   */
   const replySongTimeRef = useRef(0);
   /*
-    曲の演出強度(0〜1)。songStructure の replySectionEnergyAt をそのまま入れる。
+    曲の演出強度(0〜1)。タイムラインの energy トラックから来る。
     セクションの段(イントロ→Aメロ→サビ→アウトロ)をここ1本で持ち、カメラの
     巡航速度・レンズ効果・花火の量を全部これで振る。11秒までは ReplyCamera 側の
     posHandoff が0なので効かない(11秒までの演出は従来のまま)。
   */
   const replyEnergyRef = useRef(0);
   /*
-    曲の終わりのフェード(0〜1)。実測のフェード曲線(TRACK_NOTES.md §2.3)。
-    121.0秒までは1で、そこから 127.37秒の無音へ向けて落ちる。等速フェードだと
-    音より先に絵が消えるので、露出・ブルーム・花火にこれを掛ける。
+    曲の終わりのフェード(0〜1)。タイムラインの fade トラックから来る
+    (実測のフェード曲線。TRACK_NOTES.md §2.3)。121.0秒までは1で、そこから
+    127.37秒の無音へ向けて落ちる。等速フェードだと音より先に絵が消えるので、
+    露出・ブルームにこれを掛ける。
   */
   const replyFadeRef = useRef(1);
   /*
-    花火の濃さ。energy と fade を掛け合わせたもの。ReplyFireworks へ渡す。
+    花火の濃さ。ReplyFireworks へ渡す。
   */
   const replyFireworksRef = useRef(0);
   /*
-    11秒の点灯の瞬間だけ焚く閃光の残り時間(秒)。露出とブルームを一段持ち上げて
-    「会場の照明が一斉に入った」瞬間を立たせる(星降る海の転調の閃光と同じ手)。
+    Reply の演出タイムライン(features/reply/replyTimelineData.ts)を毎フレーム
+    標本化した結果の置き場。**ここから上の ref 群へ配る。**
+
+    以前はこのファイルの useFrame が、組み上げ・点灯・ステージ・灯籠・花火・
+    閃光を REPLY_BUILD_END_SECONDS などの定数から直接 clamp/smoothstep して
+    作っていた。どの時刻に何が起きるかがこの関数の奥に埋まっていて追いづらく、
+    編集モードからも触れなかったため、ドローン航路と同じ「時刻→状態」の
+    キーフレームへ移してある。useFrame の中で new しないよう ref に持つ。
   */
-  const replyFlashRef = useRef(0);
-  const replyFlashFiredRef = useRef(false);
+  const replyTimelineSampleRef = useRef(createReplyTimelineSample());
   /*
     江戸城・ステージ・鳥居・ホログラムを出すかどうか。
     replyActivation が 0.01 を跨いだときだけ切り替えるので state でよい。
@@ -588,11 +591,26 @@ export function SceneContents({
     // ステージ照明のビートグリッド用。曲の時計そのものを子へ渡す
     replySongTimeRef.current = replyTime;
     /*
-      曲の構成から演出強度とフェードを引く(features/reply/songStructure.ts)。
+      **演出タイムラインを曲の再生位置で標本化する**
+      (features/reply/replyTimelineData.ts。キーフレームは編集モードから
+      触れるので、既定値ではなくストアの現在値を読む ―― ReplyCamera が
+      dronePathStore を読むのと同じ形)。
+
+      ここで得られるのは「曲の再生位置だけで決まる形」。再生/停止のフェード
+      (replyActivation)や、止めたときの灯籠のゆっくりした戻りのように
+      **再生位置ではなく状態から来る動き**は、この後で掛け合わせる。
+    */
+    const timeline = replyTimelineSampleRef.current;
+    sampleReplyTimeline(
+      useReplyTimelineStore.getState().tracks,
+      replyTime,
+      timeline,
+    );
+    /*
       止めている間は 0 / 1 に戻して、次に押したとき頭から立ち上がるようにする。
     */
-    replyEnergyRef.current = replyPlaying ? replySectionEnergyAt(replyTime) : 0;
-    replyFadeRef.current = replyPlaying ? replyFadeGainAt(replyTime) : 1;
+    replyEnergyRef.current = replyPlaying ? timeline.energy : 0;
+    replyFadeRef.current = replyPlaying ? timeline.fade : 1;
     const replyDurationRaw = replyVideo?.duration ?? 0;
     const replyDuration = Number.isFinite(replyDurationRaw) ? replyDurationRaw : 0;
     const replyInOutro =
@@ -612,30 +630,17 @@ export function SceneContents({
     const replyNext = replyActivationRef.current;
 
     /*
-      天守の組み上げ・ステージ照明。どちらも**曲の再生位置**で決める
-      (ボタンを押してからの経過ではない)。曲が REPLY_BUILD_END_SECONDS
-      (11秒)に達するまで組み上げ。11秒を過ぎたら照明を
-      REPLY_LIGHTS_FADE_SECONDS でパッと点ける(組み上げの光る帯が消えるのと
-      入れ違いにする。ここを遅らせると暗転バグになる)。
+      天守の組み上げ・ステージ照明・ステージ以上の出具合は、すべて上で
+      標本化した**演出タイムライン**から来る(曲の再生位置だけで決まる)。
+      止めている間は0にして、次に押したとき頭から立ち上がるようにする。
 
-      カメラは 0秒から曲の再生位置に刺した1本の航路(DRONE_PATH)を辿るだけで、
-      ここでは何も計算しない(ReplyCamera が songTime から直接引く)。
+      カメラも同じ考え方で、0秒から曲の再生位置に刺した1本の航路(DRONE_PATH)を
+      辿るだけ(ReplyCamera が songTime から直接引く)。
     */
     if (replyPlaying) {
-      replyBuildRef.current = Math.min(
-        Math.max(replyTime / REPLY_BUILD_END_SECONDS, 0),
-        1,
-      );
-      // 天守本体だけ0.8秒早く終わる別の進行度(上の replyCastleBuildRef のコメント参照)
-      replyCastleBuildRef.current = Math.min(
-        Math.max(replyTime / REPLY_CASTLE_BUILD_END_SECONDS, 0),
-        1,
-      );
-      const sinceEnd = replyTime - REPLY_BUILD_END_SECONDS;
-      replyLightsRef.current = Math.min(
-        Math.max(sinceEnd / REPLY_LIGHTS_FADE_SECONDS, 0),
-        1,
-      );
+      replyBuildRef.current = timeline.assemblyBuild;
+      replyCastleBuildRef.current = timeline.castleBuild;
+      replyLightsRef.current = timeline.lights;
     } else {
       replyBuildRef.current = 0;
       replyCastleBuildRef.current = 0;
@@ -643,14 +648,16 @@ export function SceneContents({
     }
 
     /*
-      灯籠の集合(Lanterns.tsx の gatherRef)。上がるときは replyBuildRef に
-      即追従(11秒に向けてリアルタイム)。下がるとき ―― reply 終了、または
+      灯籠の集合(Lanterns.tsx の gatherRef)。上がるときはタイムラインの
+      lanterns トラックに即追従。下がるとき ―― reply 終了、または
       **曲の終わりで城がフェードアウトする(replyInOutro)とき** ―― は
       LANTERN_GATHER_RELEASE_SECONDS で緩めて水面へ戻す。城が消えたのに
       灯籠だけ空に浮いたままにしない。
+
+      **この戻りだけはタイムラインに乗せていない。** 曲の再生位置ではなく
+      「止めた/曲が終わった」という状態から来る動きで、時刻に紐づけられない。
     */
-    const lanternUp =
-      replyPlaying && !replyInOutro ? replyBuildRef.current : 0;
+    const lanternUp = replyPlaying && !replyInOutro ? timeline.lanterns : 0;
     if (lanternUp >= lanternGatherRef.current) {
       lanternGatherRef.current = lanternUp;
     } else {
@@ -661,13 +668,10 @@ export function SceneContents({
     }
 
     /*
-      ステージから上(ステージ・鳥居・ホログラム)は、曲が11秒に達したら
-      照明と一緒に点ける。組み上げ中は天守だけが黒く積み上がっていき、
-      11秒の瞬間に投影光・ビームと同時にステージ以上が点いて一気に会場が
-      立ち上がる。smoothstep で入れて、載る瞬間にポップしないようにする。
+      ステージから上(ステージ・鳥居・ホログラム)。タイムラインの stage
+      トラックに、再生/停止のフェード(replyNext)を掛ける。
     */
-    const stageIn = replyLightsRef.current;
-    replyStageRef.current = replyNext * stageIn * stageIn * (3 - 2 * stageIn);
+    replyStageRef.current = replyNext * timeline.stage;
 
     /*
       表示の切り替えは group.visible で行い、再レンダーを起こさない
@@ -681,20 +685,14 @@ export function SceneContents({
     }
 
     /*
-      11秒の点灯で一度だけ閃光を焚く。組み上げが終わった最初のフレームで発火し、
-      以降フレームごとに減らす。巻き戻し(ループ)で未発火に戻して再点火できる。
+      11秒の点灯で焚く閃光。タイムラインの flash トラック(11秒で立ち上がり
+      0.45秒で消える山)に露出の倍率を掛けるだけ。以前は「一度だけ発火して
+      減衰するタイマー」だったが、曲の再生位置で決まる形にしたことで、
+      巻き戻しやループでも発火済みフラグを戻す処理なしにそのまま焚ける。
     */
-    if (replyPlaying && replyBuildRef.current >= 1) {
-      if (!replyFlashFiredRef.current) {
-        replyFlashFiredRef.current = true;
-        replyFlashRef.current = REPLY_FLASH_SECONDS;
-      }
-    } else {
-      replyFlashFiredRef.current = false;
-    }
-    replyFlashRef.current = Math.max(replyFlashRef.current - delta, 0);
-    const replyFlash =
-      (replyFlashRef.current / REPLY_FLASH_SECONDS) * REPLY_FLASH_EXPOSURE;
+    const replyFlash = replyPlaying
+      ? timeline.flash * REPLY_FLASH_EXPOSURE
+      : 0;
 
     /*
       Reply のレンズ効果。星降る海と違い毎フレーム書く(組み上げ中は
@@ -767,11 +765,13 @@ export function SceneContents({
     }
 
     /*
-      花火の濃さ。曲の構成(energy)にフェードを掛けたもの。
-      11秒より前は lights=0 なので必ず0 = 花火は上がらない。
+      花火の濃さ。タイムラインの fireworks トラックに、再生/停止のフェードを
+      掛けたもの。既定のキーは11秒の点灯で上がり、曲の終わりは実測のフェード
+      曲線をなぞって落ちる形(=移行前の lights × fade と同じ)だが、
+      トラックとして独立しているので花火だけ別の落とし方にもできる。
     */
     replyFireworksRef.current =
-      replyNext * replyLightsRef.current * replyFadeRef.current;
+      replyNext * (replyPlaying ? timeline.fireworks : 0);
 
     const replyVisibleNow = replyNext > 0.01;
     if (replyVisibleNow !== replyVisible) setReplyVisible(replyVisibleNow);

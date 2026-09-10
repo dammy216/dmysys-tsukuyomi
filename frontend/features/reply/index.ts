@@ -19,6 +19,25 @@ export {
   keyframesAreDirty,
   type DroneKeyField,
 } from "./dronePathStore";
+export { sampleTimeline, type TimelineKey } from "./timelineType";
+export { REPLY_TIMELINE } from "./replyTimelineData";
+export {
+  REPLY_TRACKS,
+  createReplyTimelineSample,
+  replyTimelineToCode,
+  replyTrackSpec,
+  sampleReplyTimeline,
+  type ReplyTimelineKeys,
+  type ReplyTimelineSample,
+  type ReplyTrackId,
+  type ReplyTrackSpec,
+} from "./replyTimeline";
+export {
+  cloneReplyTimeline,
+  replyKeyIsDirty,
+  replyTrackIsDirty,
+  useReplyTimelineStore,
+} from "./replyTimelineStore";
 export { CAMERA_FEEL_DEFAULTS } from "./cameraFeelDefaults";
 export {
   CAMERA_FEEL_SPECS,
@@ -41,8 +60,6 @@ export {
 } from "./castleBeamRig";
 export {
   REPLY_SECTIONS,
-  replyFadeGainAt,
-  replySectionEnergyAt,
   replySectionIndexAt,
   replySectionSinceAt,
   type ReplySection,
