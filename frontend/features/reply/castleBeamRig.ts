@@ -566,6 +566,35 @@ function mix(a: number, b: number, k: number) {
 }
 
 /**
+ * 各セクション開始時点での累積 swingPos(周)。
+ *
+ * 素朴に `barPos / cue.swingBars` だけで求めると、セクションが切り替わった
+ * 瞬間に分母(cue.swingBars)が変わるので、同じ barPos でも値が飛ぶ ――
+ * cos() に渡す角度が飛ぶと、ビームの向きが一瞬で反対側へワープしたように
+ * 見える(「breath(歌前の白い間)で下がっていたのに A に入った瞬間いきなり
+ * 上がる」というユーザー指摘の実体はこれ)。
+ *
+ * ここで各セクション開始時点の値を積み上げておき、サンプリング時は
+ * 「そのセクションが始まってからの経過小節数 / 今の swingBars」を足すだけに
+ * することで、**周期(速さ)はセクションごとに離散のまま変えつつ、値(位相)は
+ * 連続**にする。速さの変化はキンク(傾きの変化)であって値のジャンプでは
+ * ないので、向きが反転して見えることはない。周期の値そのものを補間する
+ * のは別の歪みが出るとして避けている(下の sampleCastleRig 冒頭のコメント
+ * 参照)ので、ここでは値の連続性だけを別口で担保する。
+ */
+const SWING_POS_AT_SECTION_START: readonly number[] = (() => {
+  const acc: number[] = [0];
+  for (let i = 0; i < REPLY_SECTIONS.length - 1; i++) {
+    const swingBars = CASTLE_BEAM_CUES[REPLY_SECTIONS[i].name].swingBars;
+    const barsInSection =
+      (REPLY_SECTIONS[i + 1].start - REPLY_SECTIONS[i].start) /
+      REPLY_BAR_SECONDS;
+    acc.push(acc[i] + barsInSection / swingBars);
+  }
+  return acc;
+})();
+
+/**
  * 曲の再生位置 t(秒)からリグの状態を引いて out へ書く。
  *
  * セクションの段は ramp 秒かけてクロスフェードする(段差のまま使うと
@@ -619,7 +648,11 @@ export function sampleCastleRig(
   out.pattern = cue.pattern;
   out.sectionIndex = si;
 
-  out.swingPos = barPos / cue.swingBars;
+  const sectionStartBarPos =
+    (section.start - REPLY_BAR_ORIGIN) / REPLY_BAR_SECONDS;
+  out.swingPos =
+    SWING_POS_AT_SECTION_START[si] +
+    (barPos - sectionStartBarPos) / cue.swingBars;
   out.chasePos = barPos / cue.chaseBars;
   out.colorSlot = Math.floor(barPos / cue.colorBars);
 
