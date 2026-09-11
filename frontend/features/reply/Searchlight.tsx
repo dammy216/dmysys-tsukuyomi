@@ -392,6 +392,26 @@ const INTRO2_SWEEP_SCALE: Readonly<Record<number, number>> = {
   6: 2,
 };
 
+/**
+ * Bメロの角4本(隅櫓)に、リザー中(bRiserOn)の色を均等に巡らせるための
+ * 通し番号(0〜3)。**beam.order(1/4/7/10)をそのまま colorSlot に足すと
+ * 使えない** ―― 4本の order は3ずつ離れていて、パレットがちょうど3色
+ * (SEARCHLIGHT_SECTION_PALETTE)なので (order + colorSlot) % 3 が4本とも
+ * 同じ値になってしまう。これが「北(4・7)はずっと同じ1色、南(1・10)には
+ * その色が出ない」というユーザー指摘の正体 ―― 実際には half(0/1の2群)で
+ * 固定2色に割っていた旧ロジックが原因だったが、そちらも同様に4本を
+ * 2本ずつの固定グループへ縛ってしまっていた。ここで隣同士が3の倍数だけ
+ * 離れないよう 0,1,2,3 に振り直し、(seq + colorSlot) % 3 で4本のうち3本が
+ * 常に別々の色、1本だけ重複する形にする ―― どれが重複するかは colorSlot
+ * (=点滅のたび)ごとに入れ替わるので、4本全体で見れば3色に均等に触れる。
+ */
+const CORNER_COLOR_SEQ: Readonly<Record<number, number>> = {
+  1: 0, // 隅櫓(右上・南東)
+  4: 1, // 隅櫓(右下・北東)
+  7: 2, // 隅櫓(左下・北西)
+  10: 3, // 隅櫓(左上・南西)
+};
+
 /** サビ・後半の頭で「バーン」と出すセクション */
 const HIT_SECTIONS: readonly ReplySectionName[] = ["SABI", "LATTER"];
 /** その一撃が減衰するまでの秒数(指数減衰の時定数) */
@@ -1011,8 +1031,14 @@ export function Searchlight({
       (colorIndexRef)。実際のRGBは paletteRef.current[idx] を毎フレーム
       参照する側(下の materialsRef.current.forEach)で反映するので、
       セクション境界のクロスフェード中でも自然に色が動く。
+
+      「カラフル　つかまえよう…さぁ」の間(bRiserOn)だけ、色を送るタイミングを
+      小節(cue.colorBars)ではなく拍の点滅そのもの(syncBeat)に揃える
+      (ユーザー指定「サーチの点滅の時に、代わる光を点滅のたびに代わる
+      ようにして」)。syncBeat は上の拍同期ブロックで REPLY_B_RISER_BEAT_
+      DIVISOR ぶん倍速にしてあるので、点滅が切り替わるたびに色も切り替わる。
     */
-    const colorSlot = Math.floor(barPos / cue.colorBars);
+    const colorSlot = bRiserOn ? syncBeat : Math.floor(barPos / cue.colorBars);
     if (colorSlot !== colorSlotRef.current || si !== colorCueRef.current) {
       colorSlotRef.current = colorSlot;
       colorCueRef.current = si;
@@ -1040,9 +1066,12 @@ export function Searchlight({
             ? -1
             : cue.ringColors
               ? (Math.floor(beam.order / 2) + colorSlot) % paletteRef.current.length
-              : beam.half % 2 === 0
-                ? 0
-                : partner;
+              : bRiserOn && beam.isCorner
+                ? ((CORNER_COLOR_SEQ[beam.order] ?? 0) + colorSlot) %
+                  paletteRef.current.length
+                : beam.half % 2 === 0
+                  ? 0
+                  : partner;
       });
     }
 
