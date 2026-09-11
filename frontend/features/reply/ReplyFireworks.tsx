@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type RefObject } from "react";
-import { useFrame } from "@react-three/fiber";
+import type { RefObject } from "react";
+
 import {
-  AdditiveBlending,
-  BufferAttribute,
-  BufferGeometry,
-  Color,
-  ShaderMaterial,
-} from "three";
+  KamuroShell,
+  KikuShell,
+  PeonyShell,
+  RingShell,
+  SenrinShell,
+  WaterFan,
+  fireworkHash as hash,
+  type FireworkKind,
+  type ShellPlan,
+  type Vec3,
+} from "@/features/fireworks";
+
 import {
-  BEAM_COLORS,
   CASTLE_TOP_Y,
   REPLY_BAR_ORIGIN,
   REPLY_BAR_SECONDS,
   REPLY_BASE_POSITION,
-  REPLY_GLOW_COLOR,
 } from "./constants";
 
 /* ------------------------------------------------------------------ *
@@ -28,14 +32,12 @@ import {
  * 「拍ごとにパッパッと弾ける」花火にはしない。2小節(2.82秒)に1発という
  * ゆったりした間隔で上げ、弾けたあとは物理で流して落とす = 連続量で見せる
  * (HUSH_BARRAGEはこの限りでなく、意図的に密集させている)。
+ *
+ * **玉の中身は features/fireworks/ の型(菊・千輪・冠菊・型物・色玉・水上の扇)
+ * に載せ替えてある。** このファイルが持つのは「いつ・どこで・どの型を」と
+ * いう曲との対応づけだけで、見た目と物理は features/fireworks/ 側にある。
  * ------------------------------------------------------------------ */
 
-/** 1発あたりの粒の数 */
-const PARTICLES_PER_SHELL = 110;
-/** 打ち上げ(ロケットが昇る)にかける秒数 */
-const RISE_SECONDS = 1.05;
-/** 弾けてから消えるまでの秒数 */
-const LIFE_SECONDS = 2.6;
 /** 何小節ごとに1発上げるか。サビ/後半はこの間隔 */
 const SHELL_INTERVAL_BARS = 2;
 
@@ -54,8 +56,8 @@ const MAIN_TO = 106.5;
  * 62.0 サビ頭 / 83.0 後半頭 / 106.0 最後の「キラめいてうたおう」
  */
 const FINALE_TIMES = [62.0, 83.0, 106.0] as const;
-/** 大玉の粒の初速の倍率。通常の玉より大きく開く */
-const FINALE_SPEED_SCALE = 1.5;
+/** 大玉の玉の大きさ。通常の玉より大きく開く */
+const FINALE_SCALE = 1.45;
 
 /**
  * リザーの静けさ(ライトが消えるタイミング)からサビ頭で一斉に上げる
@@ -64,39 +66,34 @@ const FINALE_SPEED_SCALE = 1.5;
  * 「今ばらばらに上がっているから全部同じタイミングで上げて。そして爆発も
  * 同じタイミングで」。通常運行(MAIN_FROM=サビ以降の2小節に1発)とは別枠。
  *
- * 全発が同じ burst 時刻(=MAIN_FROM。サビ頭そのもの)を持つので、
- * launch(= burst - RISE_SECONDS)も全発そろって同じ瞬間になる ――
- * ライトが静まっている間に一斉に打ち上がり、サビ頭で一斉に弾ける。
- * 玉ごとの打ち上げ位置(角度・半径)は添字(下のループのs)から決まる
- * ハッシュ値なので、同時刻でも城の周りのバラバラの場所から上がる。
+ * 全発が同じ burst 時刻(=MAIN_FROM。サビ頭そのもの)を持ち、**型も菊で
+ * そろえてある**。型ごとに打ち上げ秒数(rise)が違うので、混ぜると
+ * launch(= burst - rise)がずれて「同じタイミングで上げて」の指定から
+ * 外れてしまう ―― 揃えることが指定の要件そのもの。
+ * 玉ごとの打ち上げ位置(角度・半径)は添字から決まるハッシュ値なので、
+ * 同時刻でも城の周りのバラバラの場所から上がる。
  */
 const HUSH_BARRAGE_BURST_AT = MAIN_FROM;
 /** バラージで打ち上げる本数。「大量」の指定にふさわしい本数にしてある */
 const HUSH_BARRAGE_COUNT = 10;
+/** バラージの型。上のコメントの通り、混ぜずに1種でそろえる */
+const HUSH_BARRAGE_KIND: FireworkKind = "kiku";
 
-/** 打ち上げ位置の塔の中心からの距離(ワールド単位) */
-const ORIGIN_RADIUS_MIN = 45;
-const ORIGIN_RADIUS_MAX = 105;
+/**
+ * 打ち上げ位置の塔の中心からの距離(ワールド単位)。
+ * カメラ(ドローン航路)が天守にかなり寄るので、外へ散らしすぎると
+ * 上がった玉が画角の外で開いて見えない。塔寄りに固めてある。
+ */
+const ORIGIN_RADIUS_MIN = 38;
+const ORIGIN_RADIUS_MAX = 92;
 /** 弾ける高さ。天守の頂部より上、ホログラムと同じくらいの空 */
 const BURST_Y_MIN = CASTLE_TOP_Y + 14;
 const BURST_Y_MAX = CASTLE_TOP_Y + 58;
-/** 粒の初速(ワールド単位/秒)。玉の開く大きさ */
-const BURST_SPEED_MIN = 11;
-const BURST_SPEED_MAX = 17;
-
-/** 粒の大きさ(点スプライトの基準サイズ) */
-const PARTICLE_SIZE_MIN = 1.6;
-const PARTICLE_SIZE_MAX = 3.2;
-
 /**
- * 決定的な擬似乱数。Math.random() を使うと再マウントのたびに配置が変わり、
- * 「同じ曲なのに毎回違う花火」になってしまう。曲に固定で紐づけたいので
- * 添字から決まる値にする。
+ * 冠菊(しだれ柳)だけ開く高さを底上げする。寿命5秒ぶん垂れ続ける型なので、
+ * 他と同じ高さで開くと落ちきる前に水面へ刺さって尻切れになる。
  */
-function hash(n: number) {
-  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
-  return s - Math.floor(s);
-}
+const KAMURO_Y_LIFT = 26;
 
 /**
  * 玉と玉の最小間隔(秒)。これより近いものは捨てる。
@@ -108,128 +105,155 @@ function hash(n: number) {
  */
 const MIN_SHELL_GAP = 1.2;
 
-/** 花火を上げる時刻(=弾ける時刻)を小節グリッドから組み立てる */
-function buildBurstTimes(): number[] {
-  const times: number[] = [];
+/**
+ * 定期の玉に配る型の並び。添字を順に舐めるだけの決定的な割り当て。
+ *
+ * 菊と冠菊(=動画でいちばん目を引く2つ)を多めに、型物と色玉は
+ * アクセントとして疎に入れてある。長さを 2小節グリッドの本数(16前後)と
+ * 互いに素にすると、周回しても同じ並びが続かない。
+ */
+const GRID_KINDS: readonly FireworkKind[] = [
+  "kiku",
+  "kamuro",
+  "senrin",
+  "kiku",
+  "ring",
+  "kamuro",
+  "kiku",
+  "peony",
+  "senrin",
+  "kamuro",
+  "kiku",
+];
+
+/**
+ * 水上の扇を噴き上げる時刻。曲の山と同じ3点。動画では大玉の下に必ず
+ * 水面の低い扇が並んでいて、それが「空の玉」と「水面の映り込み」を
+ * つないでいる。水面は MeshReflectorMaterial なので映り込みは自動で出る。
+ */
+const WATER_FAN_TIMES = [62.0, 83.0, 106.0] as const;
+/** 扇の列を置く位置(塔の中心からの Z オフセット)と、列の全長 */
+const WATER_FAN_Z_OFFSET = 82;
+const WATER_FAN_SPAN = 190;
+
+type ScheduledShell = ShellPlan & { kind: FireworkKind };
+
+/**
+ * 玉1発の打ち上げ位置と開く位置。添字から決まるので毎周同じ場所に上がる。
+ * 塔(REPLY_BASE_POSITION)を中心に取り囲ませる。このコンポーネントは
+ * group に入れずワールド座標へ直接置くので、ここで基準位置を足しておく。
+ */
+function placeShell(index: number, kind: FireworkKind) {
+  const angle = hash(index * 3.1) * Math.PI * 2;
+  const radius =
+    ORIGIN_RADIUS_MIN + hash(index * 7.7) * (ORIGIN_RADIUS_MAX - ORIGIN_RADIUS_MIN);
+  const x = REPLY_BASE_POSITION[0] + Math.sin(angle) * radius;
+  const z = REPLY_BASE_POSITION[2] + Math.cos(angle) * radius;
+  const lift = kind === "kamuro" ? KAMURO_Y_LIFT : 0;
+  const y = BURST_Y_MIN + lift + hash(index * 5.3) * (BURST_Y_MAX - BURST_Y_MIN);
+  const from: Vec3 = [x, 0, z];
+  const to: Vec3 = [x, y, z];
+  return { from, to };
+}
+
+/**
+ * 上げる玉をぜんぶ組み立てる。時刻(=弾ける時刻)は小節グリッドから、
+ * 型は GRID_KINDS から、位置は添字のハッシュから決まる。
+ */
+function buildShells(): ScheduledShell[] {
+  const times: { at: number; kind: FireworkKind; scale: number }[] = [];
   // 大玉の脇や同じ小節で二重に上がらないよう、近すぎるものは捨てる
-  const push = (t: number) => {
-    if (!times.some((v) => Math.abs(v - t) < MIN_SHELL_GAP)) times.push(t);
+  const push = (at: number, kind: FireworkKind, scale: number) => {
+    if (times.some((v) => Math.abs(v.at - at) < MIN_SHELL_GAP)) return false;
+    times.push({ at, kind, scale });
+    return true;
   };
 
-  for (const t of FINALE_TIMES) push(t);
+  /*
+    大玉。サビ頭(62.0)はバラージと重なる瞬間なので、そちらに任せて
+    ここでは置かない ―― 同じ場所で大玉とバラージが二重に開くと、
+    「一斉に開いた」というバラージの狙いが潰れる。後半頭は千輪(二段咲きで
+    間が持つ)、最後の一発は菊の大玉にしてある。
+  */
+  push(FINALE_TIMES[1], "senrin", FINALE_SCALE);
+  push(FINALE_TIMES[2], "kiku", FINALE_SCALE);
 
   // 小節頭を走査して、2小節ごとに拾う(サビ〜後半だけ)
   const totalBars = Math.ceil((MAIN_TO - REPLY_BAR_ORIGIN) / REPLY_BAR_SECONDS);
+  let gridIndex = 0;
   for (let bar = 0; bar <= totalBars; bar++) {
     const t = REPLY_BAR_ORIGIN + bar * REPLY_BAR_SECONDS;
-    if (t >= MAIN_FROM && t <= MAIN_TO && bar % SHELL_INTERVAL_BARS === 0) {
-      push(t);
-    }
+    if (t < MAIN_FROM || t > MAIN_TO || bar % SHELL_INTERVAL_BARS !== 0) continue;
+    /*
+      **採用された玉だけ**が型の並びを1つ進める。大玉の脇で捨てられた枠でも
+      進めてしまうと、そこに割り当たっていた型(色玉)が一度も出ないまま
+      飛ばされる ―― 疎にしか入れない型ほどこれで消えやすい。
+    */
+    const kind = GRID_KINDS[gridIndex % GRID_KINDS.length];
+    if (push(t, kind, 0.85 + hash(bar * 1.7) * 0.3)) gridIndex++;
   }
+
+  const shells: ScheduledShell[] = times.map((entry, i) => ({
+    at: entry.at,
+    kind: entry.kind,
+    scale: entry.scale,
+    seed: i + 1,
+    ...placeShell(i + 1, entry.kind),
+  }));
 
   /*
     リザーの静けさ〜サビ頭のバラージ(HUSH_BARRAGE_* のコメント参照)。
     全発が同じ burst 時刻を持つ ―― push() の重複除外は「同じ瞬間に何発も
-    上げない」ための仕組みなので、ここでは意図的に使わず times へ直接
-    HUSH_BARRAGE_COUNT 個ぶん同じ時刻を積む。
+    上げない」ための仕組みなので、ここでは意図的に通さず直接積む。
   */
   for (let i = 0; i < HUSH_BARRAGE_COUNT; i++) {
-    times.push(HUSH_BARRAGE_BURST_AT);
+    const seed = 100 + i;
+    shells.push({
+      at: HUSH_BARRAGE_BURST_AT,
+      kind: HUSH_BARRAGE_KIND,
+      // 一斉に開くので1発ずつは控えめに。全部が大玉だと画面が白く潰れる
+      scale: 0.9 + hash(seed * 2.7) * 0.35,
+      seed,
+      ...placeShell(seed, HUSH_BARRAGE_KIND),
+    });
   }
 
-  return times.sort((a, b) => a - b);
+  return shells;
 }
 
-const VERTEX = /* glsl */ `
-  uniform float uTime;
-  uniform float uOpacity;
+/**
+ * 玉のリストを型ごとに仕分ける。**モジュール読み込み時に1回だけ**作る
+ * ―― 中身は添字から決まる決定的な値しか持たないので、再マウントしても
+ * 作り直す必要がない(参照が変わらないので下流の useMemo も効き続ける)。
+ */
+const ALL_SHELLS = buildShells();
 
-  attribute float aLaunch;
-  attribute vec3 aOrigin;
-  attribute vec3 aBurst;
-  attribute vec3 aDir;
-  attribute float aSpeed;
-  attribute float aSize;
-  attribute float aSeed;
-  attribute vec3 aColor;
+function shellsOf(kind: FireworkKind): ShellPlan[] {
+  return ALL_SHELLS.filter((s) => s.kind === kind);
+}
 
-  varying float vAlpha;
-  varying vec3 vColor;
+const KIKU_SHELLS = shellsOf("kiku");
+const KAMURO_SHELLS = shellsOf("kamuro");
+const SENRIN_SHELLS = shellsOf("senrin");
+const RING_SHELLS = shellsOf("ring");
+const PEONY_SHELLS = shellsOf("peony");
 
-  const float RISE = ${RISE_SECONDS.toFixed(3)};
-  const float LIFE = ${LIFE_SECONDS.toFixed(3)};
-  /** 空気抵抗。大きいほど早く失速して、ふわりと垂れる */
-  const float DRAG = 1.15;
-  /** 重力。実寸ではなく見栄えで決めた値 */
-  const float G = 9.0;
-
-  void main() {
-    float age = uTime - aLaunch;
-    vec3 p = aBurst;
-    float alpha = 0.0;
-    float sizeScale = 1.0;
-
-    if (age >= 0.0 && age <= RISE + LIFE) {
-      if (age < RISE) {
-        /*
-          打ち上げ。粒は1点に集まったままイーズアウトで昇るので、
-          尾を引く1つの光点(ロケット)に見える。
-        */
-        float k = age / RISE;
-        p = mix(aOrigin, aBurst, 1.0 - pow(1.0 - k, 2.0));
-        p += aDir * 0.25;
-        alpha = 0.9 * smoothstep(0.0, 0.08, k);
-        sizeScale = 0.45;
-      } else {
-        /*
-          弾けたあと。線形抵抗つき放物運動の解析解で流す。
-            v' = -DRAG*v + g
-            x(t) = x0 + (v0 - g/DRAG)*(1-e^-DRAG*t)/DRAG + (g/DRAG)*t
-          等速の放射だと「ウニ」のまま消えるが、これだと外周が失速して
-          尾が垂れ下がるので花火らしくなる。
-        */
-        float u = age - RISE;
-        vec3 g = vec3(0.0, -G, 0.0);
-        vec3 v0 = aDir * aSpeed;
-        p = aBurst + (v0 - g / DRAG) * (1.0 - exp(-DRAG * u)) / DRAG
-          + (g / DRAG) * u;
-
-        float life = u / LIFE;
-        alpha = (1.0 - life) * (1.0 - life);
-        // ちらつき。粒ごとに位相をずらして、消え際をざらつかせる
-        alpha *= 0.65 + 0.35 * sin(u * 26.0 + aSeed * 40.0);
-      }
-    }
-
-    vAlpha = alpha * uOpacity;
-    vColor = aColor;
-
-    vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    gl_Position = projectionMatrix * mv;
-    gl_PointSize = aSize * sizeScale * (300.0 / max(-mv.z, 1.0));
-  }
-`;
-
-const FRAGMENT = /* glsl */ `
-  varying float vAlpha;
-  varying vec3 vColor;
-
-  void main() {
-    if (vAlpha <= 0.002) discard;
-    vec2 d = gl_PointCoord - 0.5;
-    float r2 = dot(d, d);
-    if (r2 > 0.25) discard;
-    // 芯が明るく縁が落ちる丸。加算合成なので中心が白く飛ぶ
-    float f = 1.0 - r2 * 4.0;
-    gl_FragColor = vec4(vColor * (0.6 + 0.4 * f), vAlpha * f * f);
-  }
-`;
-
-/** シェーダーへ毎フレーム書く uniform。曲の再生位置と全体の濃さだけ */
-type FireworkUniforms = {
-  uTime: { value: number };
-  uOpacity: { value: number };
-};
+/** 水上の扇。列の向きと全長は from→to の水平ベクトルで決まる */
+const FAN_SHELLS: ShellPlan[] = WATER_FAN_TIMES.map((at, i) => ({
+  at,
+  from: [
+    REPLY_BASE_POSITION[0] - WATER_FAN_SPAN / 2,
+    0,
+    REPLY_BASE_POSITION[2] + WATER_FAN_Z_OFFSET,
+  ] as Vec3,
+  to: [
+    REPLY_BASE_POSITION[0] + WATER_FAN_SPAN / 2,
+    0,
+    REPLY_BASE_POSITION[2] + WATER_FAN_Z_OFFSET,
+  ] as Vec3,
+  seed: 200 + i,
+  scale: 1,
+}));
 
 type ReplyFireworksProps = {
   /** 曲(=ホログラム映像)の再生位置(秒)を持つ ref */
@@ -244,151 +268,24 @@ type ReplyFireworksProps = {
 /**
  * 曲の小節グリッドに乗せて上がる打ち上げ花火。
  *
- * 玉の配置・色・弾ける高さは添字から決まる決定的な値なので、
- * 何周しても毎回同じ位置に同じ花火が上がる(曲に紐づいた演出になる)。
+ * 型ごとに1つずつコンポーネントを並べる = points 6回の描画。玉を増やしても
+ * 描画回数は増えない(1つの points に全発ぶんの粒が入っている)。
+ * 玉の配置・色・弾ける高さは添字から決まる決定的な値なので、何周しても
+ * 毎回同じ位置に同じ花火が上がる(曲に紐づいた演出になる)。
  */
 export function ReplyFireworks({
   songTimeRef,
   intensityRef,
 }: ReplyFireworksProps) {
-  const { geometry, material } = useMemo(() => {
-    const bursts = buildBurstTimes();
-    const shellCount = bursts.length;
-    const total = shellCount * PARTICLES_PER_SHELL;
-
-    const launch = new Float32Array(total);
-    const origin = new Float32Array(total * 3);
-    const burst = new Float32Array(total * 3);
-    const dir = new Float32Array(total * 3);
-    const speed = new Float32Array(total);
-    const size = new Float32Array(total);
-    const seed = new Float32Array(total);
-    const color = new Float32Array(total * 3);
-
-    const palette = [...BEAM_COLORS, REPLY_GLOW_COLOR].map((c) => new Color(c));
-    const tint = new Color();
-
-    for (let s = 0; s < shellCount; s++) {
-      const burstAt = bursts[s];
-      const isFinale = FINALE_TIMES.some((t) => Math.abs(t - burstAt) < 0.4);
-
-      /*
-        玉ごとの配置。添字から決まるので毎周同じ場所に上がる。
-        塔(REPLY_BASE_POSITION)を中心に取り囲ませる。このコンポーネントは
-        group に入れずワールド座標へ直接置くので、ここで基準位置を足しておく。
-      */
-      const angle = hash(s * 3.1) * Math.PI * 2;
-      const radius =
-        ORIGIN_RADIUS_MIN +
-        hash(s * 7.7) * (ORIGIN_RADIUS_MAX - ORIGIN_RADIUS_MIN);
-      const ox = REPLY_BASE_POSITION[0] + Math.sin(angle) * radius;
-      const oz = REPLY_BASE_POSITION[2] + Math.cos(angle) * radius;
-      const by = BURST_Y_MIN + hash(s * 5.3) * (BURST_Y_MAX - BURST_Y_MIN);
-      const shellSpeed =
-        (BURST_SPEED_MIN + hash(s * 2.9) * (BURST_SPEED_MAX - BURST_SPEED_MIN)) *
-        (isFinale ? FINALE_SPEED_SCALE : 1);
-
-      tint.copy(palette[Math.floor(hash(s * 11.3) * palette.length) % palette.length]);
-
-      for (let i = 0; i < PARTICLES_PER_SHELL; i++) {
-        const p = s * PARTICLES_PER_SHELL + i;
-        const n = p * 3;
-
-        // 打ち上げ時刻は「弾ける時刻」から昇る時間を引いたもの
-        launch[p] = burstAt - RISE_SECONDS;
-
-        origin[n] = ox;
-        origin[n + 1] = 0;
-        origin[n + 2] = oz;
-
-        burst[n] = ox;
-        burst[n + 1] = by;
-        burst[n + 2] = oz;
-
-        /*
-          球面上に一様分布させる。緯度を acos(1-2u) で取らないと
-          極に粒が溜まって「団子」になる。
-        */
-        const u = hash(p * 1.7);
-        const v = hash(p * 4.1);
-        const theta = v * Math.PI * 2;
-        const phi = Math.acos(1 - 2 * u);
-        const sinPhi = Math.sin(phi);
-        dir[n] = sinPhi * Math.cos(theta);
-        dir[n + 1] = Math.cos(phi);
-        dir[n + 2] = sinPhi * Math.sin(theta);
-
-        // 粒ごとに初速をばらして、球殻ではなく厚みのある玉にする
-        speed[p] = shellSpeed * (0.55 + hash(p * 9.2) * 0.45);
-        size[p] =
-          PARTICLE_SIZE_MIN +
-          hash(p * 6.4) * (PARTICLE_SIZE_MAX - PARTICLE_SIZE_MIN);
-        seed[p] = hash(p * 8.8);
-
-        color[n] = tint.r;
-        color[n + 1] = tint.g;
-        color[n + 2] = tint.b;
-      }
-    }
-
-    const geo = new BufferGeometry();
-    // position は使わないが、無いと three が描画をスキップするので置く
-    geo.setAttribute("position", new BufferAttribute(burst.slice(), 3));
-    geo.setAttribute("aLaunch", new BufferAttribute(launch, 1));
-    geo.setAttribute("aOrigin", new BufferAttribute(origin, 3));
-    geo.setAttribute("aBurst", new BufferAttribute(burst, 3));
-    geo.setAttribute("aDir", new BufferAttribute(dir, 3));
-    geo.setAttribute("aSpeed", new BufferAttribute(speed, 1));
-    geo.setAttribute("aSize", new BufferAttribute(size, 1));
-    geo.setAttribute("aSeed", new BufferAttribute(seed, 1));
-    geo.setAttribute("aColor", new BufferAttribute(color, 3));
-
-    const mat = new ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uOpacity: { value: 0 },
-      },
-      vertexShader: VERTEX,
-      fragmentShader: FRAGMENT,
-      transparent: true,
-      depthWrite: false,
-      blending: AdditiveBlending,
-    });
-
-    return { geometry: geo, material: mat };
-  }, []);
-
-  /*
-    useFrame 内で useMemo の戻り値を直接触ると react-hooks/immutability に
-    引っかかるため ref 経由で書く(CornerTowers / EdoCastle と同じ手当て)。
-  */
-  const uniformsRef = useRef<FireworkUniforms | null>(null);
-
-  /*
-    あわせて GPU 資源の破棄もここで行う。geometry / material は useMemo で
-    自前に作ったものなので、R3F の自動破棄には乗らない。
-  */
-  useEffect(() => {
-    uniformsRef.current = material.uniforms as FireworkUniforms;
-    return () => {
-      geometry.dispose();
-      material.dispose();
-    };
-  }, [geometry, material]);
-
-  useFrame(() => {
-    const uniforms = uniformsRef.current;
-    if (!uniforms) return;
-    uniforms.uTime.value = songTimeRef.current ?? 0;
-    uniforms.uOpacity.value = Math.max(intensityRef.current ?? 0, 0);
-  });
-
+  const common = { songTimeRef, intensityRef };
   return (
-    /*
-      位置はすべて頂点シェーダーで作るので、three の持つ境界球は当てにならない
-      (原点の位置しか入っていない)。frustumCulled を切らないと、カメラが
-      振れた拍子に玉ごと消える。
-    */
-    <points geometry={geometry} material={material} frustumCulled={false} />
+    <>
+      <KikuShell shells={KIKU_SHELLS} {...common} />
+      <KamuroShell shells={KAMURO_SHELLS} {...common} />
+      <SenrinShell shells={SENRIN_SHELLS} {...common} />
+      <RingShell shells={RING_SHELLS} {...common} />
+      <PeonyShell shells={PEONY_SHELLS} {...common} />
+      <WaterFan shells={FAN_SHELLS} {...common} />
+    </>
   );
 }
