@@ -454,6 +454,20 @@ const CORNER_OUTWARD_AZIMUTH: Readonly<Record<number, number>> = {
 const RISER_AZIMUTH_WOBBLE = Math.PI / 6;
 
 /**
+ * SABI/LATTER/outro(拍同期。isB=false側)の首振りの、外向き方位からの
+ * 左右スナップの半角。ユーザー指摘「サビのサーチライトの光が建物を貫通
+ * している」への対応 ―― 以前はここがワールドX軸(azimuth 0/π)への
+ * 固定スナップで、灯の位置(建物のどの辺にいるか)を無視していたため、
+ * 東西の辺の灯が振れ先で建物の幅を横切る向きになっていた。
+ * beam.outwardAzimuth(=その灯にとって建物と反対の向き)を中心に、
+ * ±この角度だけ拍ごとにスナップして振ることで、常に建物のない側だけを
+ * 向くようにする。かつ「イントロ2みたいに左右に動かす動きをつけて」の
+ * 指定を、拍ごとのスナップという既存の動きの質(ユーザー指定)を保ったまま
+ * 満たす。RISER_AZIMUTH_WOBBLE(Bのリザーの外向き±ウォブル)と同じ角度。
+ */
+const AIM_SIDE_SWING = Math.PI / 6;
+
+/**
  * Bのリザー専用: 「南」「北」というワールドの方位そのもの(azimuth換算)。
  *
  * コンパスHUD(cameraHeading.ts)の定義で 北=ワールド-Z・南=ワールド+Z が
@@ -625,6 +639,18 @@ type Beam = {
    * 首振りの軌道の形(十字 or 円)を決める(ユーザー指定の配置図参照)。
    */
   isCorner: boolean;
+  /**
+   * angle を、useFrame の dir 計算が使う「ワールド方位角(azimuth)」の
+   * 単位に変換した値(建物と反対の向き)。dir.x=sin(polar)cos(azimuth)・
+   * dir.z=sin(polar)sin(azimuth) という定義(azimuth=0→+X, π/2→+Z)に対し、
+   * angle は「group.rotation.y」という別の測り方(front=0)なので、
+   * そのままでは azimuth として使えない。CORNER_OUTWARD_AZIMUTH のコメントに
+   * ある変換 `π/2 - angle` を隅の4本だけでなく12本すべてに一般化したもの
+   * (実際に代入して4隅で CORNER_OUTWARD_AZIMUTH と一致することを確認済み)。
+   * SABI/LATTER/outro(拍同期)のスナップ先をこれ基準にすることで、
+   * 「建物のある方向」へ振れないようにする(AIM_SIDE_SWING 参照)。
+   */
+  outwardAzimuth: number;
   /**
    * angle(外向きの方位)ぶんのY軸回転を打ち消す逆クォータニオン。
    *
@@ -865,6 +891,7 @@ export function Searchlight({
         half,
         u: half / (BEAM_HALF - 1),
         isCorner: p.isCorner,
+        outwardAzimuth: Math.PI / 2 - p.angle,
         groupQuatInverse,
       };
     });
@@ -1226,9 +1253,15 @@ export function Searchlight({
             outro(spread 0.55)は intro-B とほぼ同じ振れ幅になり、SABI/LATTER
             (0.78〜1)は従来どおり大きく開く。
 
-            **Bのリザーだけは向きそのものを変える。** SABI/LATTER/outro は
-            前後2値(0/π)のスナップのまま(建物にほぼ当たらない範囲として
-            すでに実機で確認済みなので変更しない)。Bのリザーは「前後に
+            **SABI/LATTER/outro(isB=false)は外向き基準の左右スナップ。**
+            以前はワールドX軸(azimuth 0/π)への固定スナップで、灯の位置
+            (建物のどの辺にいるか)を無視していたため、東西の辺の灯が
+            建物の幅を横切る向きに振れていた(ユーザー指摘「サビのサーチ
+            ライトの光が建物を貫通している」)。beam.outwardAzimuth(その灯
+            にとって建物と反対の向き)を中心に ±AIM_SIDE_SWING だけ
+            拍ごとにスナップする ―― 「イントロ2みたいに左右に動かす」の
+            指定を、拍ごとのスナップという動きの質は変えずに満たす。
+            Bのリザーは「前後に
             開閉するだけでなく、光の向きそのものが変わる方が良い」という
             ユーザー指定で状態を5つに増やした(RISER_AZIMUTH_STATE_COUNT の
             コメント参照。V字/X字の2つ+外向き±30°の3つ)。**X字は一度
@@ -1269,7 +1302,8 @@ export function Searchlight({
                 break;
             }
           } else {
-            azimuth = side * beatSyncDir >= 0 ? 0 : Math.PI;
+            const swingSign = side * beatSyncDir >= 0 ? 1 : -1;
+            azimuth = beam.outwardAzimuth + swingSign * AIM_SIDE_SWING;
           }
           polar = MAX_SWING * spreadNow;
         } else if (crossX) {
