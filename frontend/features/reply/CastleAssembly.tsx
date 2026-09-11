@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, InstancedMesh, Object3D, Vector3 } from "three";
+import { Color, InstancedMesh, MeshStandardMaterial, Object3D, Vector3 } from "three";
 import {
   BUILD_EDGE_JITTER,
   CASTLE_HALF_DEPTH,
   CASTLE_HALF_WIDTH,
   CASTLE_TOP_Y,
+  REPLY_GLOW_COLOR,
+  REPLY_INTRO2_LASER_MID,
 } from "./constants";
 import {
   CORNER_TOWER_XZ,
@@ -15,6 +17,7 @@ import {
   TOWER_HALF_WIDTH,
   TOWER_HEIGHT,
 } from "./towerLayout";
+import { applyBlockWireframeShader } from "./blockWireframeShader";
 
 /**
  * 天守へ飛来するブロックの数。参照映像(Shelter 1:21〜)ほどの物量は出せないが、
@@ -81,17 +84,62 @@ const CASTLE_ARRIVE_TAIL = 0;
 /** 飛来中の回転速度(ラジアン/進行度)。着地に向けて減衰させる */
 const SPIN_MAX = 9;
 
-/** ブロックの石の色。天守のスキャンと馴染む砂岩寄りの色 */
-const BLOCK_COLOR = "#b9a486";
 /**
- * 飛来中の自己発光。夜空の中でブロックが沈まないよう少しだけ光らせる。
+ * ブロックの見た目: 稜線が電子的に発光する黒いキューブ。
  *
- * 最初はアクセント色(#ff5a1e)を0.55で入れていたが、露出を落とした夜の画では
- * 石の色が完全に負けて「赤いプラスチックの塊」に見えた。天守の自己発光と
- * 同じ橙白を弱く入れて、石が灯りを受けている程度に留める。
+ * 元は天守のスキャンと馴染む砂岩色の塗り立方体だったが、「四方から飛来する
+ * 電子的なブロック」に寄せるユーザー指定で置き換えた。面はほぼ真っ黒
+ * (BLOCK_BASE_COLOR)のまま残し、シェーダー側(blockWireframeShader.ts)が
+ * 稜線だけを赤〜橙で光らせる(discard で面を抜く空洞のワイヤーフレームに
+ * 一度したが、「枠の中空洞じゃなくて黒にして」の指摘で不透明な黒い箱へ戻した)。
+ *
+ * 色は当初シアン/バイオレット(天守本体の投影光と同じ寒色)で実装したが、
+ * 「赤とオレンジ系がいいかな」というユーザーフィードバックで差し替えた。
+ * Reply 演出は鳥居の発光に合わせた赤〜橙で統一する方針(constants.ts の
+ * REPLY_HOLOGRAM_TINT 前のコメント参照)なので、新規定数は追加せず
+ * 既存パレットから REPLY_GLOW_COLOR(赤)/ REPLY_INTRO2_LASER_MID(橙)を流用する
+ * (橙は「もっと赤みを」の指摘で BLOCK_EDGE_ORANGE_REDNESS ぶん赤へ寄せてある)。
  */
-const BLOCK_EMISSIVE = new Color("#ffb489");
-const BLOCK_EMISSIVE_INTENSITY = 0.22;
+const BLOCK_BASE_COLOR = "#05060a";
+/**
+ * エッジ判定の太さ(box の各面の UV 空間、0〜0.5。boxGeometry は面ごとに
+ * UV が 0〜1 なのでこれがそのまま枠の太さになる)。大きいほど枠が太くなる。
+ */
+const BLOCK_EDGE_WIDTH = 0.02;
+/**
+ * フラグメント差分(fwidth)に掛けるアンチエイリアス幅の倍率。
+ * 小さいと枠のジャギーが目立ち、大きすぎると枠自体がぼやけて太って見える。
+ */
+const BLOCK_EDGE_SOFTNESS = 2.0;
+/**
+ * エッジ発光の強さ。totalEmissiveRadiance へ instanceColor(赤/橙)にこの値を
+ * 掛けて足す。天守本体の投影光(PROJECTION_INTENSITY_MAX=0.85)より強め ――
+ * ブロックは面のほとんどが discard で消えるぶん、稜線そのものがくっきり
+ * 浮かないと「電子的に収束してくる」画として弱く見えるため。
+ */
+const BLOCK_EDGE_EMISSIVE_INTENSITY = 2.4;
+/**
+ * ブロックを赤/橙へ振り分ける閾値。Block.colorPick(0〜1の乱数)がこの値未満
+ * なら赤、以上なら橙。0.5で概ね半々。
+ */
+const BLOCK_EDGE_COLOR_SPLIT = 0.5;
+/**
+ * instanceColor に設定する2色。赤は Reply 演出で既に使っている鳥居/ホログラムの
+ * 発光色 REPLY_GLOW_COLOR をそのまま使う。
+ *
+ * 橙は REPLY_INTRO2_LASER_MID(#ff8a3a)そのままだと黄色寄りに見えたので、
+ * 「オレンジのほうはもっと赤みを」というユーザー指摘で REPLY_GLOW_COLOR 側へ
+ * BLOCK_EDGE_ORANGE_REDNESS ぶん寄せてある(新規のhex値を起こすのではなく
+ * 既存2色のブレンドに留める)。0.45 では赤みが足りないとの再指摘で 0.7 まで上げた
+ * ―― 赤(BLOCK_EDGE_RED)との差が小さくなりすぎない範囲で、これ以上上げると
+ * 2色の見分けがつかなくなる。
+ */
+const BLOCK_EDGE_ORANGE_REDNESS = 0.7;
+const BLOCK_EDGE_RED = new Color(REPLY_GLOW_COLOR);
+const BLOCK_EDGE_ORANGE = new Color(REPLY_INTRO2_LASER_MID).lerp(
+  new Color(REPLY_GLOW_COLOR),
+  BLOCK_EDGE_ORANGE_REDNESS,
+);
 
 /**
  * 組み上げ面の到達高さ。EdoCastle.tsx の BUILD_TOP_Y と揃える
@@ -117,6 +165,11 @@ type Block = {
    * どちらの進行度(buildRef/towerBuildRef)で動かすかをブロックごとに分ける。
    */
   isTower: boolean;
+  /**
+   * エッジ発光の色を赤/橙へ振り分けるための乱数(0〜1)。
+   * BLOCK_EDGE_COLOR_SPLIT と比較して instanceColor を決める(一度だけ)。
+   */
+  colorPick: number;
 };
 
 /** なめらかな減速。飛来の終わりで吸い込まれるように寄せる */
@@ -232,6 +285,7 @@ function pushZoneBlocks(zone: Zone, list: Block[]) {
       arriveAt: ty / BUILD_TOP_Y,
       lead: LEAD_MIN + rand(s + 13) * (LEAD_MAX - LEAD_MIN),
       isTower: zone.isTower,
+      colorPick: rand(s + 14),
     });
   }
 }
@@ -325,6 +379,59 @@ export function CastleAssembly({
     return list;
   }, []);
 
+  /*
+    マテリアルも一度だけ作る。JSX の <meshStandardMaterial> ではなく
+    new で作るのは、onBeforeCompile(blockWireframeShader.ts)を仕込むため
+    ―― EdoCastle.tsx / CornerTowers.tsx の applyCastleBuildShader と同じやり口。
+  */
+  const material = useMemo(() => {
+    const mat = new MeshStandardMaterial({
+      color: BLOCK_BASE_COLOR,
+      roughness: 0.8,
+      metalness: 0.05,
+    });
+    /*
+      fwidth を使うが、three r162 以降 Material.extensions は撤去されて
+      WebGL2(GLSL ES 300)前提になっている ―― fwidth は組み込みなので拡張宣言は不要。
+    */
+    applyBlockWireframeShader(
+      mat,
+      {
+        edgeWidth: BLOCK_EDGE_WIDTH,
+        edgeSoftness: BLOCK_EDGE_SOFTNESS,
+        emissiveIntensity: BLOCK_EDGE_EMISSIVE_INTENSITY,
+      },
+      "castle-assembly-block-wireframe",
+    );
+    return mat;
+  }, []);
+
+  // GLTF 共有ではなく作り切りのマテリアルなので、外れるときに解放する
+  useEffect(() => {
+    return () => {
+      material.dispose();
+    };
+  }, [material]);
+
+  /*
+    instanceColor はブロックごとに1回だけ決まる(BLOCK_EDGE_COLOR_SPLIT で
+    赤/橙へ振り分け)。毎フレーム変わらないので useFrame ではなく
+    ここで一度だけ setColorAt する。
+  */
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    for (let i = 0; i < blocks.length; i++) {
+      mesh.setColorAt(
+        i,
+        blocks[i].colorPick < BLOCK_EDGE_COLOR_SPLIT
+          ? BLOCK_EDGE_RED
+          : BLOCK_EDGE_ORANGE,
+      );
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [blocks]);
+
   // useFrame の中で new しないための使い回し
   const dummy = useRef(new Object3D()).current;
   const scratch = useRef(new Vector3()).current;
@@ -386,13 +493,7 @@ export function CastleAssembly({
       frustumCulled={false}
     >
       <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial
-        color={BLOCK_COLOR}
-        emissive={BLOCK_EMISSIVE}
-        emissiveIntensity={BLOCK_EMISSIVE_INTENSITY}
-        roughness={0.8}
-        metalness={0.05}
-      />
+      <primitive object={material} attach="material" />
     </instancedMesh>
   );
 }
