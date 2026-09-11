@@ -426,6 +426,67 @@ const CORNER_COLOR_SEQ: Readonly<Record<number, number>> = {
   10: 3, // 隅櫓(左上・南西)
 };
 
+/**
+ * Bのリザー(56.8秒〜)専用: 隅4本それぞれの「外向き」の方位(azimuth)。
+ * beam.angle(front=0/right=π/2/back=π/left=-π/2。group.rotation.yに使う
+ * 値)とは座標の測り方が違う ―― azimuth は
+ * `dir=(sin(polar)cos(azimuth), cos(polar), sin(polar)sin(azimuth))` で
+ * 作るワールド絶対方向(azimuth=0→+X, π/2→+Z)なので、beam.angle を
+ * そのまま使えない。beam.angle の指す方向と一致する azimuth は
+ * `π/2 - beam.angle`(既存の isBeatSync 分岐の azimuth=0/π がこの隅から
+ * 見て天守の外側を向く/向かないという計算とは別に、ここでは「その灯の
+ * 真後ろにある建物へ向けて振らない」ための基準に使う)。
+ */
+const CORNER_OUTWARD_AZIMUTH: Readonly<Record<number, number>> = {
+  1: Math.PI / 4,
+  4: -Math.PI / 4,
+  7: (-3 * Math.PI) / 4,
+  10: (3 * Math.PI) / 4,
+};
+
+/**
+ * Bのリザー専用: 隅ごとの外向き方位から±30°振るオフセット(ラジアン)。
+ * ユーザー指定「光の向きを変えるとかの変化がいい」への対応の一部。
+ * RISER_AZIMUTH_STATE_COUNT のうち state 2〜4(下のswitch参照)で使う。
+ * 何度で振るかは実機で見ながら調整する前提の値(このコメント自体がその
+ * 注意書き)。
+ */
+const RISER_AZIMUTH_WOBBLE = Math.PI / 6;
+
+/**
+ * Bのリザー専用: 「南」「北」というワールドの方位そのもの(azimuth換算)。
+ *
+ * コンパスHUD(cameraHeading.ts)の定義で 北=ワールド-Z・南=ワールド+Z が
+ * 確定しているので、それに合わせる: dir.z = sin(polar)*sin(azimuth) なので
+ * azimuth=π/2(sin=1・+Z側)が南、azimuth=-π/2(-Z側)が北。
+ *
+ * 一度これと逆の値(南北を実機での見た目基準で入れ替えた値)を試したが、
+ * それでも南の隅が南を向いて見える不具合が再現したため、原因は別の
+ * state(2〜4。外向き±ウォブル)を見ていた可能性が高いと判断し、
+ * コンパスと整合するこの値へ戻した。もし state 5(このazimuthを使う唯一の
+ * state)がまだ逆に見えるなら、そのときだけ改めて入れ替えること。
+ */
+const SOUTH_AZIMUTH = Math.PI / 2;
+const NORTH_AZIMUTH = -Math.PI / 2;
+
+/**
+ * Bのリザーの向きが取りうる状態の数。下の useFrame 内 switch と対応させる
+ * こと ―― 増減したらここも合わせて変える。
+ *
+ *   0: V字(開く。従来の isBeatSync と同じ前後2値のうち片方)
+ *   1: X字(交差。同じくもう片方。ユーザー指定「X字に交差しなくなってる
+ *      けど、X字交差は入れて」で復活させた)
+ *   2: 隅の素の外向き
+ *   3: 外向きから -RISER_AZIMUTH_WOBBLE
+ *   4: 外向きから +RISER_AZIMUTH_WOBBLE
+ *   5: 北↔南の入れ替え(北の隅は南向き、南の隅は北向き。ユーザー指定)
+ *
+ * V字/X字/state5は前後(ワールドX軸寄り〜Z軸寄り)の固定方位、2〜4は隅ごとの
+ * 外向き方位を中心にした控えめな振れ(実機未確認。CORNER_OUTWARD_AZIMUTH の
+ * コメント参照)。
+ */
+const RISER_AZIMUTH_STATE_COUNT = 6;
+
 /** サビ・後半の頭で「バーン」と出すセクション */
 const HIT_SECTIONS: readonly ReplySectionName[] = ["SABI", "LATTER"];
 /** その一撃が減衰するまでの秒数(指数減衰の時定数) */
@@ -1164,9 +1225,52 @@ export function Searchlight({
             (0.55)相当まで絞れば十分、という指定)。spreadNow を掛けることで、
             outro(spread 0.55)は intro-B とほぼ同じ振れ幅になり、SABI/LATTER
             (0.78〜1)は従来どおり大きく開く。
+
+            **Bのリザーだけは向きそのものを変える。** SABI/LATTER/outro は
+            前後2値(0/π)のスナップのまま(建物にほぼ当たらない範囲として
+            すでに実機で確認済みなので変更しない)。Bのリザーは「前後に
+            開閉するだけでなく、光の向きそのものが変わる方が良い」という
+            ユーザー指定で状態を5つに増やした(RISER_AZIMUTH_STATE_COUNT の
+            コメント参照。V字/X字の2つ+外向き±30°の3つ)。**X字は一度
+            外したら「X字に交差しなくなってる、入れて」と指摘があった**
+            ので、必ず状態の1つとして残してある。北(4・7)は南(1・10)より
+            2拍ぶん位相をずらし、南北が同時に同じ状態へ揃う瞬間とずれる
+            瞬間が交互に出るようにしている(側の符号 side を掛けて鏡像ペアの
+            左右対称は維持)。
           */
           const side = beam.x >= 0 ? 1 : -1;
-          azimuth = side * beatSyncDir >= 0 ? 0 : Math.PI;
+          if (isB) {
+            const outward = CORNER_OUTWARD_AZIMUTH[beam.order] ?? 0;
+            const isNorthCorner = beam.order === 4 || beam.order === 7;
+            const phaseBeat = isNorthCorner ? syncBeat + 2 : syncBeat;
+            const stateIndex =
+              ((Math.floor(phaseBeat) % RISER_AZIMUTH_STATE_COUNT) +
+                RISER_AZIMUTH_STATE_COUNT) %
+              RISER_AZIMUTH_STATE_COUNT;
+            switch (stateIndex) {
+              case 0:
+                azimuth = side >= 0 ? 0 : Math.PI; // V字(開く)
+                break;
+              case 1:
+                azimuth = side >= 0 ? Math.PI : 0; // X字(交差)
+                break;
+              case 2:
+                azimuth = outward; // 隅の素の外向き
+                break;
+              case 3:
+                azimuth = outward - side * RISER_AZIMUTH_WOBBLE;
+                break;
+              case 4:
+                azimuth = outward + side * RISER_AZIMUTH_WOBBLE;
+                break;
+              default:
+                // 北↔南の入れ替え(ユーザー指定「北の光は南を、南の光は北を向くように」)
+                azimuth = isNorthCorner ? SOUTH_AZIMUTH : NORTH_AZIMUTH;
+                break;
+            }
+          } else {
+            azimuth = side * beatSyncDir >= 0 ? 0 : Math.PI;
+          }
           polar = MAX_SWING * spreadNow;
         } else if (crossX) {
           /*
