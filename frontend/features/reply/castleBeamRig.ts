@@ -369,15 +369,28 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     tint: 0.4,
     slew: 3.5,
   },
-  // Bメロ。Aから本数(density)は変えずに維持し、チェイスと明るさでサビへ溜める
+  /*
+    Bメロ。以前は上下スイープの範囲(castleLiftFromRange)・yaw振れ幅・
+    swingBars(周期)・pattern/waveSpread をAから変えていて、その結果
+    Bメロ入り(49.5秒)〜「カラフル」の頭(56.8秒。REPLY_B_BLINK_START_SECONDS)
+    の間、左右へ動く速さ・振れ幅がAより大きくなっていた。「ビームの動き方は
+    Aメロから変えないで」というユーザー指摘で、**動き(首振り)に関わる値は
+    Aと完全に同じ値へ揃えた**(castleLiftFromRange/yaw/swingBars/pattern/
+    waveSpread)。56.8秒以降(bRiserOn。BeamLight.tsx の riserAngle 分岐)は
+    このキュー値に関係なく全灯そろって8方向スナップへ切り替わるので、動きが
+    変わるのは56.8秒からになる。サビへ溜める盛り上がりは本数(density)ではなく
+    明るさ(level)・チェイス(chaseBars/chaseDepth)・色(colorBars/
+    colorSpread/tint)側だけで付ける ―― Aから本数を変えずに維持しつつ、
+    チェイスと明るさでサビへ溜める、という元の役割は変えていない。
+  */
   B: {
     level: 0.85,
     density: 0.68,
-    ...castleLiftFromRange(0.15),
-    yaw: 0.1,
-    swingBars: 2,
-    pattern: "ring",
-    waveSpread: 1,
+    ...castleLiftFromRange(0.5),
+    yaw: 0.05,
+    swingBars: 4,
+    pattern: "rise",
+    waveSpread: 0.6,
     chaseBars: 2,
     chaseDepth: 0.55,
     strobe: 0.14,
