@@ -1188,9 +1188,23 @@ export function Searchlight({
             ときだけ北(INTRO2_SWEEP_SCALEに無い=既定1倍)も南と同じ倍率
             (2)を強制し、4本そろって同じ速さで交差させる。イントロ2本編
             (isB=false)側の非対称はそのまま残す。
+
+            **Bは南北を半周期ずらして逆位相にする。** 南北の速さを揃えた
+            ぶん、位相まで同じだと4本が常に同時にX字/V字になって「1つの
+            ペアが2倍の太さで動いている」ように見えてしまう。ユーザー指定
+            「1つ目(南)がXのときは2つ目(北)はVになっているように」に
+            従い、北(4・7)にだけ半周期(crossXScale/2)ぶんcyclePosをずらす
+            ―― sin(θ+π) = -sin(θ) で符号がちょうど反転し、南がX(swing>0)
+            のとき北はV(swing<0)に、南がVのとき北はXになる。
           */
           const crossXScale = isB ? 2 : (INTRO2_SWEEP_SCALE[beam.order] ?? 1);
-          const swing = Math.sin((2 * Math.PI * cyclePos) / crossXScale);
+          const crossXPhaseOffset =
+            isB && (beam.order === 4 || beam.order === 7)
+              ? crossXScale / 2
+              : 0;
+          const swing = Math.sin(
+            (2 * Math.PI * (cyclePos + crossXPhaseOffset)) / crossXScale,
+          );
           const side = beam.x >= 0 ? 1 : -1;
           const lean = -side * swing;
           azimuth = lean >= 0 ? 0 : Math.PI;
