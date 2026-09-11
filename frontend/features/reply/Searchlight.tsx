@@ -25,7 +25,9 @@ import {
   REPLY_B_BLINK_START_SECONDS,
   REPLY_B_HUSH_FADE_SECONDS,
   REPLY_B_HUSH_START_SECONDS,
+  REPLY_B_NORTH_SPOT_START_SECONDS,
   REPLY_B_RISER_BEAT_DIVISOR,
+  REPLY_B_SOUTH_SPOT_START_SECONDS,
   REPLY_BAR_ORIGIN,
   REPLY_BAR_SECONDS,
   REPLY_BEAT_OFFSET,
@@ -1231,9 +1233,28 @@ export function Searchlight({
         Bの間ハードに0にし、次のSABIから通常どおり12本(角4+辺8)に戻す。
       */
       const bCornerOnlyGate = isB && !beam.isCorner ? 0 : 1;
+      /*
+        角4本も一斉には灯さず、方角で2本ずつ時差を付ける(ユーザー指定
+        「51.2で北のスポット2個を照らし始めて、54秒で南のスポット2個を
+        照らすようにして」)。北=ワールドZが負(隅櫓の右下/左下。北=-Z の
+        規約は constants.ts の REPLY_MOON_AZIMUTH コメント/Compassと同じ)。
+        bCornerOnlyGate と掛け合わせるだけなので、B以外やSABI以降には
+        影響しない(isB=falseなら常に1)。
+      */
+      const bStagedSpotGate =
+        isB && beam.isCorner
+          ? beam.z < 0
+            ? t >= REPLY_B_NORTH_SPOT_START_SECONDS
+              ? 1
+              : 0
+            : t >= REPLY_B_SOUTH_SPOT_START_SECONDS
+              ? 1
+              : 0
+          : 1;
       const level =
         (isBeatSync ? base * beatSyncBlink : base * chase * solo) *
         bCornerOnlyGate *
+        bStagedSpotGate *
         bHushFade;
 
       mat.uniforms.uOpacity.value = Math.max(level * BEAM_OPACITY_MAX, 0);

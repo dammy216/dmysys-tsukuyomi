@@ -472,3 +472,15 @@ export const REPLY_B_HUSH_START_SECONDS = 60.7;
  * 正体だった。
  */
 export const REPLY_B_HUSH_FADE_SECONDS = 0.6;
+
+/**
+ * Searchlight(足元のサーチライト)の隅4本(隅櫓の角)を、Bメロで一斉に
+ * 灯すのではなく方角で2本ずつ時差を付けて灯す秒数(再生位置)。北2本
+ * (隅櫓の右下/左下。ワールドZが負)をここから、南2本(隅櫓の右上/左上。
+ * ワールドZが正)は下の REPLY_B_SOUTH_SPOT_START_SECONDS から灯す
+ * (ユーザー指定「51.2で北のスポット2個を照らし始めて、54秒で南の
+ * スポット2個を照らすようにして」)。それより前は隅4本とも消灯。
+ */
+export const REPLY_B_NORTH_SPOT_START_SECONDS = 51.2;
+/** 南2本(隅櫓の右上/左上)を灯す秒数。REPLY_B_NORTH_SPOT_START_SECONDS 参照 */
+export const REPLY_B_SOUTH_SPOT_START_SECONDS = 54.0;

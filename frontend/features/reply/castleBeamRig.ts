@@ -261,12 +261,17 @@ function castleLiftFromRange(lower: number): { lift: number; liftSwing: number }
  * 静→動の落差を本数で付ける:
  *
  *   intro-B 1.00(11秒の一斉点灯) → breath 0.68 → A 0.68 →
- *   B 0.55(サビへ溜める) → SABI 1.00(全点灯) → LATTER 0.85 → outro 0.40 → fade 0.08
+ *   B 0.68(Aから本数を維持) → SABI 1.00(全点灯) → LATTER 0.85 → outro 0.40 → fade 0.08
  *
  * 天守と隅櫓は別々に効かせられる(towerDensity。省略時は density と同じ)。
  * 今は breath だけ density 0.68 / towerDensity 0 = 天守だけ残す(櫓は消灯)。
  * 以前 breath は density 0.12 で天守のてっぺん8本だけ残していたが、
  * 「レーザーが消えたあと天守の上だけになる」のを嫌ってやめた。
+ * B も同じ理由で、以前は 0.55(サビへ溜める意図)にしていたが、Aの0.68より
+ * 低いぶん**Bに入った瞬間にAで灯っていた本数の一部が消える**動きになって
+ * しまい、「Bメロ入るときAメロで照らされたレーザーが消えているから消え
+ * ないでそのまま使って」の指摘で A と同じ 0.68 に揃えた(本数は増減させず、
+ * level 0.85(Aの0.68より明るい)・chaseDepth・color でBらしい高まりを付ける)。
  * サビの落差は SABI 1.00(全点灯)と、A/B より上げた明るさ・速さで付ける。
  */
 export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
@@ -364,10 +369,10 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     tint: 0.4,
     slew: 3.5,
   },
-  // Bメロ。フロントを城の中ほどまで下ろし、チェイスを回してサビへ溜める
+  // Bメロ。Aから本数(density)は変えずに維持し、チェイスと明るさでサビへ溜める
   B: {
     level: 0.85,
-    density: 0.55,
+    density: 0.68,
     ...castleLiftFromRange(0.15),
     yaw: 0.1,
     swingBars: 2,
