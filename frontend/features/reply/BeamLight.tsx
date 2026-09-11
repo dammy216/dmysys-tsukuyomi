@@ -302,10 +302,15 @@ const BEAM_LIFT_MIN = BEAM_LIFT_MAX - BEAM_LIFT_RANGE;
  *     swingBars=4 で 4小節 ≒ 5.6秒)+ 灯ごとの位相(rise 波が扇を駆け上がる)。
  *   ・左右: 拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ(鏡像ペアが逆向き)。
  *
- *  1) intro-B 開始 〜 INTRO2_BLINK_START_SECONDS(カメラの引きが終わるまで):
- *     点滅させず yaw=0 のまま、真上寄り(INTRO2_OPEN_LIFT)から真上へ
- *     ease-out で立てながら現れる(スイープ上端に繋がる)。
- *  2) それ以降: 拍で点滅(合間は完全消灯 INTRO2_BLINK_FLOOR = 0)+ 上の動き。
+ * **可動(上下スイープ + 左右スナップ)は intro-B 開始の瞬間から常時有効**
+ * (ユーザー指定「最初からフェーズ2の状態でビームを動かしてほしい」)。
+ * 以前は INTRO2_BLINK_START_SECONDS まで yaw=0・真上寄りの束から真上へ
+ * ease-outで立ち上がる「フェーズ1」を挟んでいたが、そのぶん交差の動きが
+ * 遅れて見えていたため廃止した。**点滅だけ** は従来どおり
+ * INTRO2_BLINK_START_SECONDS(カメラの引きが終わるタイミング)から始まる
+ * ―― それより前は intro2Blink=1 の常時点灯のまま、可動だけが先に動いて
+ * いる状態になる。11.8秒に着いた時点でビームは既にスイープ・スナップの
+ * 開いた状態になっていて、そこへ点滅が乗る、という見た目になる。
  * 色は城のパレットではなく **サーチライトのイントロ2と同じ3色**
  * (INTRO2_LASER_COLORS。取り付け高さで3バンド。ユーザー指定)。
  * castleBeamRig からは本数フロント(density/gate)と明るさのベースだけ
@@ -331,22 +336,18 @@ const INTRO2_SWEEP_LIFT_AMP =
  * で左右対称に開閉。BEAM_YAW_LIMIT(60°)まで。小さくすれば控えめになる。
  */
 const INTRO2_SWEEP_YAW = BEAM_YAW_LIMIT;
-/**
- * フェーズ1の**開き始め**の仰角(ラジアン)。1.45 ≒ 83°(ほぼ真上)。
- * intro-B 開始時はここ(真上寄りの束)→ INTRO2_BLINK_START_SECONDS までに
- * 真上(スイープ上端)へ立ちながら現れる = カメラの引きに合わせて。
- */
-const INTRO2_OPEN_LIFT = 1.45;
 /** レーザー時の明るさ倍率。細い光条をくっきり見せるため少し持ち上げる */
 const INTRO2_LASER_LEVEL = 1.35;
 /**
- * フェーズ2(交差 + 点滅)を始める再生位置(秒)。これより前は交差も点滅も
- * させず平行照射(上のコメント参照)。ユーザー指定:「イントロ2に入るときの
+ * **点滅**を始める再生位置(秒)。可動(上下スイープ + 左右スナップ)は
+ * intro-B 開始から常時有効で、これより前は intro2Blink=1 の常時点灯の
+ * まま可動だけが先に動く。ここに着いてから拍のON/OFF点滅(合間は完全消灯
+ * INTRO2_BLINK_FLOOR = 0)が加わる。ユーザー指定:「イントロ2に入るときの
  * カメラの引きが終わるまでは表示、そこから点滅」。
  * dronePathData の引きの着地点(t:11.5 で radius 11.5→53、そこから詰め始める)
  * あたり。長く感じるなら後ろへずらす。
  */
-const INTRO2_BLINK_START_SECONDS =11.8;
+const INTRO2_BLINK_START_SECONDS = 11.8;
 /** 1拍のうちレーザーが点いている割合(0〜1)。残りは完全消灯 */
 const INTRO2_BLINK_ON = 0.38;
 /**
@@ -893,36 +894,16 @@ export function BeamLight({
 
     /*
       イントロ2(intro-B)だけ「レーザー」モード(INTRO2_LASER_* のコメント参照):
-      右端/左端の灯を交差させた X + 点滅ごとに X の傾きを切り替える。ここで
-      その区間かどうかと、拍のブリンク係数・X の傾き向き(全灯共通)を1回求める。
-
-      **カメラの引きが終わる(INTRO2_BLINK_START_SECONDS)まで**は点滅させず、
-      **交差もさせず**、真上寄りの束から外向きへ「開いていく」。
-      引き切ってから、交差の X + 拍の点滅 + 傾きの切り替えを始める。
+      上下スイープ + 左右スナップは intro-B 開始から常時有効(下の lift/yaw
+      計算)。ここで求めるのは**点滅係数だけ** ―― カメラの引きが終わる
+      (INTRO2_BLINK_START_SECONDS)まではブリンクさせず常時点灯、そこから
+      拍のON/OFFに切り替える。
     */
     const sectionName = REPLY_SECTIONS[s.sectionIndex]?.name;
     const isIntro2 = sectionName === "intro-B";
     let intro2Blink = 1;
-    /** フェーズ2(上下スイープ + 左右スナップ + 点滅)に入ったか */
-    let intro2Crossing = false;
-    /**
-     * フェーズ1の開き具合 0〜1(0 = 真上寄りの束、1 = 外向きに開ききった)。
-     * intro-B 開始 → INTRO2_BLINK_START_SECONDS で 0→1。仰角(束→外向き)は
-     * これを使う。**ease-out(1-(1-c)^2)** ―― smoothstep は開始の傾きが 0 で、
-     * 表示された瞬間しばらく束のまま止まって見えた(ユーザー指摘「一度表示
-     * されてから開く」)。ease-out なら現れた瞬間から一番大きく開く。
-     * 明るさは触らない(uOpacity は lit のまま = サーチライトと同時に出る)。
-     */
-    let intro2OpenP = 1;
     if (isIntro2 && raw >= INTRO2_BLINK_START_SECONDS) {
-      intro2Crossing = true;
       intro2Blink = beatPhase < INTRO2_BLINK_ON ? 1 : INTRO2_BLINK_FLOOR;
-    } else if (isIntro2) {
-      const start = REPLY_SECTIONS[s.sectionIndex].start;
-      const span = INTRO2_BLINK_START_SECONDS - start;
-      const p = span > 0 ? (raw - start) / span : 1;
-      const c = p < 0 ? 0 : p > 1 ? 1 : p;
-      intro2OpenP = 1 - (1 - c) * (1 - c); // ease-out
     }
 
     /*
@@ -996,10 +977,10 @@ export function BeamLight({
           イントロ2のレーザー ―― **天守も隅櫓も同じ動き**(ユーザー指定
           「櫓も天守みたいなビームの動きにして」)。outro(イントロ2再現)の
           拍同期ビームと同じノリ(ユーザーが 1:48 = 再生109秒 の見た目を指定)。
-          intro2Crossing=false(カメラの引きが終わるまで): yaw=0 のまま、仰角を
-            INTRO2_OPEN_LIFT(真上寄り)から真上(BEAM_LIFT_MAX)へ
-            intro2OpenP(ease-out)で立てながら現れる。スイープの上端に繋がる。
-          intro2Crossing=true:
+          **可動(上下スイープ + 左右スナップ)は intro-B 開始の瞬間から常時
+          有効**(ユーザー指定「最初からフェーズ2の状態でビームを動かして
+          ほしい」)。以前は点滅開始(INTRO2_BLINK_START_SECONDS)までを
+          yaw=0・真上寄りの束から真上へ立ち上がる別カーブにしていたが廃止:
             ・上下: **アウトロ天守と完全に同じ式**(ユーザー指定「秒数・角度域・
               駆動・カーブもあわせて」)。s.lift/s.liftSwing の代わりに
               INTRO2_SWEEP_LIFT_CENTER/AMP(= outro cue と同値になるよう作った)
@@ -1008,20 +989,14 @@ export function BeamLight({
               ≒ 5.6秒で1往復)、phase は灯ごとの位相(rise 波が扇を駆け上がる)。
             ・左右: **拍ごとに ±INTRO2_SWEEP_YAW へパッとスナップ**(鏡像ペアが
               逆向き。outro の isBeatSync と同じ式)。
-            ・点滅は明るさ側(intro2Blink)で別に掛かる。
+          点滅(intro2Blink)は明るさ側で別に掛かり、INTRO2_BLINK_START_SECONDS
+          まではブリンクせず常時点灯 = 可動だけが先に動く状態になる。
         */
-        if (intro2Crossing) {
-          const swing = Math.PI * 2 * (s.swingPos + phase);
-          targetLift =
-            INTRO2_SWEEP_LIFT_CENTER + INTRO2_SWEEP_LIFT_AMP * Math.cos(swing);
-          const lateralSign = spot.position[0] < 0 ? -1 : 1;
-          targetYaw = lateralSign * beatSyncDir * INTRO2_SWEEP_YAW;
-        } else {
-          // フェーズ1: 真上寄り(束)→ 真上へ立てながら現れる(スイープ上端へ接続)
-          targetLift =
-            INTRO2_OPEN_LIFT + (BEAM_LIFT_MAX - INTRO2_OPEN_LIFT) * intro2OpenP;
-          targetYaw = 0;
-        }
+        const swing = Math.PI * 2 * (s.swingPos + phase);
+        targetLift =
+          INTRO2_SWEEP_LIFT_CENTER + INTRO2_SWEEP_LIFT_AMP * Math.cos(swing);
+        const lateralSign = spot.position[0] < 0 ? -1 : 1;
+        targetYaw = lateralSign * beatSyncDir * INTRO2_SWEEP_YAW;
       } else {
         const swing = Math.PI * 2 * (s.swingPos + phase);
         /*
