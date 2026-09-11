@@ -701,6 +701,19 @@ type BeamLightProps = {
  * 本数(density)・色(セクション別パレット)は通常どおり CUES 表 /
  * beamSectionPalette.ts の値を引き継ぐ。Searchlight.tsx も同じ4セクション・
  * 同じ拍グリッドで揃って動く。
+ *
+ * **例外2の中でもさらに例外: bRiserOn(B内「カラフル つかまえよう…さぁ」の
+ * 点滅区間)だけ仰角(lift)・左右(yaw)とも「拍ごとに8方向を時計回りに巡る」
+ * 規則的なスナップにする**(ユーザー指摘「動きがばらばら」→「上下左右に
+ * 動かしながら、規則性のある形で」→「パターンが2パターンしかないから
+ * レパートリー増やして」という一連の対応)。他の拍同期区間は横(yaw)だけを
+ * 鏡像ペアでスナップし仰角は CUES 表の連続カーブのまま残しているが、
+ * bRiserOn はここだけ両方とも灯の位置に関係なく全灯そろって riserAngle
+ * (拍を8分割した角度)の cos/sin へスナップさせ、「右→右下→下→左下→左→
+ * 左上→上→右上→(ループ)」と単位円を等間隔に巡る剛体の動きにする
+ * (対角4方向だけの往復だと実質2種類の動きにしか見えなかったため、
+ * 東西南北を足して8方向にレパートリーを増やしてある。useFrame の
+ * bRiserOn 分岐 / riserAngle のコメント参照)。
  */
 export function BeamLight({
   position = [0, 0, 0],
@@ -966,6 +979,23 @@ export function BeamLight({
       syncBeatPhase < REPLY_BEAT_SYNC_BLINK_ON ? 1 : REPLY_BEAT_SYNC_BLINK_FLOOR;
     /** 偶数拍+1/奇数拍-1。拍同期(B/SABI/…)の左右スナップの向き */
     const beatSyncDir = ((syncBeat % 2) + 2) % 2 === 0 ? 1 : -1;
+    /*
+      bRiserOn(「カラフル つかまえよう…さぁ」)専用: 拍ごとに8方向を時計回りに
+      巡る回転スナップ(ユーザー指摘「上下左右に動かしながら、規則性のある
+      形で」→ さらに「パターンが2パターンしかないからレパートリー増やして」
+      への対応)。
+      対角4方向だけの往復(4拍で1周)だと、実質「対角線Aを行き来する2拍」→
+      「対角線Bを行き来する2拍」の**2種類の動き**にしか見えなかったため、
+      真上/右/真下/左の4方向も加えた8方向へ拡張した。riserPhaseIndex(拍を
+      8で割った余り)を8等分の角度(riserAngle)に変換し、下のループでは
+      これを cos/sin にそのまま渡すだけで「右→右下→下→左下→左→左上→上→
+      右上→(ループ)」の回転が作れる(単位円上を等間隔で巡るので、対角と
+      東西南北が交互に出て2パターンには見えなくなる)。
+      syncBeat は拍同期の分周(bRiserOn中は半拍刻み)なので、8刻み=4拍=1小節
+      で一周する ―― 小節の頭でちょうど一周が揃う、きりのいい長さにしてある。
+    */
+    const riserPhaseIndex = ((Math.floor(syncBeat) % 8) + 8) % 8;
+    const riserAngle = (Math.PI * 2 * riserPhaseIndex) / 8;
 
     mat.uniforms.uOpacity.value = lit * EAVE_BEAM_OPACITY_MAX;
     flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
@@ -1066,18 +1096,35 @@ export function BeamLight({
         */
         targetLift = s.lift + s.liftSwing * Math.cos(swing);
         if (isBeatSync) {
-          /*
-            拍同期(B/SABI/LATTER/outro)。**横(yaw)だけ**を isIntro2 のフェーズ2
-            と同じ「拍ごとに可動域の限界へスナップ」に置き換える(仰角(lift)は
-            ユーザー指定で「点滅・首振り以外の既存の演出値」として CUES表の
-            計算をそのまま引き継ぐ対象なので、上の targetLift は触らない)。
-            isIntro2 は「隅から中心へX字に交差する」見た目を出すため面の向き
-            (前後/東西)ごとに符号を作り込んでいたが、ここは単に全灯が拍ごとに
-            逆位相へパッと開閉するだけでよいので、灯の元の左右位置
-            (spot.position[0] の符号)だけで鏡像ペアを作る。
-          */
-          const lateralSign = spot.position[0] < 0 ? -1 : 1;
-          targetYaw = lateralSign * beatSyncDir * BEAM_YAW_LIMIT;
+          if (bRiserOn) {
+            /*
+              「カラフル つかまえよう…さぁ」の点滅(bRiserOn)だけは例外。
+              他の拍同期区間(下のelse側)は「横だけ鏡像ペアでスナップ・
+              仰角はCUES表の連続カーブのまま」だが、ここは仰角も灯ごとの
+              phase(rise波)から切り離し、全灯そろって riserAngle(8方向の
+              回転。上のコメント参照)へスナップさせる ―― 「動きがばらばら」
+              →「上下左右に動かしながら、規則性のある形で」→「パターンが
+              2パターンしかないからレパートリー増やして」という一連の
+              ユーザー指摘への対応。lateralSign(鏡像ペア)は付けない。
+              左右も上下と同じく全灯同じ向きへ振ってこそ回転として読み取れる。
+            */
+            targetLift = s.lift + s.liftSwing * Math.cos(riserAngle);
+            targetYaw = BEAM_YAW_LIMIT * Math.sin(riserAngle);
+          } else {
+            /*
+              拍同期(B(riser以外)/SABI/LATTER/outro)。**横(yaw)だけ**を
+              isIntro2のフェーズ2と同じ「拍ごとに可動域の限界へスナップ」に
+              置き換える(仰角(lift)はユーザー指定で「点滅・首振り以外の
+              既存の演出値」としてCUES表の計算をそのまま引き継ぐ対象なので、
+              上のtargetLiftは触らない)。isIntro2は「隅から中心へX字に
+              交差する」見た目を出すため面の向き(前後/東西)ごとに符号を
+              作り込んでいたが、ここは単に全灯が拍ごとに逆位相へパッと
+              開閉するだけでよいので、灯の元の左右位置(spot.position[0]の
+              符号)だけで鏡像ペアを作る。
+            */
+            const lateralSign = spot.position[0] < 0 ? -1 : 1;
+            targetYaw = lateralSign * beatSyncDir * BEAM_YAW_LIMIT;
+          }
         } else {
           /*
             軒ビームの横の首振りを大きくして扇状に振らせる(天守・隅櫓で別ゲイン、
@@ -1110,16 +1157,22 @@ export function BeamLight({
         レーザーモード: なまさずスナップ。点滅と同時に可動域の反対端へパッと
         飛ばしたい(ユーザー指定)。scratch も更新しておくので、intro-B を
         抜けた最初のフレームから通常のなましがそこから再開する。
+        bRiserOn も同じ理由でスナップ ―― 上の targetLift 分岐で仰角を
+        beatSyncDir にスナップさせても、ここでなましてしまうと yaw の瞬間
+        スナップ・点滅に対して仰角だけ遅れて追いつく形になり、結局「揃わず
+        ばらばら」に戻ってしまう。
       */
-      const nextLift = isIntro2
-        ? targetLift
-        : scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
+      const nextLift =
+        isIntro2 || bRiserOn
+          ? targetLift
+          : scratch.lift[i] + (targetLift - scratch.lift[i]) * follow;
       /*
         yaw は isIntro2 に加えて isBeatSync でもなましをバイパスする
         (ユーザー指定「拍ごとに可動域の限界へスナップ」。follow を通すと
         瞬間切り替えに見えなくなる)。lift は isBeatSync でも通常どおり
         なます ―― 仰角は「点滅・首振り以外の既存の演出値」として引き継ぐ
-        対象なので、ここでは触らない。
+        対象なので、ここでは触らない(bRiserOn の間だけ上の nextLift 側で
+        別途スナップに切り替えている。ばらばら対策のコメント参照)。
       */
       const nextYaw =
         isIntro2 || isBeatSync
