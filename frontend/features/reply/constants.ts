@@ -472,13 +472,27 @@ export const REPLY_B_HUSH_START_SECONDS = 60.7;
 export const REPLY_B_HUSH_FADE_SECONDS = 0.6;
 
 /**
+ * Bメロ入り(REPLY_SECTIONS の "B".start)〜REPLY_B_BLINK_START_SECONDS
+ * (「カラフル」の頭)の間、BeamLight(屋根の軒ビーム)の明るさを1倍から
+ * この倍率までなだらかに引き上げる(ユーザー指定「49.5秒〜56.8秒はビームの
+ * 明るさすこしあげて」)。REPLY_B_RISER_BRIGHTEN_MAX より控えめな値にして
+ * ある ―― こちらは点滅が始まる前の「すこし」の底上げ、リザー本編の
+ * 「どんどん明るくなる」はその先。56.8秒ちょうどでこの倍率から
+ * REPLY_B_RISER_BRIGHTEN_MAX への引き上げにそのまま繋がる(BeamLight.tsx の
+ * bBrighten 参照)ので、点滅が始まる瞬間も明るさが飛ばない(ユーザー指定
+ * 「その明るさのまま56.8からの点滅に行って」)。
+ */
+export const REPLY_B_PRE_RISER_BRIGHTEN_MAX = 1.15;
+
+/**
  * 「カラフル　つかまえよう…さぁ！」の間、点滅(拍)を追うごとに明るさの
  * 上限を線形に引き上げていく倍率の最大値。REPLY_B_BLINK_START_SECONDS の
- * 時点は1倍(通常の明るさ)から始まり、REPLY_B_HUSH_START_SECONDS(「さぁ」の
- * 頭)でこの倍率に達する ―― 拍(点滅)のたびにどんどん明るくなるユーザー指定。
- * サビ(SABIのlevel=1.35)より一瞬だけ明るく張ってから静けさへ落ちるよう、
- * それを上回る値にしてある。以降(bHushOnのフェードアウト)もこの倍率の
- * まま REPLY_B_HUSH_FADE_SECONDS かけて0へ落ちる(明るさが最大の状態から
+ * 時点は REPLY_B_PRE_RISER_BRIGHTEN_MAX(pre-riserで既に少し上がっている
+ * 明るさ)から始まり、REPLY_B_HUSH_START_SECONDS(「さぁ」の頭)でこの倍率に
+ * 達する ―― 拍(点滅)のたびにどんどん明るくなるユーザー指定。サビ(SABIの
+ * level=1.35)より一瞬だけ明るく張ってから静けさへ落ちるよう、それを上回る
+ * 値にしてある。以降(bHushOnのフェードアウト)もこの倍率のまま
+ * REPLY_B_HUSH_FADE_SECONDS かけて0へ落ちる(明るさが最大の状態から
  * フェードアウトへそのまま繋がる)。
  */
 export const REPLY_B_RISER_BRIGHTEN_MAX = 1.35;

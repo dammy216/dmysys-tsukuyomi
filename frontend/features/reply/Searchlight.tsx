@@ -277,9 +277,17 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ringColors: false,
     slew: 4,
   },
-  // Bメロ。チェイスを回し始めて、サビへ向けて溜める
+  /*
+    Bメロ(49.5〜56.8秒のリザー前)。ユーザー指定「イントロ2の南側の
+    サーチライトと同じ速度、動きをするようにして」で pattern を crossX に
+    変更 ―― isBeatSync が先に判定される分岐順序(useFrame内)のおかげで、
+    リザー(56.8秒〜。isBeatSync=true)にはこの変更は効かず、前後スナップの
+    ままになる。crossX の速さ(INTRO2_SWEEP_SCALE)は intro-2 だと南(1・10)が
+    遅く北(4・7)が速い非対称だが、Bは両方とも南と同じ遅さに揃える
+    (useFrame内のcrossXScale参照)。
+  */
   B: {
-    pattern: "chase",
+    pattern: "crossX",
     sweepBars: 1,
     chaseBars: 2,
     chaseDepth: 0.55,
@@ -925,11 +933,21 @@ export function Searchlight({
     const k = section.ramp > 0 ? smoothstep(since / section.ramp) : 1;
 
     /*
-      イントロ2(crossX)の solo。図の6灯(INTRO2_SOLO)以外は intro-B の間だけ
+      crossX は「軌道の形」(首振りの計算)の判定に使う。B も cue.pattern を
+      crossX にしてある(「イントロ2の南側と同じ速度、動きをするように」
+      というユーザー指定)ので、**intro-2固有の色/本数の絞り込み
+      (INTRO2_SOLO)にはcrossXをそのまま使わず、isIntro2(intro-B本人か
+      どうか)で別途判定する**―― でないとBの間もINTRO2_SOLOの固定色・
+      6灯絞りに引きずられてしまう(Bは CORNER_COLOR_SEQ で拍ごとに色を
+      巡らせる独自の色演出を持っているため)。
+    */
+    const crossX = cue.pattern === "crossX";
+    const isIntro2 = section.name === "intro-B";
+    /*
+      イントロ2(isIntro2)の solo。図の6灯(INTRO2_SOLO)以外は intro-B の間だけ
       消灯し、次の breath へ移る ramp(1.4秒)で戻す。intro-B の間は k に
       関わらずハードに絞る(11秒の点灯の瞬間から6灯だけ、というユーザー指定)。
     */
-    const crossX = cue.pattern === "crossX";
     const prevCrossX =
       si > 0 && REPLY_SECTIONS[si - 1].name === "intro-B";
 
@@ -1062,7 +1080,7 @@ export function Searchlight({
         */
         const soloHex = INTRO2_SOLO[beam.order];
         colorIndexRef.current[i] =
-          (crossX || prevCrossX) && soloHex
+          (isIntro2 || prevCrossX) && soloHex
             ? -1
             : cue.ringColors
               ? (Math.floor(beam.order / 2) + colorSlot) % paletteRef.current.length
@@ -1156,10 +1174,17 @@ export function Searchlight({
 
             INTRO2_SWEEP_SCALE で灯ごとに周期を伸ばせる(ピンクの2灯だけ遅く)。
             ペア(1と10)は同じ倍率なので左右対称は保たれる。
+
+            **Bは南北の速さを揃える。** イントロ2は南(1・10)を遅く・北
+            (4・7)を速くする非対称が意図的な演出だが、Bにそのまま流用すると
+            南北で交差の速さが違って見え、「イントロ2の南側のサーチライトと
+            同じ速度、動きをするように」というユーザー指定に沿わない。Bの
+            ときだけ北(INTRO2_SWEEP_SCALEに無い=既定1倍)も南と同じ倍率
+            (2)を強制し、4本そろって同じ速さで交差させる。イントロ2本編
+            (isB=false)側の非対称はそのまま残す。
           */
-          const swing = Math.sin(
-            (2 * Math.PI * cyclePos) / (INTRO2_SWEEP_SCALE[beam.order] ?? 1),
-          );
+          const crossXScale = isB ? 2 : (INTRO2_SWEEP_SCALE[beam.order] ?? 1);
+          const swing = Math.sin((2 * Math.PI * cyclePos) / crossXScale);
           const side = beam.x >= 0 ? 1 : -1;
           const lean = -side * swing;
           azimuth = lean >= 0 ? 0 : Math.PI;
@@ -1244,8 +1269,10 @@ export function Searchlight({
         直後の breath でも点け直さない(prevCrossX)。breath は「6本を立てて
         フェードアウト」する区間なので、残り6本を戻すと逆に増えて見える
         (CUES.breath 参照)。breath を抜ければ prevCrossX が偽になり通常へ。
+        ここも isIntro2(intro-B本人)で判定する ―― crossX だとBも含んで
+        しまうため。
       */
-      const solo = crossX
+      const solo = isIntro2
         ? INTRO2_SOLO[beam.order]
           ? 1
           : 0
