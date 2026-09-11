@@ -285,10 +285,16 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ままになる。crossX の速さ(INTRO2_SWEEP_SCALE)は intro-2 だと南(1・10)が
     遅く北(4・7)が速い非対称だが、Bは両方とも南と同じ遅さに揃える
     (useFrame内のcrossXScale参照)。
+
+    **sweepBars も intro-B と同じ2に揃えること。** crossX の周期は
+    `cue.sweepBars * crossXScale` の積で決まるので、crossXScaleだけ
+    北=南(2倍)に揃えてもsweepBarsがBの元の値(1)のままだと、intro-2
+    (sweepBars=2)のちょうど半分の周期=2倍速のままになってしまう
+    (ユーザー指摘「49.5秒〜56.8秒のサーチライトの動きが早い」の正体)。
   */
   B: {
     pattern: "crossX",
-    sweepBars: 1,
+    sweepBars: 2,
     chaseBars: 2,
     chaseDepth: 0.55,
     level: 0.82,
