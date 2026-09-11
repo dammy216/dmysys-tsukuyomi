@@ -22,6 +22,10 @@ import {
   BEAM_COLORS,
   CASTLE_HALF_DEPTH,
   CASTLE_HALF_WIDTH,
+  REPLY_B_BLINK_START_SECONDS,
+  REPLY_B_HUSH_FADE_SECONDS,
+  REPLY_B_HUSH_START_SECONDS,
+  REPLY_B_RISER_BEAT_DIVISOR,
   REPLY_BAR_ORIGIN,
   REPLY_BAR_SECONDS,
   REPLY_BEAT_OFFSET,
@@ -908,12 +912,35 @@ export function Searchlight({
       si > 0 && REPLY_SECTIONS[si - 1].name === "intro-B";
 
     /*
+      B の区間フラグ。歌詞「カラフル」の頭(bRiserOn)から点滅が始まり、
+      「さぁ」の頭(bHushOn)からサビ直前まで全灯が静まる(下のstandUp/
+      isBeatSync/レベル計算で参照する。REPLY_B_* のコメント参照)。
+    */
+    const isB = section.name === "B";
+    const bRiserOn = isB && t >= REPLY_B_BLINK_START_SECONDS;
+    const bHushOn = isB && t >= REPLY_B_HUSH_START_SECONDS;
+    /*
+      静けさへ落ちる明るさのフェード(1→0)。bHushOnの瞬間に0へ飛ばすと
+      「いきなり消える」ので、REPLY_B_HUSH_FADE_SECONDSかけてなだらかに
+      落とす(ユーザー指摘)。姿勢(standUp)側はもとから slew のなましで
+      滑らかなのでここでは明るさだけ扱う。
+    */
+    const bHushFade = bHushOn
+      ? 1 - smoothstep((t - REPLY_B_HUSH_START_SECONDS) / REPLY_B_HUSH_FADE_SECONDS)
+      : 1;
+
+    /*
       breath(歌前の間)は軌道の種類に関係なく全灯まっすぐ上へ立てる
       (CUES.breath のコメント参照)。十字/円の首振り計算をバイパスして
       polar=0 を渡すだけ ―― イントロ2レーザーからの向き替えは slerp(slew)が
       滑らかに繋ぐ。
+
+      Bメロの「静けさ」区間(bHushOn)も同じ扱いにする ―― 歌詞「さぁ」から
+      サビ直前まで、真上へ向けて灯を落ち着かせる(ユーザー指定「さぁのところで
+      点滅やめて、静けさを出したいからすべてのライトを消して。上に向けて
+      消してね」)。
     */
-    const standUp = section.name === "breath";
+    const standUp = section.name === "breath" || bHushOn;
 
     /*
       連続量だけ混ぜる。パターン・色・周期は離散のまま切り替える
@@ -945,17 +972,36 @@ export function Searchlight({
       点滅する破綻になるため)。拍のグリッドは下の「拍の明滅」ブロックと
       同じ式(REPLY_BEAT_OFFSET / REPLY_BEAT_SECONDS、曲全体を通した連番)を
       先取りして計算し、beatPhase は下のブロックへそのまま渡す。
+
+      例外: B は「歌詞『カラフル』の入り(REPLY_B_BLINK_START_SECONDS)まで
+      点滅させない」というユーザー指摘があり、それまでは isBeatSync を
+      false にして通常の chase パターン(CUES.B)へ戻す(BeamLight.tsx と
+      同じ考え方)。「カラフル　つかまえよう…さぁ！」の間だけ、実測(低域
+      オンセットが半拍間隔に詰まる)に合わせて点滅を REPLY_B_RISER_BEAT_
+      DIVISOR 倍速にする。「さぁ」以降(bHushOn)はサビ直前の静けさとして
+      isBeatSync 自体を false に戻す ―― 上の standUp が polar=0 を渡し、
+      下のレベル計算(bHushFade)で明るさも REPLY_B_HUSH_FADE_SECONDS かけて
+      0へフェードするので、拍の点滅ではなく「まっすぐ上を向きながら
+      なだらかに消える」動きになる(いきなり消えるとの指摘でフェード化)。
+      この倍速判定専用に
+      syncBeatPos/syncBeat/syncBeatPhase を別で持つ ―― 素の beatPosForSync/
+      beatForSync/beatPhaseForSync は下の「拍の明滅」ブロック(beatPhase =
+      beatPhaseForSync、全区間共通のpulse)にも使われているので上書きしない。
     */
-    const isBeatSync = REPLY_BEAT_SYNC_SECTIONS.has(section.name);
+    const isBeatSync =
+      REPLY_BEAT_SYNC_SECTIONS.has(section.name) &&
+      (!isB || (bRiserOn && !bHushOn));
     const beatPosForSync = (t - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
     const beatForSync = Math.floor(beatPosForSync);
     const beatPhaseForSync = beatPosForSync - beatForSync;
+    const syncDivisor = bRiserOn ? REPLY_B_RISER_BEAT_DIVISOR : 1;
+    const syncBeatPos = beatPosForSync * syncDivisor;
+    const syncBeat = Math.floor(syncBeatPos);
+    const syncBeatPhase = syncBeatPos - syncBeat;
     const beatSyncBlink =
-      beatPhaseForSync < REPLY_BEAT_SYNC_BLINK_ON
-        ? 1
-        : REPLY_BEAT_SYNC_BLINK_FLOOR;
+      syncBeatPhase < REPLY_BEAT_SYNC_BLINK_ON ? 1 : REPLY_BEAT_SYNC_BLINK_FLOOR;
     /** 偶数拍+1/奇数拍-1。BeamLightのbeatSyncDirと同じ素直な対応 */
-    const beatSyncDir = ((beatForSync % 2) + 2) % 2 === 0 ? 1 : -1;
+    const beatSyncDir = ((syncBeat % 2) + 2) % 2 === 0 ? 1 : -1;
 
     /*
       --- 色。ringColors なら円周へ全色を配り、そうでなければ従来の2色 ---
@@ -1047,18 +1093,26 @@ export function Searchlight({
         } else if (isBeatSync) {
           /*
             拍同期(B/SABI/LATTER/outro)。intro-Bのcrossingと違い、連続的な
-            sinで開閉するのではなく、拍が変わった瞬間にパッと可動域の限界
-            (MAX_SWING)へ切り替える(ユーザー指定「拍ごとに可動域の限界へ
-            スナップする」)。方位は鏡像ペア(beam.xの符号)と拍の符号
-            (beatSyncDir)の積で決め、常に左右対称に開閉させる ―― BeamLightの
-            lateralSign * beatSyncDir と同じ考え方。polar/azimuthは1本の
-            クォータニオンに合成される都合上、BeamLightのようにlift/yawを
-            別々になますことができないため、この2軸をまとめてスナップさせる
-            (下のslerpバイパスとセットで運用)。
+            sinで開閉するのではなく、拍が変わった瞬間にパッと可動域の限界へ
+            切り替える(ユーザー指定「拍ごとに可動域の限界へスナップする」)。
+            方位は鏡像ペア(beam.xの符号)と拍の符号(beatSyncDir)の積で決め、
+            常に左右対称に開閉させる ―― BeamLightの lateralSign * beatSyncDir
+            と同じ考え方。polar/azimuthは1本のクォータニオンに合成される
+            都合上、BeamLightのようにlift/yawを別々になますことができないため、
+            この2軸をまとめてスナップさせる(下のslerpバイパスとセットで運用)。
+
+            振れ幅は固定のMAX_SWINGではなく spreadNow(セクションの cue.spread)
+            を掛ける ―― 他の軌道(crossX/十字/円)はどれも spreadNow で絞っているのに
+            ここだけ無条件で物理可動域いっぱい(MAX_SWING≒75°)へ振っていたため、
+            「サーチライトがほぼ真横を向いている」印象になっていた(ユーザー指摘。
+            「イントロ2みたいな振り方をしてる程度でいい」= intro-B の cue.spread
+            (0.55)相当まで絞れば十分、という指定)。spreadNow を掛けることで、
+            outro(spread 0.55)は intro-B とほぼ同じ振れ幅になり、SABI/LATTER
+            (0.78〜1)は従来どおり大きく開く。
           */
           const side = beam.x >= 0 ? 1 : -1;
           azimuth = side * beatSyncDir >= 0 ? 0 : Math.PI;
-          polar = MAX_SWING;
+          polar = MAX_SWING * spreadNow;
         } else if (crossX) {
           /*
             シザース交差(reply.mp4 4〜9秒)。図の左右(=ワールド X)方向へ
@@ -1171,7 +1225,16 @@ export function Searchlight({
         拍同期モードは通常の chase(走る光)パターンを無効化し、拍のON/OFF
         点滅(beatSyncBlink)に置き換える(ユーザー指定)。
       */
-      const level = isBeatSync ? base * beatSyncBlink : base * chase * solo;
+      /*
+        Bメロは隅櫓の角4本だけ(ユーザー指定「Bメロは角の4本だけでいい。
+        8本出るのはさびだけでいい」)。天守の辺8本(beam.isCorner=false)は
+        Bの間ハードに0にし、次のSABIから通常どおり12本(角4+辺8)に戻す。
+      */
+      const bCornerOnlyGate = isB && !beam.isCorner ? 0 : 1;
+      const level =
+        (isBeatSync ? base * beatSyncBlink : base * chase * solo) *
+        bCornerOnlyGate *
+        bHushFade;
 
       mat.uniforms.uOpacity.value = Math.max(level * BEAM_OPACITY_MAX, 0);
       if (flare) {

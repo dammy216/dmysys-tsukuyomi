@@ -85,13 +85,14 @@ const CASTLE_ARRIVE_TAIL = 0;
 const SPIN_MAX = 9;
 
 /**
- * ブロックの見た目: 稜線が電子的に発光する黒いキューブ。
+ * ブロックの見た目: 稜線が電子的に発光する白いキューブ。
  *
  * 元は天守のスキャンと馴染む砂岩色の塗り立方体だったが、「四方から飛来する
- * 電子的なブロック」に寄せるユーザー指定で置き換えた。面はほぼ真っ黒
- * (BLOCK_BASE_COLOR)のまま残し、シェーダー側(blockWireframeShader.ts)が
- * 稜線だけを赤〜橙で光らせる(discard で面を抜く空洞のワイヤーフレームに
- * 一度したが、「枠の中空洞じゃなくて黒にして」の指摘で不透明な黒い箱へ戻した)。
+ * 電子的なブロック」に寄せるユーザー指定で置き換えた。面は単色(BLOCK_BASE_COLOR)
+ * のまま残し、シェーダー側(blockWireframeShader.ts)が稜線だけを赤〜橙で光らせる
+ * (discard で面を抜く空洞のワイヤーフレームに一度したが、「枠の中空洞じゃなくて
+ * 黒にして」の指摘で不透明な箱へ戻した。さらに「黒じゃなくて白にして」の指摘で
+ * BLOCK_BASE_COLOR を黒から白へ変更してある)。
  *
  * 色は当初シアン/バイオレット(天守本体の投影光と同じ寒色)で実装したが、
  * 「赤とオレンジ系がいいかな」というユーザーフィードバックで差し替えた。
@@ -100,7 +101,7 @@ const SPIN_MAX = 9;
  * 既存パレットから REPLY_GLOW_COLOR(赤)/ REPLY_INTRO2_LASER_MID(橙)を流用する
  * (橙は「もっと赤みを」の指摘で BLOCK_EDGE_ORANGE_REDNESS ぶん赤へ寄せてある)。
  */
-const BLOCK_BASE_COLOR = "#05060a";
+const BLOCK_BASE_COLOR = "#fafafa";
 /**
  * エッジ判定の太さ(box の各面の UV 空間、0〜0.5。boxGeometry は面ごとに
  * UV が 0〜1 なのでこれがそのまま枠の太さになる)。大きいほど枠が太くなる。
@@ -114,8 +115,8 @@ const BLOCK_EDGE_SOFTNESS = 2.0;
 /**
  * エッジ発光の強さ。totalEmissiveRadiance へ instanceColor(赤/橙)にこの値を
  * 掛けて足す。天守本体の投影光(PROJECTION_INTENSITY_MAX=0.85)より強め ――
- * ブロックは面のほとんどが discard で消えるぶん、稜線そのものがくっきり
- * 浮かないと「電子的に収束してくる」画として弱く見えるため。
+ * 面(BLOCK_BASE_COLOR)に対して稜線がくっきり浮かないと「電子的に収束してくる」
+ * 画として弱く見えるため。
  */
 const BLOCK_EDGE_EMISSIVE_INTENSITY = 2.4;
 /**

@@ -29,6 +29,10 @@ import { createBeamPaletteBuffer, sampleBeamSectionPalette } from "./beamSection
 import {
   CASTLE_ROOF_TIERS,
   CASTLE_TOP_Y,
+  REPLY_B_BLINK_START_SECONDS,
+  REPLY_B_HUSH_FADE_SECONDS,
+  REPLY_B_HUSH_START_SECONDS,
+  REPLY_B_RISER_BEAT_DIVISOR,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
   REPLY_BEAT_SYNC_BLINK_FLOOR,
@@ -97,6 +101,12 @@ type EaveTierAtBuilding = {
   upperHalfWidth: number;
   upperHalfDepth: number;
 };
+
+/** なめらかな加減速。Bメロの静けさへ落ちるフェード(bHushFade)に使う */
+function smoothstep(x: number) {
+  const k = x < 0 ? 0 : x > 1 ? 1 : x;
+  return k * k * (3 - 2 * k);
+}
 
 /**
  * 屋根の段を「軒 → ひとつ上の段の軒(最上段は屋根の頂部)」の対にする。
@@ -912,13 +922,50 @@ export function BeamLight({
       同じ考え方を、この4セクションでは「フェーズ1」抜きで常時有効にする。
       対象セクションの一覧は Searchlight.tsx と共有(REPLY_BEAT_SYNC_SECTIONS。
       片方だけ対象がずれると2つのリグが違う拍で点滅する破綻になるため)。
+
+      例外: B は「歌詞『カラフル』の入り(REPLY_B_BLINK_START_SECONDS)まで
+      点滅させない」というユーザー指摘があり、それまでは isBeatSync を
+      false にして通常の chase パターン(CUES.B)へ戻す。「カラフル
+      つかまえよう…さぁ！」の間だけ、実測(低域オンセットが半拍間隔に
+      詰まる)に合わせて点滅を REPLY_B_RISER_BEAT_DIVISOR 倍速にする。
+      「さぁ」以降(bHushOn。REPLY_B_HUSH_START_SECONDS)はサビ直前の
+      静けさとして isBeatSync を再び false に戻す ―― 下の lift/yaw 計算
+      (bHushOn 分岐)がまっすぐ上を向かせ、レベル計算も bHushFade で
+      REPLY_B_HUSH_FADE_SECONDSかけて0へフェードするので、拍の点滅ではなく
+      「まっすぐ上を向きながらなだらかに消える」動きになる(ユーザー指定
+      「さぁのところで点滅やめて、静けさを出したいからすべてのライトを
+      消して。上に向けて消してね」→「いきなり消えているからフェード
+      アウトするようにして」。Searchlight.tsx と同じ考え方)。この倍速判定
+      専用に syncBeatPos/syncBeat/syncBeatPhase を別で持つ ―― 素の
+      beatPos/beat/beatPhase は intro2Blink など他区間の判定にも使われて
+      いるので上書きしない。
     */
+    const isB = sectionName === "B";
+    const bRiserOn = isB && raw >= REPLY_B_BLINK_START_SECONDS;
+    const bHushOn = isB && raw >= REPLY_B_HUSH_START_SECONDS;
+    /*
+      静けさへ落ちる明るさのフェード(1→0)。bHushOnの瞬間に0へ飛ばすと
+      「いきなり消える」ので、REPLY_B_HUSH_FADE_SECONDSかけてなだらかに
+      落とす(ユーザー指摘。Searchlight.tsx の bHushFade と同じ考え方)。
+      姿勢(下の bHushOn 分岐)はもとから follow のなましで滑らかなので
+      ここでは明るさだけ扱う。
+    */
+    const bHushFade = bHushOn
+      ? 1 -
+        smoothstep((raw - REPLY_B_HUSH_START_SECONDS) / REPLY_B_HUSH_FADE_SECONDS)
+      : 1;
     const isBeatSync =
-      sectionName !== undefined && REPLY_BEAT_SYNC_SECTIONS.has(sectionName);
+      sectionName !== undefined &&
+      REPLY_BEAT_SYNC_SECTIONS.has(sectionName) &&
+      (!isB || (bRiserOn && !bHushOn));
+    const syncDivisor = bRiserOn ? REPLY_B_RISER_BEAT_DIVISOR : 1;
+    const syncBeatPos = beatPos * syncDivisor;
+    const syncBeat = Math.floor(syncBeatPos);
+    const syncBeatPhase = syncBeatPos - syncBeat;
     const beatSyncBlink =
-      beatPhase < REPLY_BEAT_SYNC_BLINK_ON ? 1 : REPLY_BEAT_SYNC_BLINK_FLOOR;
+      syncBeatPhase < REPLY_BEAT_SYNC_BLINK_ON ? 1 : REPLY_BEAT_SYNC_BLINK_FLOOR;
     /** 偶数拍+1/奇数拍-1。拍同期(B/SABI/…)の左右スナップの向き */
-    const beatSyncDir = ((beat % 2) + 2) % 2 === 0 ? 1 : -1;
+    const beatSyncDir = ((syncBeat % 2) + 2) % 2 === 0 ? 1 : -1;
 
     mat.uniforms.uOpacity.value = lit * EAVE_BEAM_OPACITY_MAX;
     flareMat.uniforms.uOpacity.value = lit * FLARE_OPACITY_MAX;
@@ -962,17 +1009,29 @@ export function BeamLight({
         unisonパターンを無効化する」の実体はここ(明るさの作り方)で、
         本数(gate = CUES表の density)はそのまま引き継ぐ。
       */
-      const level = isIntro2
-        ? Math.max(s.base * gate * intro2Blink * INTRO2_LASER_LEVEL, 0)
-        : isBeatSync
-          ? Math.max(s.base * gate * beatSyncBlink, 0)
-          : Math.max(s.base * gate * chase, 0);
+      const level =
+        (isIntro2
+          ? Math.max(s.base * gate * intro2Blink * INTRO2_LASER_LEVEL, 0)
+          : isBeatSync
+            ? Math.max(s.base * gate * beatSyncBlink, 0)
+            : Math.max(s.base * gate * chase, 0)) * bHushFade;
       levels[i] = level;
 
       /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */
       let targetLift: number;
       let targetYaw: number;
-      if (isIntro2) {
+      if (bHushOn) {
+        /*
+          Bメロの「静けさ」区間(歌詞「さぁ」からサビ直前まで)。ユーザー指定
+          「上に向けて消してね」どおり、真上(BEAM_LIFT_MAX)・正面(yaw=0)へ
+          まっすぐ戻す。isIntro2/isBeatSyncのスナップと違い、これは
+          isBeatSync=falseのまま下のnextLift/nextYaw計算のfollow(なまし)を
+          通るので、パッと切り替わらずゆっくり直立していく
+          (Searchlight.tsx の standUp と同じ考え方)。
+        */
+        targetLift = BEAM_LIFT_MAX;
+        targetYaw = 0;
+      } else if (isIntro2) {
         /*
           イントロ2のレーザー ―― **天守も隅櫓も同じ動き**(ユーザー指定
           「櫓も天守みたいなビームの動きにして」)。outro(イントロ2再現)の
