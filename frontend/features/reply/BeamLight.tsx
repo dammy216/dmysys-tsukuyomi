@@ -33,6 +33,7 @@ import {
   REPLY_B_HUSH_FADE_SECONDS,
   REPLY_B_HUSH_START_SECONDS,
   REPLY_B_RISER_BEAT_DIVISOR,
+  REPLY_B_RISER_BRIGHTEN_MAX,
   REPLY_BEAT_OFFSET,
   REPLY_BEAT_SECONDS,
   REPLY_BEAT_SYNC_BLINK_FLOOR,
@@ -107,6 +108,19 @@ function smoothstep(x: number) {
   const k = x < 0 ? 0 : x > 1 ? 1 : x;
   return k * k * (3 - 2 * k);
 }
+
+/*
+  「カラフル　つかまえよう…さぁ」区間の開始・終わりを syncBeat と同じ単位
+  (REPLY_B_RISER_BEAT_DIVISOR 倍速の拍)に変換した値。riserBrighten の
+  進行度(useFrame内)をこの2値で正規化する。定数だけから決まるので
+  毎フレーム計算せずモジュール読み込み時に一度だけ求める。
+*/
+const RISER_START_SYNC_BEAT =
+  ((REPLY_B_BLINK_START_SECONDS - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS) *
+  REPLY_B_RISER_BEAT_DIVISOR;
+const RISER_END_SYNC_BEAT =
+  ((REPLY_B_HUSH_START_SECONDS - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS) *
+  REPLY_B_RISER_BEAT_DIVISOR;
 
 /**
  * 屋根の段を「軒 → ひとつ上の段の軒(最上段は屋根の頂部)」の対にする。
@@ -980,6 +994,25 @@ export function BeamLight({
     /** 偶数拍+1/奇数拍-1。拍同期(B/SABI/…)の左右スナップの向き */
     const beatSyncDir = ((syncBeat % 2) + 2) % 2 === 0 ? 1 : -1;
     /*
+      bRiserOn の間、拍(syncBeat)を追うごとに明るさの上限を線形に引き上げる
+      (ユーザー指定「点滅のたびにどんどん明るくなるように」)。RISER_START/
+      END_SYNC_BEAT の間で0→1へ進み、REPLY_B_RISER_BRIGHTEN_MAX 倍まで持ち
+      上げる。bRiserOn は bHushOn に入っても true のまま(isB の間ずっと)
+      なので、「さぁ」以降は progress が1で頭打ちになり、最大の明るさの
+      ままフェードアウト(bHushFade)へそのまま繋がる。
+    */
+    const riserProgress = bRiserOn
+      ? Math.min(
+          Math.max(
+            (syncBeat - RISER_START_SYNC_BEAT) /
+              (RISER_END_SYNC_BEAT - RISER_START_SYNC_BEAT),
+            0,
+          ),
+          1,
+        )
+      : 0;
+    const riserBrighten = 1 + (REPLY_B_RISER_BRIGHTEN_MAX - 1) * riserProgress;
+    /*
       bRiserOn(「カラフル つかまえよう…さぁ」)専用: 拍ごとに8方向を時計回りに
       巡る回転スナップ(ユーザー指摘「上下左右に動かしながら、規則性のある
       形で」→ さらに「パターンが2パターンしかないからレパートリー増やして」
@@ -1038,13 +1071,20 @@ export function BeamLight({
         chase の代わりに beatSyncBlink を掛ける ―― 「通常のchase/wave/
         unisonパターンを無効化する」の実体はここ(明るさの作り方)で、
         本数(gate = CUES表の density)はそのまま引き継ぐ。
+
+        riserBrighten は bRiserOn の間だけ1を超える(それ以外の区間は常に1
+        なので他パターンには影響しない)。bHushFade と並べて外側に掛けて
+        あるので、拍同期の点滅(isBeatSync)にも、hush入り後の chase 分岐
+        (フェードアウト中)にも同じ倍率がそのまま乗る。
       */
       const level =
         (isIntro2
           ? Math.max(s.base * gate * intro2Blink * INTRO2_LASER_LEVEL, 0)
           : isBeatSync
             ? Math.max(s.base * gate * beatSyncBlink, 0)
-            : Math.max(s.base * gate * chase, 0)) * bHushFade;
+            : Math.max(s.base * gate * chase, 0)) *
+        bHushFade *
+        riserBrighten;
       levels[i] = level;
 
       /* --- 2. 首振り。上下(lift)と左右(yaw)で同じ位相の円を描く --- */

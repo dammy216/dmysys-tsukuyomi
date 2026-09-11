@@ -291,8 +291,6 @@ export const REPLY_FOCUS: [number, number, number] = [
  * 赤〜橙で統一する。
  * ------------------------------------------------------------------ */
 
-/** ホログラム映像に掛ける赤みの色。加算合成なので実質ここが映像の色味になる */
-export const REPLY_HOLOGRAM_TINT = "#ff6a4a";
 /** 画面のまわりの光の縁・ステージの発光 */
 export const REPLY_GLOW_COLOR = "#ff3d1a";
 
@@ -472,6 +470,18 @@ export const REPLY_B_HUSH_START_SECONDS = 60.7;
  * 正体だった。
  */
 export const REPLY_B_HUSH_FADE_SECONDS = 0.6;
+
+/**
+ * 「カラフル　つかまえよう…さぁ！」の間、点滅(拍)を追うごとに明るさの
+ * 上限を線形に引き上げていく倍率の最大値。REPLY_B_BLINK_START_SECONDS の
+ * 時点は1倍(通常の明るさ)から始まり、REPLY_B_HUSH_START_SECONDS(「さぁ」の
+ * 頭)でこの倍率に達する ―― 拍(点滅)のたびにどんどん明るくなるユーザー指定。
+ * サビ(SABIのlevel=1.35)より一瞬だけ明るく張ってから静けさへ落ちるよう、
+ * それを上回る値にしてある。以降(bHushOnのフェードアウト)もこの倍率の
+ * まま REPLY_B_HUSH_FADE_SECONDS かけて0へ落ちる(明るさが最大の状態から
+ * フェードアウトへそのまま繋がる)。
+ */
+export const REPLY_B_RISER_BRIGHTEN_MAX = 1.35;
 
 /**
  * Searchlight(足元のサーチライト)の隅4本(隅櫓の角)を、Bメロで一斉に

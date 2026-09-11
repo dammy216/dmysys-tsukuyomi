@@ -97,7 +97,7 @@ const SPIN_MAX = 9;
  * 色は当初シアン/バイオレット(天守本体の投影光と同じ寒色)で実装したが、
  * 「赤とオレンジ系がいいかな」というユーザーフィードバックで差し替えた。
  * Reply 演出は鳥居の発光に合わせた赤〜橙で統一する方針(constants.ts の
- * REPLY_HOLOGRAM_TINT 前のコメント参照)なので、新規定数は追加せず
+ * REPLY_GLOW_COLOR 前のコメント参照)なので、新規定数は追加せず
  * 既存パレットから REPLY_GLOW_COLOR(赤)/ REPLY_INTRO2_LASER_MID(橙)を流用する
  * (橙は「もっと赤みを」の指摘で BLOCK_EDGE_ORANGE_REDNESS ぶん赤へ寄せてある)。
  */
