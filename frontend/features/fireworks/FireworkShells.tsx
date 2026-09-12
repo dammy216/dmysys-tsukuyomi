@@ -250,3 +250,16 @@ export function RingShell(props: FireworkShellsProps) {
 export function WaterFan(props: FireworkShellsProps) {
   return <FireworkShells kind="fan" {...props} />;
 }
+
+/**
+ * 大冠菊(グランドフィナーレ)。冠菊の寸法を丸ごと大きくした特大の柳で、
+ * 1発でも傘が空を覆い、金の簾が7秒かけて垂れ続ける。
+ *
+ * **1発ぶんの粒が kamuro の1.6倍・尾も最長**なので、定期の打ち上げに
+ * 混ぜる型ではない。曲の最後のフィナーレに、時間をずらした波として
+ * 何発か重ねて使うこと(ReplyFireworks.tsx の FINALE_BARRAGE_* 参照)。
+ * 落ちしろが要るので、開く高さは kamuro よりさらに高く取ること。
+ */
+export function FinaleShell(props: FireworkShellsProps) {
+  return <FireworkShells kind="finale" {...props} />;
+}

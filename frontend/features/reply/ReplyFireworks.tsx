@@ -3,6 +3,7 @@
 import type { RefObject } from "react";
 
 import {
+  FinaleShell,
   KamuroShell,
   KikuShell,
   PeonyShell,
@@ -54,6 +55,11 @@ const MAIN_TO = 106.5;
 /**
  * 大玉を上げる位置(秒)。曲の山に合わせた指定。
  * 62.0 サビ頭 / 83.0 後半頭 / 106.0 最後の「キラめいてうたおう」
+ *
+ * **`FINALE_TIMES`(この大玉3発)と、下の `FINALE_WAVES` 以下
+ * (107.6秒からのグランドフィナーレ)は別物。** 名前は似ているが、
+ * こちらは通常運行の中の「一番大きい定期の玉」、あちらは曲の締めに
+ * 大冠菊を波で重ねる専用の演出。
  */
 const FINALE_TIMES = [62.0, 83.0, 106.0] as const;
 /** 大玉の玉の大きさ。通常の玉より大きく開く */
@@ -98,6 +104,49 @@ const LATTER_BARRAGE_COUNT = 10;
 const LATTER_BARRAGE_KIND: FireworkKind = "kiku";
 
 /**
+ * 1:47.6(107.6秒)のグランドフィナーレ(ユーザー指定「1:47.6でも大量の花火を
+ * 爆発させるようにして。ここは他よりも多くてしだれ花火みたいなのがいい」→
+ * 参考動画(日本の花火大会のフィナーレ)を見て「みたいな花火にしてほしい。
+ * 既存のもので対応できなさそうであれば新しくフィナーレ用のを作って」→
+ * 「しだれ以外にも動画みたいに赤い花火も欲しいな。あと動画は一瞬じゃないかも
+ * しれないけど、これは一瞬でいいよ」)。
+ *
+ * **outro開始(107.0秒)の直後 = MAIN_TO(106.5秒)より後**なので、通常運行
+ * (サビ〜後半だけ2小節に1発。「音が引くところで絵だけ残ると浮く」ため
+ * outro以降は上げない設計)の範囲の外になるが、ここはユーザー指定の
+ * フィナーレとして例外的に置く(HUSH_BARRAGE/LATTER_BARRAGEも同様に
+ * push()の重複除外を通さず直接積む単発イベント)。
+ *
+ * **柳(finale)は新設の型。** 当初は既存の kamuro を置いていたが、kamuro は
+ * 「疎な定期打ち上げの中の1発」の寸法(半径23・粒130)なので、何発重ねても
+ * 参考動画のように空が埋まらなかった ―― 傘・尾・粒数・閃光をまるごと
+ * 大きくした専用の型を features/fireworks/shellKinds.ts に足してある
+ * (FIREWORK_PROFILES.finale のコメント参照)。
+ *
+ * **赤い花火は既存の kiku を色だけ差し替えて使う。** 参考動画は柳(金)だけで
+ * なく赤い大輪も同時に開いていたので、同じ瞬間に赤い菊(FINALE_RED_*)を
+ * 追加で上げる ―― 新しい型は要らない(色を変えるだけで十分)。
+ *
+ * **単発の同時爆発でいい(ユーザー指定「一瞬でいいよ」)。** 参考動画のように
+ * 何波も連続で開き続ける作りは撤回し、他のバラージ(HUSH/LATTER)と同じ
+ * 「全発が同じ瞬間に開く」一発勝負にしてある。
+ */
+const FINALE_BARRAGE_BURST_AT = 107.6;
+/** 柳の本数。「他よりも多くて」の指定どおり、他のバラージ(10発)より多い */
+const FINALE_BARRAGE_COUNT = 18;
+const FINALE_BARRAGE_KIND: FireworkKind = "finale";
+
+/**
+ * 柳と同じ瞬間に上げる赤い菊(FINALE_BARRAGE_BURST_ATのコメント参照)。
+ * kiku をそのまま使い、shell/core の色だけ赤系に差し替える
+ * (emitKiku は plan.colors[0]=shell, [1]=core を見る)。
+ */
+const FINALE_RED_COUNT = 10;
+const FINALE_RED_KIND: FireworkKind = "kiku";
+/** 外殻は燃えるような赤、芯はそれより明るい赤橙(白飛びとの間を持たせる) */
+const FINALE_RED_COLORS = ["#ff2d1a", "#ff8a5a"] as const;
+
+/**
  * 打ち上げ位置の塔の中心からの距離(ワールド単位)。
  * カメラ(ドローン航路)が天守にかなり寄るので、外へ散らしすぎると
  * 上がった玉が画角の外で開いて見えない。塔寄りに固めてある。
@@ -112,6 +161,12 @@ const BURST_Y_MAX = CASTLE_TOP_Y + 58;
  * 他と同じ高さで開くと落ちきる前に水面へ刺さって尻切れになる。
  */
 const KAMURO_Y_LIFT = 26;
+/**
+ * 大冠菊(finale)の底上げ。冠菊よりさらに高く開く ―― 垂れる速さ17.7/s ×
+ * 寿命7秒で落差がおよそ100あるので(shellKinds.ts の FIREWORK_PROFILES.finale
+ * のコメント参照)、冠菊と同じ高さだと簾が伸びきる前に水面へ刺さる。
+ */
+const FINALE_Y_LIFT = 58;
 
 /**
  * 玉と玉の最小間隔(秒)。これより近いものは捨てる。
@@ -167,7 +222,8 @@ function placeShell(index: number, kind: FireworkKind) {
     ORIGIN_RADIUS_MIN + hash(index * 7.7) * (ORIGIN_RADIUS_MAX - ORIGIN_RADIUS_MIN);
   const x = REPLY_BASE_POSITION[0] + Math.sin(angle) * radius;
   const z = REPLY_BASE_POSITION[2] + Math.cos(angle) * radius;
-  const lift = kind === "kamuro" ? KAMURO_Y_LIFT : 0;
+  const lift =
+    kind === "finale" ? FINALE_Y_LIFT : kind === "kamuro" ? KAMURO_Y_LIFT : 0;
   const y = BURST_Y_MIN + lift + hash(index * 5.3) * (BURST_Y_MAX - BURST_Y_MIN);
   const from: Vec3 = [x, 0, z];
   const to: Vec3 = [x, y, z];
@@ -248,6 +304,34 @@ function buildShells(): ScheduledShell[] {
     });
   }
 
+  /*
+    1:47.6(107.6秒)のグランドフィナーレ。FINALE_BARRAGE_BURST_AT のコメント
+    参照。柳(finale)と赤い菊(kiku・赤色指定)を同じ瞬間に一斉発射する
+    (ユーザー指定「一瞬でいいよ」―― HUSH_BARRAGE/LATTER_BARRAGEと同じ、
+    全発が同じ burst 時刻を持つ単発の同時爆発)。
+  */
+  for (let i = 0; i < FINALE_BARRAGE_COUNT; i++) {
+    const seed = 500 + i;
+    shells.push({
+      at: FINALE_BARRAGE_BURST_AT,
+      kind: FINALE_BARRAGE_KIND,
+      scale: 1.0 + hash(seed * 2.7) * 0.3,
+      seed,
+      ...placeShell(seed, FINALE_BARRAGE_KIND),
+    });
+  }
+  for (let i = 0; i < FINALE_RED_COUNT; i++) {
+    const seed = 600 + i;
+    shells.push({
+      at: FINALE_BARRAGE_BURST_AT,
+      kind: FINALE_RED_KIND,
+      colors: FINALE_RED_COLORS,
+      scale: 1.0 + hash(seed * 2.7) * 0.3,
+      seed,
+      ...placeShell(seed, FINALE_RED_KIND),
+    });
+  }
+
   return shells;
 }
 
@@ -267,6 +351,7 @@ const KAMURO_SHELLS = shellsOf("kamuro");
 const SENRIN_SHELLS = shellsOf("senrin");
 const RING_SHELLS = shellsOf("ring");
 const PEONY_SHELLS = shellsOf("peony");
+const FINALE_SHELLS = shellsOf("finale");
 
 /** 水上の扇。列の向きと全長は from→to の水平ベクトルで決まる */
 const FAN_SHELLS: ShellPlan[] = WATER_FAN_TIMES.map((at, i) => ({
@@ -298,7 +383,7 @@ type ReplyFireworksProps = {
 /**
  * 曲の小節グリッドに乗せて上がる打ち上げ花火。
  *
- * 型ごとに1つずつコンポーネントを並べる = points 6回の描画。玉を増やしても
+ * 型ごとに1つずつコンポーネントを並べる = points 7回の描画。玉を増やしても
  * 描画回数は増えない(1つの points に全発ぶんの粒が入っている)。
  * 玉の配置・色・弾ける高さは添字から決まる決定的な値なので、何周しても
  * 毎回同じ位置に同じ花火が上がる(曲に紐づいた演出になる)。
@@ -316,6 +401,8 @@ export function ReplyFireworks({
       <RingShell shells={RING_SHELLS} {...common} />
       <PeonyShell shells={PEONY_SHELLS} {...common} />
       <WaterFan shells={FAN_SHELLS} {...common} />
+      {/* 1:47.6からのグランドフィナーレ(大冠菊)。FINALE_* のコメント参照 */}
+      <FinaleShell shells={FINALE_SHELLS} {...common} />
     </>
   );
 }

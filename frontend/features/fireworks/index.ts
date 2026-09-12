@@ -1,4 +1,5 @@
 export {
+  FinaleShell,
   FireworkShells,
   KamuroShell,
   KikuShell,

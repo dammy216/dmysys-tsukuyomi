@@ -9,6 +9,7 @@
  *   senrin 千輪      大きく開いたあと、粒ひとつひとつが**もう一度**小さく咲く
  *   ring   型物(輪)   粒が輪の上に並んだまま広がる。土星のように傾けて置く
  *   fan    水上の扇   水面から低い角度で扇状に噴き上げる。打ち上げ区間は無い
+ *   finale 大冠菊     グランドフィナーレ用の特大の柳。空一面を金の簾で覆う
  *
  * 型の違いは **(1)uniform のプロファイル (2)初速の配り方** の2つだけで、
  * シェーダーは fireworkShader.ts の1本を全型で共有している。
@@ -25,7 +26,8 @@ export type FireworkKind =
   | "kamuro"
   | "senrin"
   | "ring"
-  | "fan";
+  | "fan"
+  | "finale";
 
 /**
  * 型ごとの物理・見た目の定数。そのままシェーダーの uniform になる。
@@ -131,6 +133,36 @@ export const FIREWORK_PROFILES: Record<FireworkKind, FireworkProfile> = {
     flash: 0.4,
     speed: 42,
   },
+  /*
+    大冠菊(グランドフィナーレ用)。**kamuro と性格は同じ金の柳だが、寸法が
+    まるごと別物**。参考にしたのは日本の花火大会のグランドフィナーレ
+    (ユーザー提示の動画)で、そこでは
+      ・1発の傘が画面いっぱいに広がる
+      ・尾が空の高いところから屋根の高さまで、金の簾のように垂れ続ける
+      ・閃光で町ぜんたいが照らされる
+    という見え方をしている。kamuro(半径23・粒130)のままでは「疎な定期
+    打ち上げの中の1発」の寸法なので、何発重ねても空は埋まらない。
+
+    寸法の根拠(このファイル冒頭の目安どおり):
+      開く半径   = speed/drag = 40/0.62 ≒ 65(kamuro の約2.8倍)
+      垂れる速さ = gravity/drag = 11/0.62 ≒ 17.7/s
+      life 7.0秒 ぶん垂れるので、落差はおよそ 100 ―― 開く高さを
+      ReplyFireworks 側の FINALE_Y_LIFT で持ち上げて落ちしろを作ってある。
+    尾(trailSpan/trailSteps)は全型で最長。動画の「途切れない金の筋」は
+    尾の長さで決まるので、ここを削ると一気に貧相になる。
+  */
+  finale: {
+    rise: 1.3,
+    life: 7.0,
+    drag: 0.62,
+    gravity: 11,
+    trailSpan: 1.2,
+    trailSteps: 24,
+    glitter: 0.85,
+    // 開いた瞬間に町ごと白く飛ばす。動画のフィナーレは空全体が明るくなる
+    flash: 1.0,
+    speed: 40,
+  },
 };
 
 /**
@@ -228,6 +260,13 @@ const KAMURO_COLOR = "#ffcb72";
 /** 柳の熾火。消え際にここまで落とすと「燃え尽きる」感じが出る */
 const KAMURO_TINT = "#ff5418";
 
+/*
+  大冠菊。動画のフィナーレの柳は kamuro(#ffcb72)より白に近い、
+  溶けた金のような色で開き、垂れ切るころに熾火の赤へ落ちる。
+*/
+const FINALE_COLOR = "#ffe6ae";
+const FINALE_TINT = "#ff4a12";
+
 const SENRIN_PARENT = "#ffe0a8";
 const SENRIN_SUBS = ["#7dff9c", "#ffd98a", "#ff7ad0", "#9fd4ff"] as const;
 
@@ -259,6 +298,11 @@ const RING_COUNT = 64;
 const RING_PISTIL = 22;
 const FAN_JETS = 9;
 const FAN_PER_JET = 34;
+/**
+ * 大冠菊の粒。kamuro(130)の1.6倍。傘が2.8倍に広がるぶん、同じ密度を
+ * 保つには粒も増やさないと筋がスカスカになる。
+ */
+const FINALE_COUNT = 210;
 
 const NO_BREAK: Vec3 = [0, 0, 0];
 
@@ -373,6 +417,46 @@ function emitKamuro(plan: ShellPlan, out: FireworkParticle[]) {
       burst: to,
       vel: [d[0] * s, d[1] * s, d[2] * s],
       size: 1.8 + hash(seed * 5.9 + i * 1.3) * 1.1,
+      seed: hash(seed * 12.7 + i * 0.41),
+      color,
+      tint,
+    });
+  }
+}
+
+/**
+ * 大冠菊(グランドフィナーレ)。kamuro と同じ「初速をばらして重力で垂らす」
+ * 作りだが、動画のフィナーレに寄せて2つだけ変えてある:
+ *
+ *  1. **初速のばらし方を下へ偏らせる。** kamuro は 0.8〜1.15 の等分ばらしで
+ *     球状に散るが、フィナーレの柳は「上半分は早々に失速し、下半分が長く
+ *     垂れる」= 傘の下側が濃い簾になる。粒の向き(d[1])が下向きほど初速を
+ *     残すようにして、金の簾が下へ伸びる形にする。
+ *  2. **粒の大きさを太く。** 遠景で見たとき筋1本が細いと空が埋まらない。
+ */
+function emitFinale(plan: ShellPlan, out: FireworkParticle[]) {
+  const prof = FIREWORK_PROFILES.finale;
+  const { at, from, to, seed = 0, scale = 1 } = plan;
+  const launch = at - prof.rise;
+  const base = prof.speed * scale;
+  const color = new Color(plan.colors?.[0] ?? FINALE_COLOR);
+  const tint = new Color(plan.colors?.[1] ?? FINALE_TINT);
+
+  for (let i = 0; i < FINALE_COUNT; i++) {
+    const d = fibonacciDir(i, FINALE_COUNT);
+    /*
+      下向き(d[1]<0)の粒ほど初速を残す。上向きは 0.72 倍まで落として
+      早く失速させ、下向きは 1.12 倍まで伸ばす ―― これで傘の下側に
+      長い筋が集まり、動画のような「垂れ下がる簾」になる。
+    */
+    const downward = 0.92 - d[1] * 0.2;
+    const s = base * downward * (0.85 + hash(seed * 17.7 + i) * 0.3);
+    push(out, {
+      launch,
+      origin: from,
+      burst: to,
+      vel: [d[0] * s, d[1] * s, d[2] * s],
+      size: 2.3 + hash(seed * 5.9 + i * 1.3) * 1.4,
       seed: hash(seed * 12.7 + i * 0.41),
       color,
       tint,
@@ -556,6 +640,7 @@ const EMITTERS: Record<
   senrin: emitSenrin,
   ring: emitRing,
   fan: emitFan,
+  finale: emitFinale,
 };
 
 /** 指定の型で、玉のリストぶんの粒をまとめて撒く */
