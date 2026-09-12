@@ -50,6 +50,7 @@ import {
   CornerTowers,
   EdoCastle,
   ReplyCamera,
+  ReplyConfettiFish,
   ReplyFireworks,
   ReplyHologram,
   ReplyMoon,
@@ -1012,6 +1013,17 @@ export function SceneContents({
             <ReplyFireworks
               songTimeRef={replySongTimeRef}
               intensityRef={replyFireworksRef}
+            />
+            {/*
+              LATTER入り(1:24.5=84.5秒)の花火の同時爆発(上のReplyFireworksの
+              LATTER_BARRAGE_BURST_AT)と同じ瞬間に、天守の上空で魚が紙吹雪の
+              ように弾けて散る一回限りの演出。バーストの有無は内部で
+              songTimeRef だけを見て判定するので、他のReply系と同じく
+              出しっぱなしにしておけばよい(詳しくはReplyConfettiFish.tsx)。
+            */}
+            <ReplyConfettiFish
+              songTimeRef={replySongTimeRef}
+              position={REPLY_BASE_POSITION}
             />
             {/*
               ステージから上。天守が組み上がって照明が入る11秒から載せる。

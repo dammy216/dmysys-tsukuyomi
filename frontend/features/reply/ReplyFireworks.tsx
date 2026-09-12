@@ -87,8 +87,12 @@ const HUSH_BARRAGE_KIND: FireworkKind = "kiku";
  * 玉が重ならず、「後半に入って少し経ったところで一斉に爆発する」見た目になる。
  * 型を1種(kiku)に揃える理由は HUSH_BARRAGE_KIND のコメントと同じ
  * (型ごとに打ち上げ秒数(rise)が違うため、混ぜると同時に開かなくなる)。
+ *
+ * export しているのは ReplyConfettiFish.tsx が「同じ瞬間に魚も紙吹雪のように
+ * 爆発させる」ため。花火と魚で爆発時刻の定数を別々に持つと、片方だけ
+ * ずらしたときにもう片方が追従せず同時性が崩れるので、1箇所を共有する。
  */
-const LATTER_BARRAGE_BURST_AT = 84.5;
+export const LATTER_BARRAGE_BURST_AT = 84.5;
 /** 本数はHUSH_BARRAGEと同じ「大量」の基準に揃えてある */
 const LATTER_BARRAGE_COUNT = 10;
 const LATTER_BARRAGE_KIND: FireworkKind = "kiku";
