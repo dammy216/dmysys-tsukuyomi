@@ -9,18 +9,31 @@ import {
   type RefObject,
 } from "react";
 import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
+import { Color } from "three";
 import { YachiyoCharacter } from "@/features/yachiyo";
 import { KaguyaCharacter } from "@/features/kaguya";
+import { sampleCastleProjection } from "@/features/reply";
 import { useSceneStore } from "@/features/root/store";
 
-/* ネオン枠 + 濃紺ガラスのパネル。押下トグルは aria-pressed: バリアントで拾う */
+/*
+ * 内側(名前タグ・ステージ・モードボタン)は editor(features/editor/)の
+ * ビューポート一式と揃えた --color-ed-* トークン。**外枠だけは以前の
+ * ネオングラデーション(--color-hud系)を復活させてある**(ユーザー指定:
+ * 枠に色が欲しい)。かぐや=135deg・ヤチヨ=225degで向きだけ変えた同じ配色。
+ *
+ * Reply再生中だけ、この枠の色を城のプロジェクションマッピングの配色
+ * (castleProjectionPalette.sampleCastleProjection)に同期して差し替える
+ * (ユーザー指定)。実装は下の useEffect 参照 ―― rAFで直接 style.background
+ * を書き換え、Reply が止まったら空文字に戻して下のTailwindクラス(既定の
+ * hudグラデーション)を復帰させる。
+ */
 const PANEL =
-  "absolute z-10 rounded-[22px] p-[3px] " +
+  "absolute z-10 rounded-sm p-[3px] " +
   "top-[calc(var(--header-height,3.75rem)+1.25rem)] " +
   "max-sm:top-[calc(var(--header-height,3.75rem)+0.75rem+env(safe-area-inset-top))]";
-const PANEL_SHADOW = "shadow-[0_14px_30px_rgb(0_0_0/0.5)]";
+const PANEL_SHADOW = "shadow-[0_14px_30px_rgb(0_0_0/0.6)]";
 const PANEL_SHADOW_RESIZING =
-  "shadow-[0_14px_30px_rgb(0_0_0/0.5),0_0_0_2px_rgb(93_227_230/0.85)]";
+  "shadow-[0_14px_30px_rgb(0_0_0/0.6),0_0_0_2px_rgb(69_181_168/0.75)]";
 const PANEL_KAGUYA =
   "left-[max(1.25rem,8vw)] max-sm:left-[max(0.5rem,env(safe-area-inset-left))] " +
   "bg-[linear-gradient(135deg,var(--color-hud),#7c7ce6_50%,var(--color-hud))]";
@@ -28,25 +41,24 @@ const PANEL_YACHIYO =
   "right-[max(1.25rem,8vw)] max-sm:right-[max(0.5rem,env(safe-area-inset-right))] " +
   "bg-[linear-gradient(225deg,var(--color-hud),#7c7ce6_50%,var(--color-hud))]";
 const PANEL_INNER =
-  "flex flex-col items-center gap-2.5 rounded-[19px] bg-hud-glass px-2.5 py-3 backdrop-blur-sm " +
+  "flex flex-col items-center gap-2.5 rounded-sm bg-ed-bg px-2.5 py-3 " +
   "max-sm:gap-2 max-sm:px-1.5 max-sm:py-2";
 const DRAG_HANDLE = "flex w-full touch-none select-none justify-center pt-1 pb-0.5";
 const NAME_TAG =
-  "shrink-0 rounded-full border border-hud/70 bg-hud/12 px-3.5 py-[3px] text-xs font-extrabold " +
-  "tracking-[0.08em] text-[#bdf3f5] shadow-[0_0_12px_rgb(93_227_230/0.35)] " +
+  "shrink-0 rounded-sm border border-ed-line bg-ed-row px-3.5 py-[3px] text-xs font-extrabold " +
+  "tracking-[0.08em] text-ed-accent " +
   "max-sm:px-2.5 max-sm:py-0.5 max-sm:text-[11px]";
 const STAGE =
-  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-[14px] bg-[rgb(6_12_24/0.85)] " +
+  "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-sm bg-ed-bg " +
   "shadow-[0_8px_32px_rgb(0_0_0/0.35)] max-sm:h-[190px] max-sm:w-[120px]";
 const CTRL_BAR = "flex shrink-0 gap-1.5 max-sm:gap-2";
 const MODE_BUTTON =
-  "flex size-8 cursor-pointer items-center justify-center rounded-full border border-hud/25 bg-hud/6 p-0 " +
-  "text-[1.1rem] leading-none text-white/75 transition duration-200 " +
-  "hover:bg-hud/14 hover:border-hud/60 hover:text-white " +
-  "aria-pressed:bg-hud/18 aria-pressed:border-hud aria-pressed:text-hud " +
-  "aria-pressed:shadow-[0_0_16px_rgb(93_227_230/0.5)]";
+  "flex size-8 cursor-pointer items-center justify-center rounded-sm border border-ed-line bg-ed-row p-0 " +
+  "text-[1.1rem] leading-none text-ed-text transition duration-200 " +
+  "hover:border-ed-accent/60 hover:text-white " +
+  "aria-pressed:border-ed-accent aria-pressed:bg-ed-accent/15 aria-pressed:text-ed-accent";
 const PLACEHOLDER =
-  "flex size-full items-center justify-center p-4 text-center text-[0.8rem] text-white/70";
+  "flex size-full items-center justify-center p-4 text-center text-[0.8rem] text-ed-dim";
 
 type Offset = { x: number; y: number };
 type StageSize = { width: number; height: number };
@@ -334,12 +346,15 @@ type CharacterOverlayProps = {
   getStarfallAmplitude?: () => number;
   /** Reply のボーカルの音量(0〜1)を返す。歌うのはかぐや */
   getReplyAmplitude?: () => number;
+  /** Reply の映像。再生位置(songTime)を城のプロジェクション配色との同期に使う */
+  replyVideoRef?: RefObject<HTMLVideoElement | null>;
 };
 
 /** 3Dシーン上に重ねる、かぐや／ヤチヨの表示パネル。表示・非表示は下部のコントロールバーで切り替える */
 export function CharacterOverlay({
   getStarfallAmplitude,
   getReplyAmplitude,
+  replyVideoRef,
 }: CharacterOverlayProps) {
   const showKaguya = useSceneStore((s) => s.showKaguya);
   const showYachiyo = useSceneStore((s) => s.showYachiyo);
@@ -409,6 +424,54 @@ export function CharacterOverlay({
   const yachiyoPanelRef = useRef<HTMLDivElement | null>(null);
   const kaguyaTransform = usePanelTransform(kaguyaStageRef, kaguyaPanelRef, "left");
   const yachiyoTransform = usePanelTransform(yachiyoStageRef, yachiyoPanelRef, "right");
+
+  /*
+    Reply再生中だけ、パネルの枠(かぐや/ヤチヨ共通)を城のプロジェクション
+    マッピングの配色に同期させる(ユーザー指定)。sampleCastleProjection は
+    EdoCastle/CornerTowers が uProjA/B/C を更新するのと同じ関数で、
+    songTime(= replyVideoRef.currentTime)からセクション別3色を補間して返す。
+    transform と同じ理由(再レンダーを避ける)で、state を経由せず
+    panel.style.background へ直接rAFで書き込む。Reply が止まったら空文字に
+    戻し、PANEL_KAGUYA/PANEL_YACHIYOのTailwindクラス(既定のhudグラデーション)
+    へ復帰させる。
+
+    **panelRef.current は tick() の中で毎フレーム読む**(effect本体で1回だけ
+    束縛しない)。以前は effect 起動時に一度だけ束縛していたため、Reply再生中に
+    かぐや/ヤチヨのパネルを非表示→再表示すると(showKaguya/showYachiyoの
+    トグルはこのeffectの依存配列に無いのでeffect自体は再起動しない)、
+    新しくマウントされたDOMノードではなく非表示にした古いノードへ書き込み
+    続けてしまい、再表示後は既定色のまま戻らないバグになっていた(ユーザー指摘)。
+  */
+  useEffect(() => {
+    if (!replyActive) {
+      if (kaguyaPanelRef.current) kaguyaPanelRef.current.style.background = "";
+      if (yachiyoPanelRef.current) yachiyoPanelRef.current.style.background = "";
+      return;
+    }
+
+    const colorA = new Color();
+    const colorB = new Color();
+    const colorC = new Color();
+    let raf = 0;
+    const tick = () => {
+      const t = replyVideoRef?.current?.currentTime ?? 0;
+      const kaguyaPanel = kaguyaPanelRef.current;
+      const yachiyoPanel = yachiyoPanelRef.current;
+      sampleCastleProjection(t, colorA, colorB, colorC);
+      const hexA = `#${colorA.getHexString()}`;
+      const hexB = `#${colorB.getHexString()}`;
+      const hexC = `#${colorC.getHexString()}`;
+      if (kaguyaPanel) {
+        kaguyaPanel.style.background = `linear-gradient(135deg, ${hexA}, ${hexB} 50%, ${hexC})`;
+      }
+      if (yachiyoPanel) {
+        yachiyoPanel.style.background = `linear-gradient(225deg, ${hexA}, ${hexB} 50%, ${hexC})`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [replyActive, replyVideoRef]);
 
   return (
     <>

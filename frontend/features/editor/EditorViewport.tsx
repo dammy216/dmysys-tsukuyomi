@@ -86,8 +86,26 @@ function saveStoredSize(size: Size) {
  */
 function useResizableStage(onManualResize?: () => void) {
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState<Size | null>(() => loadStoredSize());
+  /*
+    初期値は SSR と同じ null にしておく(size-full の既定サイズ)。
+    localStorage はサーバーには無いため、ここで直接 loadStoredSize() を
+    初期値にすると「サーバーは null 前提でHTMLを吐く」→「クライアントの
+    初回レンダーは保存済みサイズ」という食い違いが起きてhydrationエラーに
+    なっていた(このビューポートは以前は編集モードに入って初めてマウントされる
+    ものだったのでSSRに載らず問題化しなかったが、通常画面にも常設したことで
+    露見した)。保存済みサイズは mount 後の useEffect で読み、あれば
+    そこで初めて反映する。
+  */
+  const [size, setSize] = useState<Size | null>(null);
   const [resizing, setResizing] = useState(false);
+
+  useEffect(() => {
+    const stored = loadStoredSize();
+    // localStorageはサーバーに無いため、読めるのはマウント後のこの時点だけ
+    // (= 初期値をnullにしてSSRと揃えたぶん、ここで1回だけ反映する)。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored) setSize(stored);
+  }, []);
 
   const live = useRef<Size | null>(size);
   useEffect(() => {

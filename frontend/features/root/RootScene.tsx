@@ -88,6 +88,7 @@ export function RootScene() {
         <CharacterOverlay
           getStarfallAmplitude={getStarfallAmplitude}
           getReplyAmplitude={getReplyAmplitude}
+          replyVideoRef={replyVideoRef}
         />
       )}
     </>
