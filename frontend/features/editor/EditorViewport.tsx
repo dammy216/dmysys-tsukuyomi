@@ -47,8 +47,16 @@ function clamp(value: number, min: number, max: number) {
  * サイズをlocalStorageへ覚えておく。編集モードを抜けると EditorViewport
  * ごとアンマウントされて state が消えるため、リサイズしても次に編集モードへ
  * 入り直すと(あるいはページを再読み込みすると)元に戻ってしまっていた。
+ *
+ * **キーに `-v2` が付いている。** 開発中にリサイズ・画面比率プリセットを
+ * 試した結果、最大表示ではないサイズが `editor-viewport-size` として
+ * 残ってしまっていて、それが通常画面にも復元され「初めて開いたときから
+ * 最大表示になっていない」ように見えていた(ユーザー指摘)。共有の仕組み
+ * (通常画面と編集モードで同じキーを使う)自体は変えず、キー名だけ更新して
+ * 古い保存値を無効化し、次に開いたときは size=null(=最大表示)から
+ * 始まるようにしてある。
  */
-const STORAGE_KEY = "editor-viewport-size";
+const STORAGE_KEY = "editor-viewport-size-v2";
 
 function loadStoredSize(): Size | null {
   try {
