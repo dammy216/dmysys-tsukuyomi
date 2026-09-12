@@ -45,7 +45,13 @@ import {
   REPLY_INTRO2_LASER_MID,
 } from "./constants";
 import { REPLY_SECTIONS } from "./songStructure";
-import { CORNER_TOWER_XZ, TOWER_HEIGHT, TOWER_ROOF_TIERS } from "./towerLayout";
+import {
+  CORNER_TOWER_XZ,
+  TOWER_HALF_DEPTH,
+  TOWER_HALF_WIDTH,
+  TOWER_HEIGHT,
+  TOWER_ROOF_TIERS,
+} from "./towerLayout";
 
 /*
   ------------------------------------------------------------------
@@ -149,9 +155,28 @@ function withRoofClimb(
 }
 
 /**
+ * 隅櫓の実際の底面(モデルのbbox底、y=0。towerLayout.tsのコメントどおり
+ * 「底面がちょうど y=0 に来る」)。**屋根ではなく土台**だが、ビームの軒として
+ * ここにも1段追加する ―― TOWER_ROOF_TIERS[0](最下の屋根の軒)は実測で
+ * 塔の全高の55%あたりにしかなく、そこから下(土台〜壁)にはビームが1本も
+ * 無かったため、「サビのビームが櫓の一番下から出ていない」というユーザー
+ * 指摘の通りになっていた。
+ *
+ * 幅/奥行きはモデルのbbox実測値(TOWER_HALF_WIDTH/DEPTH。towerLayout.ts参照)
+ * をそのまま使う ―― TOWER_ROOF_TIERS[0]の幅(0.01228*scale)とほぼ同じ
+ * (0.01222*scale)なので、土台から最下の屋根まではほぼ垂直な壁だと分かる
+ * (実測値どうしなので、この段だけ幅を測り直す必要がない)。
+ */
+const TOWER_BASE_TIER: RoofRow = {
+  y: 0,
+  halfWidth: TOWER_HALF_WIDTH,
+  halfDepth: TOWER_HALF_DEPTH,
+};
+
+/**
  * ビームを生やす「建物×層」の一覧。天守1棟(CASTLE_ROOF_TIERS ぶん)+
- * 四隅の隅櫓4棟(それぞれ TOWER_ROOF_TIERS ぶん)。隅櫓は4棟とも同じ形の
- * モデルなので同じ層データを使い回すが、中心(cx, cz)だけは
+ * 四隅の隅櫓4棟(それぞれ TOWER_BASE_TIER + TOWER_ROOF_TIERS ぶん)。隅櫓は
+ * 4棟とも同じ形のモデルなので同じ層データを使い回すが、中心(cx, cz)だけは
  * CORNER_TOWER_XZ の各棟のものを使う(天守全体の四隅ではなく、
  * 各棟ローカルな四隅にするのがポイント)。
  *
@@ -160,11 +185,17 @@ function withRoofClimb(
  * (CASTLE_ROOF_TIERS 自体は実測値なので手を付けず、ここで slice する)。
  * slice 後の各要素の「ひとつ上の段」は slice 後の次の要素なので、
  * withRoofClimb にそのまま渡してよい(最上段だけ apex に落ちる)。
+ *
+ * 隅櫓は逆に、指示で最下段(TOWER_BASE_TIER)を**追加**している。
+ * heightNorm は castleRigHeightNorm で 0 未満を 0 にクランプするので、
+ * この段は既存の最下層(TOWER_ROOF_TIERS[0])と同じ heightNorm=0 として
+ * 扱われる ―― density のゲート挙動(何 density で何本点くか)は既存の表を
+ * 変えず、単に heightNorm=0 に灯が2段(土台+最下の屋根)になるだけ。
  */
 const EAVE_TIERS: EaveTierAtBuilding[] = [
   ...withRoofClimb(CASTLE_ROOF_TIERS.slice(1), CASTLE_TOP_Y, 0, 0),
   ...CORNER_TOWER_XZ.flatMap(([cx, cz]) =>
-    withRoofClimb(TOWER_ROOF_TIERS, TOWER_HEIGHT, cx, cz),
+    withRoofClimb([TOWER_BASE_TIER, ...TOWER_ROOF_TIERS], TOWER_HEIGHT, cx, cz),
   ),
 ];
 
@@ -714,13 +745,14 @@ type BeamLightProps = {
  *
  * **例外2: B・SABI・LATTER・outro は「拍同期」モード**(ユーザー指定。
  * useFrame の isBeatSync 分岐 / constants.ts の REPLY_BEAT_SYNC_* 参照):
- * イントロ2レーザーのフェーズ2(拍ごとのON/OFF点滅 + 可動域限界へのスナップ)
- * と同じ考え方を、開き演出(フェーズ1)無しでこの4セクション全体に適用する。
- * 通常の chase パターンの代わりに拍のブリンクで明るさを作り、横(yaw)の
- * なましをバイパスして拍ごとに ±BEAM_YAW_LIMIT へ瞬間移動する。仰角(lift)・
- * 本数(density)・色(セクション別パレット)は通常どおり CUES 表 /
- * beamSectionPalette.ts の値を引き継ぐ。Searchlight.tsx も同じ4セクション・
- * 同じ拍グリッドで揃って動く。
+ * 横(yaw)のなましをバイパスして拍ごとに ±BEAM_YAW_LIMIT へ瞬間移動する
+ * (イントロ2レーザーのフェーズ2と同じ考え方)。仰角(lift)・本数(density)・
+ * 色(セクション別パレット)は通常どおり CUES表/beamSectionPalette.tsの値を
+ * 引き継ぐ。**明るさは B のリザー(bRiserOn)だけ拍のON/OFF点滅
+ * (beatSyncBlink)に置き換える** ―― SABI/LATTER/outroは通常の chase の
+ * まま(以前はここも点滅にしていたが、ユーザー指摘「ビームが点滅させてる
+ * だけ」で外した。Searchlight.tsx の足元サーチライトと同じ経緯)。
+ * Searchlight.tsx も同じ4セクション・同じ拍グリッドで揃って動く。
  *
  * **例外2の中でもさらに例外: bRiserOn(B内「カラフル つかまえよう…さぁ」の
  * 点滅区間)だけ仰角(lift)・左右(yaw)とも「拍ごとに8方向を時計回りに巡る」
@@ -1096,10 +1128,15 @@ export function BeamLight({
       /*
         レーザー時はチェイスを殺して**全灯いっせいに拍でチカチカ**
         (intro2Blink)。密度フロント(gate)は残すので、まだ点いてない
-        高さの灯は光らない。拍同期(B/SABI/LATTER/outro)も同じ理屈で
-        chase の代わりに beatSyncBlink を掛ける ―― 「通常のchase/wave/
-        unisonパターンを無効化する」の実体はここ(明るさの作り方)で、
-        本数(gate = CUES表の density)はそのまま引き継ぐ。
+        高さの灯は光らない。**Bのリザーだけ**同じ理屈で chase の代わりに
+        beatSyncBlink を掛ける(ユーザー指定の点滅)。本数(gate = CUES表の
+        density)はそのまま引き継ぐ。
+
+        SABI/LATTER/outro(isBeatSyncだがisB=falseの側)は通常の chase へ
+        戻した ―― 以前はここも beatSyncBlink(消灯側が完全に0)で全灯を
+        拍ごとにチカチカさせていたが、ユーザー指摘「ビームが点滅させてる
+        だけ」で外した(Searchlight.tsx のサビ足元サーチライトと同じ
+        経緯・同じ対応)。
 
         bBrighten は isB の間だけ1を超える(それ以外の区間は常に1なので
         他パターンには影響しない)。bHushFade と並べて外側に掛けてあるので、
@@ -1109,7 +1146,7 @@ export function BeamLight({
       const level =
         (isIntro2
           ? Math.max(s.base * gate * intro2Blink * INTRO2_LASER_LEVEL, 0)
-          : isBeatSync
+          : isBeatSync && isB
             ? Math.max(s.base * gate * beatSyncBlink, 0)
             : Math.max(s.base * gate * chase, 0)) *
         bHushFade *

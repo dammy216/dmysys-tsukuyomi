@@ -405,7 +405,7 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     ほぼ3倍に増える。これが「サビで本数が増える」の実体。
   */
   SABI: {
-    level: 1.4,
+    level: 1.8,
     density: 1,
     // 下限マイナス = 水平を超えて見下ろす向きまで振る(可動域の図の最大)
     ...castleLiftFromRange(-0.45),
