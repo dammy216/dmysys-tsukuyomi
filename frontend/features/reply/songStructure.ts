@@ -52,8 +52,8 @@ export const REPLY_SECTIONS: readonly ReplySection[] = [
   { name: "SABI", start: 62.0, ramp: 0.7 },
   { name: "LATTER", start: 83.0, ramp: 1.4 },
   { name: "outro", start: 107.0, ramp: 2.8 },
-  // フェード開始(実測 121.3秒。121.0秒まではレベルが平坦)
-  { name: "fade", start: 121.3, ramp: 4.0 },
+  // フェード開始(1:59.1=119.1秒。ユーザー指定で前倒し。以前は実測どおり121.3秒だった)
+  { name: "fade", start: 119.1, ramp: 4.0 },
 ] as const;
 
 /**
