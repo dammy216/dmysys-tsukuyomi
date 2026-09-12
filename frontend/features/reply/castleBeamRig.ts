@@ -421,22 +421,30 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     tint: 1,
     slew: 13,
   },
-  // 後半。サビの熱を保ちつつ、フロントを少し戻して波を半分の速さにする
+  /*
+    後半。**SABIと全パラメータ同値**(ユーザー指定「sabiとlatterのサーチも
+    ビームも同じにして。sabiは全部出ているのにlatterから消えてるから」)。
+    以前は「サビの熱を保ちつつフロントを少し戻す」意図で density 0.85 等
+    サビより控えた値にしていたが、density(本数フロント)を下げると
+    隅櫓の土台(TOWER_BASE_TIER。BeamLight.tsxのheightNorm=0クランプ)が
+    heightGate のしきい値(density≈0.862)を割ってLATTER入りの瞬間に
+    消灯してしまっていた。本数を絞る演出をやめ、SABIの値をそのまま使う。
+  */
   LATTER: {
-    level: 1.25,
-    density: 0.85,
-    ...castleLiftFromRange(-0.25),
-    yaw: 0.13,
+    level: 1.8,
+    density: 1,
+    ...castleLiftFromRange(-0.45),
+    yaw: 0.16,
     swingBars: 1,
     pattern: "spiral",
-    waveSpread: 1,
-    chaseBars: 2,
-    chaseDepth: 0.5,
-    strobe: 0.22,
+    waveSpread: 1.5,
+    chaseBars: 1,
+    chaseDepth: 0.6,
+    strobe: 0.3,
     colorBars: 1,
-    colorSpread: 0.85,
-    tint: 0.9,
-    slew: 10,
+    colorSpread: 1,
+    tint: 1,
+    slew: 13,
   },
   // アウトロ。同位相へ戻し、色を抜きながらフロントを上げて静かに引く
   outro: {

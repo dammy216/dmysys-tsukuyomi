@@ -317,18 +317,24 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ringColors: true,
     slew: 14,
   },
-  // 後半。サビの勢いを保ちつつ、チェイスは半分の速さにして少し落ち着かせる
+  /*
+    後半。**SABIと全パラメータ同値**(ユーザー指定「sabiとlatterのサーチも
+    ビームも同じにして。sabiは全部出ているのにlatterから消えてるから」)。
+    以前は「チェイスを半分の速さにして少し落ち着かせる」意図でSABIより
+    控えた値にしていたが、castleBeamRig.ts の CUES.LATTER と揃えて
+    SABIの値をそのまま使う。
+  */
   LATTER: {
     pattern: "chase",
     sweepBars: 1,
-    chaseBars: 2,
-    chaseDepth: 0.6,
-    level: 1.2,
-    spread: 0.95,
-    strobe: 0.26,
+    chaseBars: 1,
+    chaseDepth: 0.7,
+    level: 1.35,
+    spread: 1,
+    strobe: 0.34,
     colorBars: 1,
     ringColors: true,
-    slew: 11,
+    slew: 14,
   },
   // アウトロ。同位相へ戻して静かに引く
   outro: {
