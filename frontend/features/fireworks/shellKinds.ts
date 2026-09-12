@@ -182,6 +182,15 @@ export type ShellPlan = {
   seed?: number;
   /** 色の指定(省略時は型ごとの既定色) */
   colors?: readonly string[];
+  /**
+   * 水上の扇(fan)専用。1発(1本のfrom→to)あたりのノズル数を既定の
+   * FAN_JETS から上書きする。円形リング配置(ReplyFireworks.tsx の
+   * FAN_SHELLS)は直線1本だった扇を短い弦(ShellPlan)へ分割して並べるため、
+   * 弦の本数ぶんそのまま FAN_JETS を掛けると総粒子数が膨れ上がる ――
+   * 弦1本あたりのノズル数をここで絞ることで、リング全体の密度を
+   * 直線1本のときに近い水準へ抑える。
+   */
+  jets?: number;
 };
 
 /** 粒1つ。これを trailSteps 個の頂点に展開して描く */
@@ -296,6 +305,7 @@ const SENRIN_SUBS_PER_PARENT = 8;
 const RING_COUNT = 64;
 /** 型物の中心に入れる小さな芯 */
 const RING_PISTIL = 22;
+/** 直線1本(ShellPlan.jets 未指定)のときの既定ノズル数。ShellPlan.jets で上書きできる */
 const FAN_JETS = 9;
 const FAN_PER_JET = 34;
 /**
@@ -592,10 +602,12 @@ function emitFan(plan: ShellPlan, out: FireworkParticle[]) {
   const rowZ = len > 0.001 ? dz / len : 0;
   // 列の全長。to を指定しなければ既定の 90 を使う
   const span = len > 0.001 ? len : 90;
+  // plan.jets があれば弦1本あたりのノズル数をそちらへ差し替える(ShellPlan.jetsのコメント参照)
+  const jets = Math.max(2, plan.jets ?? FAN_JETS);
 
-  for (let j = 0; j < FAN_JETS; j++) {
+  for (let j = 0; j < jets; j++) {
     // -0.5〜0.5 に並べる
-    const t = j / (FAN_JETS - 1) - 0.5;
+    const t = j / (jets - 1) - 0.5;
     const ox = from[0] + rowX * span * t;
     const oz = from[2] + rowZ * span * t;
     const origin: Vec3 = [ox, from[1], oz];

@@ -205,9 +205,39 @@ const GRID_KINDS: readonly FireworkKind[] = [
  * つないでいる。水面は MeshReflectorMaterial なので映り込みは自動で出る。
  */
 const WATER_FAN_TIMES = [62.0, 83.0, 106.0] as const;
-/** 扇の列を置く位置(塔の中心からの Z オフセット)と、列の全長 */
-const WATER_FAN_Z_OFFSET = 82;
-const WATER_FAN_SPAN = 190;
+/**
+ * 扇のリングを置く、塔(REPLY_BASE_POSITION)中心からの半径。
+ *
+ * もとは片側(+Z方向)だけに直線1本を置いていたが、「城を囲むように円形に」
+ * というユーザー指定でリング配置に変えた。値は変更前の列のオフセット(82)を
+ * そのまま半径として流用している ―― 大玉の打ち上げ半径
+ * (ORIGIN_RADIUS_MIN=38〜ORIGIN_RADIUS_MAX=92)と同じレンジに収まる。
+ *
+ * **他の演出物との干渉確認**: ステージ/鳥居(STAGE_Y・REPLY_TORII_*)は
+ * 塔中心からの水平距離が STAGE_RADIUS=5・REPLY_TORII_SIDE_OFFSET=2 ほどしか
+ * なく、かつ高さも天守の屋根の上(STAGE_Y≒CASTLE_TOP_Y-1)にある。半径82の
+ * リングは水面(y=0)からその外側(水平距離82)まで噴き上がるだけなので、
+ * 水平にも高さの立ち上がり位置でも重ならない(既存の大玉が同じ半径帯
+ * (38〜92)で頂部付近まで開いているのと同じ扱い)。
+ */
+const WATER_FAN_RADIUS = 82;
+/**
+ * 円周を何本の弦(隣接2頂点を結ぶ短い直線)に分割するか。emitFan
+ * (shellKinds.ts)は from→to の水平ベクトルをそのまま列の向きとして
+ * 扱うだけなので、円周上の弦を並べて渡せば改修なしでリングになる。
+ * 12分割(30°ごと)の弓形の膨らみ(サジタ)は 82×(1-cos15°)≒2.8 で、
+ * 遠景では多角形と気づかない水準の円になる。
+ */
+const WATER_FAN_RING_SEGMENTS = 12;
+/**
+ * 弦1本(=1つの ShellPlan)あたりのノズル数。直線1本だったころの既定値
+ * (shellKinds.ts の FAN_JETS=9)のままリング分割すると
+ * 9×WATER_FAN_RING_SEGMENTS 本ぶんノズルが増えて粒子数が12倍に膨れるため、
+ * ShellPlan.jets で弦の両端(2本)だけに絞る。
+ * 合計ノズル数は 2×12=24、粒子数は 24×34(FAN_PER_JET)=816 ―― 元の
+ * 直線1本(9×34=306)のおよそ2.7倍で、目安の2〜3倍に収まる。
+ */
+const WATER_FAN_RING_JETS_PER_CHORD = 2;
 
 type ScheduledShell = ShellPlan & { kind: FireworkKind };
 
@@ -353,22 +383,40 @@ const RING_SHELLS = shellsOf("ring");
 const PEONY_SHELLS = shellsOf("peony");
 const FINALE_SHELLS = shellsOf("finale");
 
-/** 水上の扇。列の向きと全長は from→to の水平ベクトルで決まる */
-const FAN_SHELLS: ShellPlan[] = WATER_FAN_TIMES.map((at, i) => ({
-  at,
-  from: [
-    REPLY_BASE_POSITION[0] - WATER_FAN_SPAN / 2,
-    0,
-    REPLY_BASE_POSITION[2] + WATER_FAN_Z_OFFSET,
-  ] as Vec3,
-  to: [
-    REPLY_BASE_POSITION[0] + WATER_FAN_SPAN / 2,
-    0,
-    REPLY_BASE_POSITION[2] + WATER_FAN_Z_OFFSET,
-  ] as Vec3,
-  seed: 200 + i,
-  scale: 1,
-}));
+/**
+ * 円周上の等分点(k番目)。角度の起点は決め打ち(0)でよい ―― placeShell の
+ * ようにハッシュで毎周バラつかせる理由(打ち上げの数が多く、決め打ちだと
+ * 単調に見える)がなく、対称なリングを均等に並べれば足りる。
+ */
+function fanRingPoint(k: number): readonly [number, number] {
+  const angle = (k / WATER_FAN_RING_SEGMENTS) * Math.PI * 2;
+  const x = REPLY_BASE_POSITION[0] + Math.sin(angle) * WATER_FAN_RADIUS;
+  const z = REPLY_BASE_POSITION[2] + Math.cos(angle) * WATER_FAN_RADIUS;
+  return [x, z];
+}
+
+/**
+ * 水上の扇。塔を取り囲む円を WATER_FAN_RING_SEGMENTS 分割し、隣接する
+ * 2頂点を結ぶ短い弦を1本の ShellPlan として並べる。emitFan(shellKinds.ts)
+ * は from→to の水平ベクトルをそのまま列の向き・全長として使うだけなので、
+ * 円周上の弦を渡すだけでリング状の噴き上げになる(emitFan 本体は無改修)。
+ * ノズル数は ShellPlan.jets で弦1本あたり絞ってある
+ * (WATER_FAN_RING_JETS_PER_CHORD のコメント参照)。
+ */
+const FAN_SHELLS: ShellPlan[] = WATER_FAN_TIMES.flatMap((at, i) =>
+  Array.from({ length: WATER_FAN_RING_SEGMENTS }, (_, k) => {
+    const [x0, z0] = fanRingPoint(k);
+    const [x1, z1] = fanRingPoint(k + 1);
+    return {
+      at,
+      from: [x0, 0, z0] as Vec3,
+      to: [x1, 0, z1] as Vec3,
+      seed: 200 + i * WATER_FAN_RING_SEGMENTS + k,
+      scale: 1,
+      jets: WATER_FAN_RING_JETS_PER_CHORD,
+    };
+  }),
+);
 
 type ReplyFireworksProps = {
   /** 曲(=ホログラム映像)の再生位置(秒)を持つ ref */
