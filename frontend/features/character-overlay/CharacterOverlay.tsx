@@ -46,7 +46,7 @@ const PANEL_INNER =
 const DRAG_HANDLE = "flex w-full touch-none select-none justify-center pt-1 pb-0.5";
 const NAME_TAG =
   "shrink-0 rounded-sm border border-ed-line bg-ed-row px-3.5 py-[3px] text-xs font-extrabold " +
-  "tracking-[0.08em] text-ed-accent " +
+  "tracking-[0.08em] text-ed-text " +
   "max-sm:px-2.5 max-sm:py-0.5 max-sm:text-[11px]";
 const STAGE =
   "h-[320px] w-[200px] shrink-0 overflow-hidden rounded-sm bg-ed-bg " +
