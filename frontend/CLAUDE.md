@@ -15,14 +15,12 @@ Next.js 16 (App Router)。ルート("/")は3Dサンドボックス（Three.js / 
 スタイルは **Tailwind のみ**。CSS Modules は使わない。
 
 - HUDの共通トークンは `app/globals.css` の `@theme`: `--color-hud`（水色）/ `--color-hud-glass`
-  （濃紺ガラス地）/ `--color-hud-pink`（星降る海）/ `--color-hud-rec`（録画）。`bg-hud/14` のように使う。
+  （濃紺ガラス地）。CharacterOverlay のかぐや/ヤチヨパネルが使う。`bg-hud/14` のように使う。
+  ビューポート一式(`features/editor/`)は別系統の `--color-ed-*`（ダークグレー＋ティール）。
 - 押下トグルは `aria-pressed` を要素に付け、`aria-pressed:` バリアントで見た目を変える
   （JSで active クラスを足さない）。`hover:` は v4 が自動でタッチ端末を除外する。
 - 繰り返す長いクラス列はコンポーネント冒頭で `const PILL = "..."` のように定数化する。
-- グラデ枠・多重shadow は arbitrary value（`bg-[linear-gradient(...)]` 等）。録画の点滅は
-  `@theme` の `--animate-record` → `animate-record`（`motion-reduce:animate-none` 併用）。
-- 例外は `.scene-stats`（globals.css）のみ。stats.js が挿す React 外の DOM に `classList` で
-  当てるため Tailwind が使えない。
+- グラデ枠・多重shadow は arbitrary value（`bg-[linear-gradient(...)]` 等）。
 
 ## features/（feature-based 構成）
 
@@ -33,10 +31,9 @@ Next.js 16 (App Router)。ルート("/")は3Dサンドボックス（Three.js / 
 | `root/` | ページ本体。副作用フックの配線・R3F `<Canvas>`・`useFrame` 演出ロジック・演出定数(`timings.ts`)・UI状態ストア(`store.ts`) |
 | `scenery/` | 静的な景観（鳥居・水面/海のグロー・灯籠・空背景） |
 | `starfall-sea/` | 「星降る海」演出モード（魚群・専用カメラ・流れ星・鳥居ホログラム・泡・水中エフェクト・専用BGM） |
-| `scene-controls/` | 下部HUDコントロールバー `ControlBar`（DOM）＋左上の方位計 `Compass` |
-| `editor/` | 編集モード（`ControlBar` の「編集」ボタン or `L`キー。本番でも使える）のUI一式。Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）。シーク/再生バー（`EditorToolbar`）は Sequence Editor パネルの見出しを兼ねる。Reply開始/停止・自由視点（`EditorModeBar`）はビューポート直下（DOM）。抜けるのは編集画面ヘッダーの「編集モード終了」or `L` |
+| `scene-controls/` | ビューポート左上の方位計 `Compass`（DOM。カメラの向き(度)だけを表示。旧・方位磁石UIとControlBarは廃止し、editor/のビューポート一式に統一した） |
+| `editor/` | 3Dビューポート一式（ヘッダー＋`EditorViewport`＋`Compass`＋`EditorFpsBadge`＋`EditorModeBar`）。**通常画面・編集モードの両方で共通のコンポーネント**（ユーザー指定でControlBarを廃止し統一）。ヘッダーは編集モードでは「VIEWPORT」見出し+「編集モード終了」、通常画面では空の見出し+「ライセンス」ボタン（Credits.tsx。初期値非表示）。`EditorModeBar` はビューポート直下（DOM）に Reply開始/停止・自由視点・画面比率を常設し、通常画面のときだけ かぐや/ヤチヨ表示・星降る海・編集モードへの入口も出す（`siteControls` prop）。編集モード（「編集」ボタン or `L`キー。本番でも使える）に入ると Theatre.js Studio 風の3ペイン（左=Outline / 右=Details / 下=Sequence Editor）が追加で開く。シーク/再生バー（`EditorToolbar`）は Sequence Editor パネルの見出しを兼ねる。抜けるのは編集画面ヘッダーの「編集モード終了」or `L` |
 | `character-overlay/` | かぐや・ヤチヨの Rive を3Dに重ねるドラッグ可能パネル `CharacterOverlay`（DOM） |
-| `scene-recording/` | WebGLキャンバス + 音声の webm 録画 |
 | `kaguya/` `yachiyo/` | 各キャラの Rive コンポーネント |
 
 各 feature 内のコンポーネント一覧・依存関係・どこで使われているかは `/graphify`（knowledge graph）で参照する。
@@ -45,8 +42,8 @@ feature 間は `index.ts` バレル経由で `@/features/<name>` から import �
 
 ### シーンの状態管理は2層
 
-- **UIステート**（`showKaguya` / `skyVariant` / `starfallSea` など、ボタン操作で変わる値）は
-  `@/features/root/store` の `useSceneStore`（zustand）。`ControlBar` `CharacterOverlay`
+- **UIステート**（`showKaguya` / `starfallSea` / `showCredits` など、ボタン操作で変わる値）は
+  `@/features/root/store` の `useSceneStore`（zustand）。`EditorModeBar` `CharacterOverlay`
   `SceneContents` が必要なキーだけを selector で購読する。`<Canvas>` 境界を越えて購読できる。
   協調更新（星降る海ON時にヤチヨ自動表示など）は store のアクションにまとめる。
 - **毎フレーム変わる演出値**（activation の進行度など）は従来どおり `SceneContents` 内の `ref`。
@@ -98,7 +95,7 @@ Studioへ流し込む/エクスポートし直す運用が実運用に見合わ�
 
 コードの数値を書き換えて保存すれば Fast Refresh でそのまま反映される。
 
-**編集モード(`ControlBar` の「編集」ボタン or `L`キー。本番でも使える)では GUI からも触れる**。`features/editor/` の
+**編集モード(`EditorModeBar` の「編集」ボタン or `L`キー。本番でも使える)では GUI からも触れる**。`features/editor/` の
 3ペインUI(Outline / Details / Sequence Editor)が上記の値を実行時ストア
 (`useDronePathStore` / `useReplyTimelineStore` / `useCameraFeelStore`)経由で
 書き換え、3D画面に即反映する。ただし**その変更はブラウザ上の下書き**で、

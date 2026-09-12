@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 
 /**
- * 編集モード(EditorLayout)の3Dビューポート右上に置くFPS表示。
- * SceneStats(stats.js)は右上固定パネルで、編集モード中はビューポートが
- * 中央へ縮むため位置がズレる。編集モード中は隠している(SceneContents側)。
- * 代わりにビューポート内へ、rAFの間隔から単純計算する独立した実装で出す
- * (stats.jsとは連動しない)。
+ * EditorLayout の3Dビューポート右上に置くFPS表示(通常画面・編集モード共通)。
+ * 以前は通常画面だけ stats.js(SceneStats)の右上固定パネルを使っていたが、
+ * ビューポートを両画面で共通化したのに合わせてこちらへ統一した(stats.jsは
+ * 廃止)。rAFの間隔から単純計算する独立した実装。
  */
 function useFps() {
   const [fps, setFps] = useState(0);

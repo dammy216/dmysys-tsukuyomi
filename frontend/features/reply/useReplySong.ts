@@ -50,13 +50,6 @@ export function useReplySong(active: boolean) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const wiredRef = useRef(false);
-  /*
-    録画用の音声出力。現状 Reply の音は映像要素そのままの出力で Web Audio を
-    通っていない(ボーカルステムは無音の解析専用)。なので録画音声はここに
-    乗らず、getCaptureStream() は null を返す = Reply の録画は音声なしになる。
-    録画に音を乗せるなら映像を Web Audio 経由にしてここへ繋ぐ必要がある。
-  */
-  const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   /*
     映像＋ステムを再生開始したら true。押した次の tick で true になる。
@@ -310,27 +303,10 @@ export function useReplySong(active: boolean) {
     return Math.min(rms * 3.5, 1);
   }, []);
 
-  /*
-    録画の直前に呼ぶ。Web Audio グラフを(まだなら)配線して AudioContext を
-    resume する。Reply を再生していなくても音声トラック自体は用意される。
-  */
-  const prepareCaptureAudio = useCallback(() => {
-    wireAnalyser();
-    audioCtxRef.current?.resume().catch(() => {});
-  }, [wireAnalyser]);
-
-  /** 録画用の音声ストリーム。未配線なら null(無音の映像だけになる) */
-  const getCaptureStream = useCallback(
-    (): MediaStream | null => captureDestRef.current?.stream ?? null,
-    [],
-  );
-
   return {
     videoRef,
     /** 映像＋ステムを再生開始したら true。押した次の tick で true */
     playing,
     getAmplitude,
-    prepareCaptureAudio,
-    getCaptureStream,
   };
 }

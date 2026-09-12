@@ -99,7 +99,6 @@ import {
   UNDERWATER_SURGE_RELIEF,
 } from "./timings";
 import { useSceneStore } from "./store";
-import { SceneStats } from "./SceneStats";
 
 /** 鳥居の中心。被写界深度のピント位置もここに合わせる */
 const TORII_POSITION: [number, number, number] = [0, 0, -2];
@@ -145,6 +144,12 @@ const LANTERN_COUNT = 2000;
 const LANTERN_GATHER_HEIGHT_MIN = 0.5;
 const LANTERN_GATHER_HEIGHT_MAX = REPLY_HOLOGRAM_Y + 40;
 
+/**
+ * 演出モード(星降る海/Reply)でないときの空。以前はUIから夕暮れ/夜を
+ * 切り替えられたが、ユーザー指定でその切替機能ごと削除したので固定値にする。
+ */
+const IDLE_SKY_VARIANT = "dusk";
+
 
 /**
  * シーン本体。useFrame は Canvas の中でしか使えないため、
@@ -158,15 +163,13 @@ export function SceneContents({
   /** Reply のホログラムに映す映像。useReplySong が用意する */
   replyVideoRef: RefObject<HTMLVideoElement | null>;
 }) {
-  const skyVariant = useSceneStore((s) => s.skyVariant);
   const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
   const freeCam = useSceneStore((s) => s.freeCam);
-  const editorMode = useSceneStore((s) => s.editorMode);
 
   /*
     編集モード(useSceneStore.editorMode)の `L`キートグル。本番でも使える
-    (下部の ControlBar「編集」ボタン、または `L` キー)。SceneContents から
+    (ビューポート下のバーの「編集」ボタン、または `L` キー)。SceneContents から
     1箇所だけ登録する(ReplyCamera / StarfallCamera など各演出カメラは呼ばない)。
   */
   useEffect(() => {
@@ -820,7 +823,7 @@ export function SceneContents({
         Suspense の外に置く。
       */}
       <MountainRing
-        variant={replyPlaying ? "reply" : starfallPlaying ? "night" : skyVariant}
+        variant={replyPlaying ? "reply" : starfallPlaying ? "night" : IDLE_SKY_VARIANT}
       />
 
       {/*
@@ -839,7 +842,7 @@ export function SceneContents({
           バリアント(SkyBackground.tsx 参照)。月明かりの光は下の ReplyMoon。
         */}
         <SkyBackground
-          variant={replyPlaying ? "reply" : starfallPlaying ? "night" : skyVariant}
+          variant={replyPlaying ? "reply" : starfallPlaying ? "night" : IDLE_SKY_VARIANT}
           replyMoon={REPLY_MOON}
         />
         {/*
@@ -1170,9 +1173,6 @@ export function SceneContents({
               : NORMAL_ORBIT_TARGET
         }
       />
-      {/* 編集モード中は EditorFpsBadge が自前でFPSを出すので、こちらは隠す */}
-      {!editorMode && <SceneStats />}
-
       {/*
         エフェクトは常に同じ構成でマウントし続け、強さだけを上の useFrame で
         activation に応じて0まで下げる(詳しくは useFrame 内のコメント参照)。

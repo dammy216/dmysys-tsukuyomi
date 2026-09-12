@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // ノッチ端末で env(safe-area-inset-*) を効かせる（ControlBar / Compass 等が参照）
+  // ノッチ端末で env(safe-area-inset-*) を効かせる（CharacterOverlay 等が参照）
   viewportFit: "cover",
   themeColor: "#0f172a",
 };

@@ -4,26 +4,10 @@
   --font-sans: var(--font-geist-sans);
 }
 
-/* 近未来HUDの共通トークン（ControlBar / CharacterOverlay / Compass で共有） */
+/* 近未来HUDの共通トークン（CharacterOverlay / EditorToolbar で共有） */
 @theme {
   --color-hud: #5de3e6; /* 水色アクセント */
   --color-hud-glass: #060c18eb; /* パネル/バーの濃紺ガラス地 = rgb(6 12 24 / 0.92) */
-  --color-hud-pink: #fa0577; /* 「星降る海」アクセント */
-  --color-hud-reply: #ff5a1e; /* 「Reply」アクセント。江戸城の赤いライトに合わせた橙赤 */
-  --color-hud-rec: #ff5b6e; /* 録画中 */
-
-  /* 録画ボタンの点滅。motion-reduce:animate-none で無効化する */
-  --animate-record: record 1.4s ease-in-out infinite;
-
-  @keyframes record {
-    0%,
-    100% {
-      box-shadow: 0 0 10px rgb(255 91 110 / 0.35);
-    }
-    50% {
-      box-shadow: 0 0 20px rgb(255 91 110 / 0.75);
-    }
-  }
 }
 
 /*
@@ -45,13 +29,6 @@
 
 :root {
   --header-height: 3.75rem;
-  --header-offset: 1.25rem;
-}
-
-@media (max-width: 640px) {
-  :root {
-    --header-offset: 0.75rem;
-  }
 }
 
 *,
@@ -61,14 +38,16 @@
 }
 
 /*
- * stats.js(SceneStats)のパネル位置を上書き。stats.js は position:fixed; top:0; left:0 を
- * インラインstyleで強制してくる。React 外の DOM ノードへ classList で付けるため、
- * Tailwind ではなくここにグローバルクラスとして置く。
+ * ルート("/")はスクロールしないアプリ画面(EditorLayout が fixed inset-0 で
+ * 画面いっぱいを取る)。html/body 側にも overflow:hidden を明示しておかないと、
+ * 環境によって body の可視域が実ビューポートよりわずかに大きく計算され、
+ * ウィンドウを最大化したときなどに意図しない縦スクロールバーが出ることが
+ * あった(ユーザー指摘)。
  */
-.scene-stats {
-  top: max(var(--header-offset, 1.25rem), env(safe-area-inset-top)) !important;
-  left: auto !important;
-  right: max(0.75rem, env(safe-area-inset-right)) !important;
+html,
+body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -76,5 +55,4 @@ body {
   font-family: var(--font-sans), sans-serif;
   color: #ffffff;
   background-color: #0f172a;
-  overflow-x: hidden;
 }

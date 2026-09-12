@@ -1,10 +1,8 @@
 import { create } from "zustand";
-import type { SkyVariant } from "@/features/scenery";
 
 /**
  * ルート("/")3Dシーンの UI 状態。ボタン操作で変わる純粋な状態だけを持つ
- * (副作用フック useStarfallSong / useReplySong / useSceneRecorder は
- * RootScene に残す)。
+ * (副作用フック useStarfallSong / useReplySong は RootScene に残す)。
  *
  * zustand ストアは React context を使わないモジュールシングルトンなので、
  * R3F の <Canvas> 境界をまたいで SceneContents からも直接購読できる。
@@ -15,7 +13,6 @@ import type { SkyVariant } from "@/features/scenery";
 type SceneState = {
   showKaguya: boolean;
   showYachiyo: boolean;
-  skyVariant: SkyVariant;
   /** 星降る海ボタンが押されているか(ユーザーの意思)。押した瞬間に true */
   starfallSea: boolean;
   /**
@@ -38,10 +35,11 @@ type SceneState = {
   freeCam: boolean;
 
   /**
-   * 編集モード(本番でも使える。ControlBar の「編集」ボタン、または `L`キー)。
-   * true の間はサイトのHUD(ControlBar/かぐやパネル/FPS/方位/クレジット)を
-   * すべて隠し、3Dキャンバスを中央のビューポートへ縮める。操作系は
-   * EditorToolbar に集約する。
+   * 編集モード(本番でも使える。ビューポート下のバーの「編集」ボタン、または
+   * `L`キー)。true の間はサイトのHUD(かぐやパネル/クレジット)を隠し、
+   * Outline/Details/Sequence Editor の3ペインを出す。通常時と編集時で
+   * ビューポート(Compass/FPS/EditorModeBar)自体は共通のコンポーネントを使う
+   * (EditorLayout 参照)。
    */
   editorMode: boolean;
   /**
@@ -50,9 +48,16 @@ type SceneState = {
    */
   editorPaused: boolean;
 
+  /**
+   * ライセンス(Sketchfabモデルのクレジット表記)を出しているか。
+   * ユーザー指定で初期値は非表示。ヘッダーの「ライセンス」ボタンで切り替える
+   * (Credits.tsx 参照。表示自体は利用規約で必須だが、常時出しっぱなしに
+   * しないためボタンの裏に置く)。
+   */
+  showCredits: boolean;
+
   toggleKaguya: () => void;
   toggleYachiyo: () => void;
-  setSkyVariant: (variant: SkyVariant) => void;
   toggleStarfallSea: () => void;
   setStarfallPlaying: (playing: boolean) => void;
   toggleReply: () => void;
@@ -60,12 +65,12 @@ type SceneState = {
   toggleFreeCam: () => void;
   toggleEditorMode: () => void;
   setEditorPaused: (paused: boolean) => void;
+  toggleCredits: () => void;
 };
 
 export const useSceneStore = create<SceneState>((set) => ({
   showKaguya: false,
   showYachiyo: false,
-  skyVariant: "dusk",
   starfallSea: false,
   starfallPlaying: false,
   reply: false,
@@ -73,10 +78,10 @@ export const useSceneStore = create<SceneState>((set) => ({
   freeCam: false,
   editorMode: false,
   editorPaused: false,
+  showCredits: false,
 
   toggleKaguya: () => set((s) => ({ showKaguya: !s.showKaguya })),
   toggleYachiyo: () => set((s) => ({ showYachiyo: !s.showYachiyo })),
-  setSkyVariant: (skyVariant) => set({ skyVariant }),
 
   /*
     星降る海の ON/OFF に伴う協調更新を1アクションにまとめる。
@@ -140,4 +145,6 @@ export const useSceneStore = create<SceneState>((set) => ({
     }),
 
   setEditorPaused: (editorPaused) => set({ editorPaused }),
+
+  toggleCredits: () => set((s) => ({ showCredits: !s.showCredits })),
 }));

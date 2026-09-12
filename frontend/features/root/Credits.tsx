@@ -21,7 +21,12 @@ const CREDITS = [
   },
 ];
 
-/** Sketchfabモデルのクレジット表記（利用規約で表示が必須） */
+/**
+ * Sketchfabモデルのクレジット表記（利用規約で表示が必須）。
+ * 常時は出さず、ヘッダーの「ライセンス」ボタン(useSceneStore.showCredits。
+ * 初期値false)で表示を切り替える(ユーザー指定)。呼び出し側(RootCanvas)が
+ * showCredits && editorModeでない ときだけこのコンポーネントを描画する。
+ */
 export function Credits() {
   return (
     <div

@@ -69,14 +69,8 @@ export function useStarfallSong(active: boolean) {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const otherSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const wiredRef = useRef(false);
-  /*
-    録画用の音声出力。ボーカル＋伴奏をここへも流し、getCaptureStream() で
-    MediaRecorder に渡せる音声トラックにする(3D画面キャプチャと合成する)。
-  */
-  const captureDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   /*
     3つ(映像＋ステム2本)を再生開始したら true。ボタンを押した次の tick で
@@ -120,29 +114,12 @@ export function useStarfallSong(active: boolean) {
    * createMediaElementSource は1つの要素につき一度しか呼べないので、
    * wiredRef で二重配線を防ぐ。
    *
-   * グラフ:
-   *   vocals → analyser ─┬→ ctx.destination (スピーカー)
-   *                       └→ captureDest     (録画)
-   *   other ─────────────┬→ ctx.destination
-   *                       └→ captureDest
+   * グラフ: vocals → analyser → ctx.destination(スピーカー)
+   *         other ───────────→ ctx.destination
    * ボーカルだけ analyser を通すのは口パクの振幅を取るため。
    */
   const wireAnalyser = useCallback(() => {
-    /*
-      HMR 等で「グラフはあるが録画用の出力(captureDest)だけ無い」状態に
-      なることがある。その場合は既存グラフへ captureDest を足すだけにする
-      (createMediaElementSource は1要素につき一度しか呼べないため作り直せない)。
-    */
-    if (wiredRef.current) {
-      const ctx = audioCtxRef.current;
-      if (ctx && !captureDestRef.current) {
-        const captureDest = ctx.createMediaStreamDestination();
-        analyserRef.current?.connect(captureDest);
-        otherSourceRef.current?.connect(captureDest);
-        captureDestRef.current = captureDest;
-      }
-      return;
-    }
+    if (wiredRef.current) return;
 
     const vocals = vocalsRef.current;
     const other = otherRef.current;
@@ -159,19 +136,13 @@ export function useStarfallSong(active: boolean) {
     const otherSource = ctx.createMediaElementSource(other);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
-    const captureDest = ctx.createMediaStreamDestination();
 
     vocalsSource.connect(analyser);
-    // スピーカーと録画の両方へ、ボーカル(analyser経由)と伴奏を流す
-    for (const node of [analyser, otherSource]) {
-      node.connect(ctx.destination);
-      node.connect(captureDest);
-    }
+    analyser.connect(ctx.destination);
+    otherSource.connect(ctx.destination);
 
     audioCtxRef.current = ctx;
     analyserRef.current = analyser;
-    otherSourceRef.current = otherSource;
-    captureDestRef.current = captureDest;
     dataRef.current = new Uint8Array(new ArrayBuffer(analyser.fftSize));
     wiredRef.current = true;
   }, []);
@@ -315,28 +286,10 @@ export function useStarfallSong(active: boolean) {
     return Math.min(rms * 3.5, 1);
   }, []);
 
-  /*
-    録画の直前に呼ぶ。Web Audio グラフを(まだなら)配線して AudioContext を
-    resume する。星降る海を再生していなくても音声トラック自体は用意される
-    (中身は無音)。
-  */
-  const prepareCaptureAudio = useCallback(() => {
-    wireAnalyser();
-    audioCtxRef.current?.resume().catch(() => {});
-  }, [wireAnalyser]);
-
-  /** 録画用の音声ストリーム。未配線なら null(無音の映像だけになる) */
-  const getCaptureStream = useCallback(
-    (): MediaStream | null => captureDestRef.current?.stream ?? null,
-    [],
-  );
-
   return {
     videoRef,
     /** 3つ(映像＋ステム2本)を再生開始したら true。押した次の tick で true */
     playing,
     getAmplitude,
-    prepareCaptureAudio,
-    getCaptureStream,
   };
 }

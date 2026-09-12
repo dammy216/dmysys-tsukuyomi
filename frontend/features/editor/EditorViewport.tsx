@@ -12,8 +12,10 @@ import {
 } from "react";
 
 /**
- * 編集モード(EditorLayout)内で、children(3Dビューポート+再生ツールバーを
+ * EditorLayout が描く3Dビューポート(children=3Dキャンバス+再生ツールバーを
  * まとめた箱)の縦横比・大きさをユーザーがドラッグで調整できるようにする。
+ * 通常画面・編集モードのどちらでも常時有効(ユーザー指定: 編集モードの
+ * ビューポートの見た目・操作感を通常画面にもそのまま持ち込むため)。
  * CharacterOverlay のかぐや/ヤチヨパネルと同じ「窓の縁を掴んで伸縮する」
  * 操作感を踏襲するが、こちらはオフセット(位置)は持たない。
  *
@@ -231,56 +233,45 @@ export const EditorViewport = forwardRef<
   EditorViewportHandle,
   {
     children: ReactNode;
-    /**
-     * 編集モード中か。false のときは入れ物を display:contents にして
-     * 素通しにする(children を別の場所へ描き替えないので、3Dキャンバスが
-     * 再マウントされない。EditorLayout のコメント参照)。
-     */
-    active: boolean;
     onManualResize?: () => void;
   }
->(function EditorViewport({ children, active, onManualResize }, ref) {
+>(function EditorViewport({ children, onManualResize }, ref) {
   const { stageRef, size, resizing, onResizePointerDown, applyAspectRatio } =
     useResizableStage(onManualResize);
   useImperativeHandle(ref, () => ({ applyAspectRatio }), [applyAspectRatio]);
 
   return (
-    <div
-      className={active ? "flex size-full items-start justify-center" : "contents"}
-    >
+    <div className="flex size-full items-start justify-center">
       <div
         ref={stageRef}
         className={
-          active
-            ? "relative max-h-full max-w-full " +
-              (size ? "" : "size-full") +
-              /*
-                リサイズ中の枠。この要素にも親(flexの入れ物)にも
-                overflow-hidden を付けていない: 付けると、下のリサイズ
-                ハンドルは掴みやすさのため箱の外側へ少しはみ出す作りに
-                なっているため、はみ出た分がクリップされて実質つかめなくなる
-                (実際に発生した不具合: ドラッグしても枠が出ない代わりに
-                隣のOutline/Detailsパネルの幅が変わってしまっていた=
-                ハンドルの当たり判定がクリップで消え、後ろのパネル境界
-                ハンドルにクリックが素通りしていた)。3D映像自体の見た目の
-                角丸/クリップは EditorLayout 側が children を包む内側の
-                div(overflow-hidden)で別途担っているので、ここで外しても
-                映像がはみ出て見えることはない。
-              */
-              (resizing ? " outline outline-2 -outline-offset-2 outline-ed-accent/80" : "")
-            : "contents"
+          "relative max-h-full max-w-full " +
+          (size ? "" : "size-full") +
+          /*
+            リサイズ中の枠。この要素にも親(flexの入れ物)にも
+            overflow-hidden を付けていない: 付けると、下のリサイズ
+            ハンドルは掴みやすさのため箱の外側へ少しはみ出す作りに
+            なっているため、はみ出た分がクリップされて実質つかめなくなる
+            (実際に発生した不具合: ドラッグしても枠が出ない代わりに
+            隣のOutline/Detailsパネルの幅が変わってしまっていた=
+            ハンドルの当たり判定がクリップで消え、後ろのパネル境界
+            ハンドルにクリックが素通りしていた)。3D映像自体の見た目の
+            角丸/クリップは EditorLayout 側が children を包む内側の
+            div(overflow-hidden)で別途担っているので、ここで外しても
+            映像がはみ出て見えることはない。
+          */
+          (resizing ? " outline outline-2 -outline-offset-2 outline-ed-accent/80" : "")
         }
-        style={active && size ? { width: size.width, height: size.height } : undefined}
+        style={size ? { width: size.width, height: size.height } : undefined}
       >
         {children}
-        {active &&
-          RESIZE_HANDLES.map(({ dir, className }) => (
-            <div
-              key={dir}
-              className={`${className} touch-none`}
-              onPointerDown={onResizePointerDown(dir)}
-            />
-          ))}
+        {RESIZE_HANDLES.map(({ dir, className }) => (
+          <div
+            key={dir}
+            className={`${className} touch-none`}
+            onPointerDown={onResizePointerDown(dir)}
+          />
+        ))}
       </div>
     </div>
   );
