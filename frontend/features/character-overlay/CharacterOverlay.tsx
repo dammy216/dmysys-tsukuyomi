@@ -414,9 +414,17 @@ export function CharacterOverlay({
     return 0;
   }, [starfallActive, getStarfallAmplitude, yachiyoSinging]);
 
-  // 曲の間は歌っている状態なので、ボタンも押された見た目にする
-  const kaguyaSingingActive = songActive || kaguyaSinging;
-  const yachiyoSingingActive = songActive || yachiyoSinging;
+  /*
+    実際に発声している側(かぐや=Reply、ヤチヨ=星降る海)は kaguyaAmplitude/
+    yachiyoAmplitude 側でトグルを無視して常に鳴らす(上のコメント参照)ので、
+    ボタンの見た目も常に押された状態にする。
+    それ以外(かぐや=星降る海中、ヤチヨ=Reply中)はトグルがそのまま効くので、
+    songActive(=どちらかの曲が鳴っているか)で一律に押下扱いにはしない
+    ―― 以前は songActive || xxxSinging にしていたため、Reply中にヤチヨの
+    歌唱モードを切っても見た目が変わらず分かりづらいという指摘があった。
+  */
+  const kaguyaSingingActive = replyActive || kaguyaSinging;
+  const yachiyoSingingActive = starfallActive || yachiyoSinging;
 
   const kaguyaStageRef = useRef<HTMLDivElement | null>(null);
   const yachiyoStageRef = useRef<HTMLDivElement | null>(null);
