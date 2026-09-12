@@ -400,19 +400,37 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     slew: 6,
   },
   /*
-    サビ。**全点灯 + 色を端から端まで配る + 上へ登る渦。**
+    サビ。**全点灯 + 色を端から端まで配る。**
     density を 0.55 → 1.0 へ一気に上げるので、Bメロの34本から96本へ
     ほぼ3倍に増える。これが「サビで本数が増える」の実体。
+
+    **動き(lift/swingBars/pattern/waveSpread)はイントロ2(intro-B)と同じ
+    にしてある**(ユーザー指定「sabiからlatterのビームの動きだけどイントロ2
+    と同じ動きにして。ただし、点滅はしないで。そしてその動きのままoutroの
+    動きにつなげて」)。ここで使う値は outro のものとまったく同じ ―― outro
+    自体がもともと「intro-B(BeamLight.tsxのisIntro2レーザー)の再現」として
+    tuning された値なので(BeamLight.tsx の INTRO2_SWEEP_LIFT_* のコメント
+    「outro cue と同値になるよう作った」参照)、SABI/LATTER をこれと同じ
+    値に揃えれば「イントロ2と同じ動きのまま SABI→LATTER→outro が繋がる」
+    が同時に成立する。swingPos は castleBeamRig 内でセクション境界をまたいで
+    連続なので(SWING_POS_AT_SECTION_START)、swingBars を揃えるだけで
+    位相の飛びなくつながる。
+    明るさ・色(level/density/chaseBars/chaseDepth/strobe/colorBars/
+    colorSpread/tint/slew)は従来どおり ―― 「点滅はしないで」の指定どおり、
+    元から chase ベースの連続点灯のまま変えていない(isIntro2 専用の
+    intro2Blink はここには掛からない)。
   */
   SABI: {
     level: 1.8,
     density: 1,
-    // 下限マイナス = 水平を超えて見下ろす向きまで振る(可動域の図の最大)
-    ...castleLiftFromRange(-0.45),
+    // outro(=intro-B再現)と同じ可動域。20°(0.35)〜真上(CASTLE_LIFT_UPPER)
+    ...castleLiftFromRange(0.35),
     yaw: 0.16,
-    swingBars: 1,
-    pattern: "spiral",
-    waveSpread: 1.5,
+    // outro(=intro-B)と同じ4小節周期
+    swingBars: 4,
+    // outro(=intro-B)と同じ「下から上へ駆け上がる」位相
+    pattern: "rise",
+    waveSpread: 0.5,
     chaseBars: 1,
     chaseDepth: 0.6,
     strobe: 0.3,
@@ -429,15 +447,17 @@ export const CASTLE_BEAM_CUES: Record<ReplySectionName, CastleBeamCue> = {
     隅櫓の土台(TOWER_BASE_TIER。BeamLight.tsxのheightNorm=0クランプ)が
     heightGate のしきい値(density≈0.862)を割ってLATTER入りの瞬間に
     消灯してしまっていた。本数を絞る演出をやめ、SABIの値をそのまま使う。
+    動き(lift/swingBars/pattern/waveSpread)も上のSABIと同じ理由で
+    イントロ2(=outro)と同じ値にしてある。
   */
   LATTER: {
     level: 1.8,
     density: 1,
-    ...castleLiftFromRange(-0.45),
+    ...castleLiftFromRange(0.35),
     yaw: 0.16,
-    swingBars: 1,
-    pattern: "spiral",
-    waveSpread: 1.5,
+    swingBars: 4,
+    pattern: "rise",
+    waveSpread: 0.5,
     chaseBars: 1,
     chaseDepth: 0.6,
     strobe: 0.3,
