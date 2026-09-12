@@ -32,9 +32,9 @@ export const DRONE_PATH: readonly DroneKey[] = [
   { t: 89.99, turn: 3.92, radius: 46, y: 38, lookY: 42, fov: 90 },
   { t: 96.02, turn: 4.22, radius: 31, y: 31, lookY: 44, fov: 83 },
   { t: 100.93, turn: 4.48, radius: 23, y: 33, lookY: 45, fov: 82 },
-  { t: 106, turn: 4.76, radius: 31, y: 48, lookY: 45, fov: 70 },
-  { t: 107, turn: 4.82, radius: 35, y: 51, lookY: 45, fov: 68 },
-  { t: 114, turn: 5.02, radius: 62, y: 60, lookY: 44, fov: 62 },
+  { t: 106, turn: 4.76, radius: 31, y: 37.5, lookY: 45, fov: 70 },
+  { t: 110.15, turn: 4.9, radius: 35, y: 24.5, lookY: 46, fov: 72 },
+  { t: 114, turn: 5.02, radius: 62, y: 40, lookY: 44, fov: 67 },
   { t: 121.3, turn: 5.18, radius: 88, y: 68, lookY: 42, fov: 56 },
   { t: 127.5, turn: 5.28, radius: 108, y: 74, lookY: 40, fov: 52 },
 ] as const;
