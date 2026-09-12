@@ -19,15 +19,26 @@ import { LATTER_BARRAGE_BURST_AT } from "./ReplyFireworks";
 /*
   LATTER入り(84.5秒)の花火の同時爆発(ReplyFireworks.tsx の
   LATTER_BARRAGE_BURST_AT)と同じ瞬間に、天守の上空で魚の大群が紙吹雪のように
-  弾けて散る一回限りの演出(ユーザー指定)。
+  弾けて散る演出(ユーザー指定)。
+
+  匹は2グループに分かれる:
+    - バースト組(BURST_COUNT): 花火の同時爆発と同じ瞬間に一斉発射する、
+      従来どおりの「爆発」(ユーザー指定「爆発は今のままでいい」。全匹
+      launchOffset=0)。
+    - ストリーム組(STREAM_COUNT): バースト後もSTREAM_END_AT(1:30.3=90.3秒。
+      ユーザー指定)まで、噴射機のように発射タイミングをバラして継続的に
+      発射され続ける追加分(ユーザー指定「爆発のあとも魚を出し続けてほしい」
+      →「魚出し続ける時間は1:30.3までにして」)。
+
+  どちらの匹も1匹1匹の動き(初速を持って飛び出し、重力で弧を描いて落ちながら
+  フェードアウトする短い放物運動)は同じ ―― 違うのは発射タイミング
+  (launchOffset)だけ。
 
   見た目(ネオン色の紡錘形の魚)は features/starfall-sea/StarfallSwarm.tsx の
   「星降る海」モードの魚群から流用している(createFishGeometry/COLOR_PALETTE)。
-  ただし動きは全くの別物 ―― あちらは筒の中を延々と周回する permanent な群れ、
-  こちらは打ち上げ花火の破片と同じ「初速を持って飛び出し、重力で弧を描いて
-  落ちながらフェードアウトする」ワンショットの放物運動。
   1回しか再生されない曲の前提(SceneContents.tsx の他のReply系コンポーネントと
-  同じ)なので、ループはしない。
+  同じ)なので、曲全体としてはループしない(STREAM_END_ATを過ぎたら誰も
+  発射されない)。
 */
 
 /**
@@ -50,10 +61,12 @@ const COLOR_PALETTE = [
 const COLOR_GAIN = 1.35;
 
 /**
- * 紙吹雪として飛び出す魚の数。「たくさん」の指定に沿う数百体
- * (ワンショットなので permanentな群れ(StarfallSwarmの4万体)ほどは要らない)。
+ * バースト(花火の同時爆発と同じ瞬間に一斉発射する分)の匹数。
+ * 「たくさん」の指定に沿う数百体(ワンショットなので permanentな群れ
+ * (StarfallSwarmの4万体)ほどは要らない)。ここは「爆発は今のままでいい」
+ * というユーザー指定どおり、変更していない。
  */
-const FISH_COUNT = 600;
+const BURST_COUNT = 600;
 
 /**
  * 発生源。天守の上空、ReplyFireworks.tsx の花火が弾ける範囲
@@ -90,6 +103,41 @@ const GRAVITY = 15;
 /** 1匹が生きる時間(秒)。この間にフェードアウトして消える(ユーザー指定「2.5〜4秒程度」) */
 const LIFE_MIN = 2.5;
 const LIFE_MAX = 4.0;
+
+/**
+ * ストリーム組が発射され続ける終わりの時刻(秒)。ユーザー指定
+ * 「魚出し続ける時間は1:30.3までにして」= 90.3秒。LATTER終わり(107.0秒)
+ * より前で切る ―― ストリームはLATTERいっぱいではなく、この時刻までの
+ * 演出として指定されている。
+ */
+const STREAM_END_AT = 92;
+/**
+ * ストリーム組が発射され続けてよい時間の幅(秒)。バースト開始
+ * (LATTER_BARRAGE_BURST_AT=84.5秒)〜STREAM_END_AT(90.3秒)の間、
+ * ずっとストリーム組のどこかが発射され続ける。
+ */
+const EMIT_WINDOW = STREAM_END_AT - LATTER_BARRAGE_BURST_AT;
+
+/**
+ * ストリーム(バースト後もSTREAM_END_ATまで継続的に発射され続ける分)の匹数。
+ *
+ * **「爆発の時と同じ量を出すようにして」というユーザー指定**―― ストリーム組を
+ * ただ何匹か発射するだけでは、瞬間的に600匹が一斉に見える「爆発」の密度に対して
+ * 常時見えている数がずっと薄くなってしまう(1匹の寿命(LIFE_MIN〜MAX)ぶんしか
+ * 画面に残らないため)。同時に飛んでいる匹数は
+ * `STREAM_COUNT * 平均寿命 / EMIT_WINDOW` で近似できるので、これが
+ * BURST_COUNT(=爆発の瞬間の匹数)と同じになるよう逆算する:
+ *
+ *   STREAM_COUNT = BURST_COUNT * EMIT_WINDOW / 平均寿命
+ *
+ * これで、バーストが収まった直後からSTREAM_END_ATまで、常におおよそ
+ * BURST_COUNT匹ぶんが画面上を飛んでいる状態になる。
+ */
+const AVG_LIFE = (LIFE_MIN + LIFE_MAX) / 2;
+const STREAM_COUNT = Math.round((BURST_COUNT * EMIT_WINDOW) / AVG_LIFE);
+/** 全匹数(バースト+ストリーム) */
+const FISH_COUNT = BURST_COUNT + STREAM_COUNT;
+
 /**
  * 寿命に対して何割を過ぎたらフェードを始めるか。序盤は等倍のまま弾けた
  * 勢いを見せ、後半だけ smoothstep でスケールを0へ絞って消す
@@ -155,17 +203,28 @@ type ConfettiFish = {
   origin: [number, number, number];
   velocity: [number, number, number];
   life: number;
+  /**
+   * この1匹が発射されるのは、バースト開始(LATTER_BARRAGE_BURST_AT)から
+   * 何秒後か。バースト組は常に0(=花火の同時爆発と揃う一斉発射)。
+   * ストリーム組はEMIT_WINDOW - lifeの範囲でランダムに散らす(爆発後も
+   * 途切れず発射され続ける「噴射機」の見た目にする)。
+   */
+  launchOffset: number;
   scale: number;
   color: Color;
 };
 
 /**
- * 個体1匹ぶんの発生位置・初速・寿命・大きさ・色を決める。乱数はここで
- * 一度だけ引き、毎フレームは使わない(GPU側は位置と向きを頂点シェーダで
- * 計算するので、CPU側はuElapsedを1つ書くだけで済む)。
+ * 個体1匹ぶんの発生位置・初速・寿命・発射タイミング・大きさ・色を決める。
+ * 乱数はここで一度だけ引き、毎フレームは使わない(GPU側は位置と向きを
+ * 頂点シェーダで計算するので、CPU側はuElapsedを1つ書くだけで済む)。
+ *
+ * i < BURST_COUNT ならバースト組(launchOffset=0の一斉発射)、それ以外は
+ * ストリーム組(launchOffsetをEMIT_WINDOWいっぱいに散らした継続発射)。
  */
 function createFish(i: number): ConfettiFish {
   const seed = i * 977;
+  const isStream = i >= BURST_COUNT;
 
   // 球内のランダムな発生点(体積が一様になるよう半径は立方根で分布させる)
   const azimuth = seededRandom(seed) * Math.PI * 2;
@@ -208,8 +267,14 @@ function createFish(i: number): ConfettiFish {
     Math.floor(seededRandom(seed + 8) * COLOR_PALETTE.length),
   );
   const color = new Color(COLOR_PALETTE[colorIndex]).multiplyScalar(COLOR_GAIN);
+  // バースト組は0(一斉発射)。ストリーム組はEMIT_WINDOWいっぱいに散らして
+  // 爆発後も途切れず発射され続ける(このlifeぶんは手前までに収め、発射が
+  // STREAM_END_ATぎりぎりでも消える前にSTREAM_END_ATへ収まるようにする)
+  const launchOffset = isStream
+    ? seededRandom(seed + 9) * Math.max(EMIT_WINDOW - life, 0)
+    : 0;
 
-  return { origin, velocity, life, scale, color };
+  return { origin, velocity, life, launchOffset, scale, color };
 }
 
 /*
@@ -224,16 +289,23 @@ const CONFETTI_SHADER_HEAD = /* glsl */ `
 uniform float uElapsed;
 attribute vec3 aOrigin;
 attribute vec3 aVelocity;
-attribute vec2 aParams; // x:life(秒) y:scale
+attribute vec3 aParams; // x:launchOffset(秒) y:life(秒) z:scale
 const float CONFETTI_GRAVITY = ${GRAVITY.toFixed(2)};
 const float CONFETTI_FADE_START_FRAC = ${FADE_START_FRAC.toFixed(3)};
 `;
 
 const CONFETTI_SHADER_BODY = /* glsl */ `
-  float life = aParams.x;
+  /*
+    この1匹自身の発射時刻(aParams.x。バースト組は常に0)を基準にした
+    ローカルな経過秒数(rawT)で動く。ストリーム組はこれが個体ごとに違うので、
+    バーストが収まった後も誰かが飛んでいる「噴射機」の見た目になる。
+  */
+  float launchOffset = aParams.x;
+  float life = aParams.y;
+  float rawT = uElapsed - launchOffset;
   // 寿命を過ぎたら位置の計算はそこで止める(フェードで見えなくなっているので
   // 動き続けても見た目には影響しないが、無駄に遠くへ飛ばさないため clamp する)
-  float t = clamp(uElapsed, 0.0, life);
+  float t = clamp(rawT, 0.0, life);
 
   vec3 gravity = vec3(0.0, -CONFETTI_GRAVITY, 0.0);
   vec3 pos = aOrigin + aVelocity * t + 0.5 * gravity * t * t;
@@ -260,14 +332,14 @@ const CONFETTI_SHADER_BODY = /* glsl */ `
   /*
     フェードは不透明度ではなくスケールを0へ絞って表現する
     (StarfallSwarmのuActivationと同じ手法)。寿命の前半(FADE_START_FRAC未満)は
-    等倍のまま、後半でsmoothstepしながら0へ絞る。バースト前(uElapsed<0)は
-    step()でまるごと0にして隠す。
+    等倍のまま、後半でsmoothstepしながら0へ絞る。この匹自身の発射前
+    (rawT<0)は step() でまるごと0にして隠す。
   */
   float progress = life > 0.0 ? t / life : 0.0;
   float fade = 1.0 - smoothstep(CONFETTI_FADE_START_FRAC, 1.0, progress);
-  fade *= step(0.0, uElapsed);
+  fade *= step(0.0, rawT);
 
-  float s = aParams.y * fade;
+  float s = aParams.z * fade;
 
   vec3 transformed =
       sideV * (position.x * s)
@@ -285,7 +357,8 @@ type ReplyConfettiFishProps = {
 
 /**
  * LATTER入り(84.5秒)の花火の同時爆発と同じ瞬間に、天守の上空でネオン色の
- * 魚が紙吹雪のように弾けて散る一回限りのバースト演出。
+ * 魚が紙吹雪のように一斉に弾けて散り(バースト組)、そのあともSTREAM_END_AT
+ * (1:30.3=90.3秒)まで途切れず発射され続ける(ストリーム組)演出。
  *
  * 1つの InstancedMesh にまとめて描くので、匹数を増やしても描画命令は1回で済む。
  */
@@ -312,7 +385,7 @@ export function ReplyConfettiFish({
 
     const origins = new Float32Array(FISH_COUNT * 3);
     const velocities = new Float32Array(FISH_COUNT * 3);
-    const params = new Float32Array(FISH_COUNT * 2);
+    const params = new Float32Array(FISH_COUNT * 3);
 
     for (let i = 0; i < fish.length; i++) {
       const f = fish[i];
@@ -323,15 +396,14 @@ export function ReplyConfettiFish({
       velocities[o3] = f.velocity[0];
       velocities[o3 + 1] = f.velocity[1];
       velocities[o3 + 2] = f.velocity[2];
-
-      const o2 = i * 2;
-      params[o2] = f.life;
-      params[o2 + 1] = f.scale;
+      params[o3] = f.launchOffset;
+      params[o3 + 1] = f.life;
+      params[o3 + 2] = f.scale;
     }
 
     geo.setAttribute("aOrigin", new InstancedBufferAttribute(origins, 3));
     geo.setAttribute("aVelocity", new InstancedBufferAttribute(velocities, 3));
-    geo.setAttribute("aParams", new InstancedBufferAttribute(params, 2));
+    geo.setAttribute("aParams", new InstancedBufferAttribute(params, 3));
 
     return geo;
   }, [fish]);
@@ -400,11 +472,11 @@ export function ReplyConfettiFish({
     const elapsed = (songTimeRef.current ?? 0) - LATTER_BARRAGE_BURST_AT;
 
     /*
-      バースト前、または全個体がフェードアウトしきった後(寿命の最大値
-      LIFE_MAXを過ぎたら誰も見えていない)は描画ごと省く。
+      バースト前、またはSTREAM_END_AT(EMIT_WINDOW。ストリーム組の最後の1匹も
+      この時点までにフェードを終える設計)を過ぎたら描画ごと省く。
       一回限りのイベントなので、シークで戻ればまた自動的に隠れる。
     */
-    if (elapsed < 0 || elapsed > LIFE_MAX) {
+    if (elapsed < 0 || elapsed > EMIT_WINDOW) {
       mesh.visible = false;
       return;
     }
