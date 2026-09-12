@@ -349,13 +349,19 @@ const CUES: Record<ReplySectionName, BeamCue> = {
     ringColors: false,
     slew: 4,
   },
-  // フェード。柱に立てて消えていく
+  /*
+    フェード。intro-B→breath(11秒台)と同じ「まっすぐ上を向いて消える」
+    見せ方に揃える(ユーザー指定)。level:0 で outro からこの区間の ramp
+    (REPLY_SECTIONS の fade.ramp)にかけて完全に消灯し、下の standUp 判定
+    (section.name === "fade")が spread/pattern を無視して polar=0 へ畳む
+    ―― breath 用のコメント(このファイル上部、CUES.breath 参照)と同じ理屈。
+  */
   fade: {
     pattern: "unison",
     sweepBars: 4,
     chaseBars: 4,
     chaseDepth: 0,
-    level: 0.32,
+    level: 0,
     spread: 0.2,
     strobe: 0,
     colorBars: 4,
@@ -1080,7 +1086,13 @@ export function Searchlight({
       点滅やめて、静けさを出したいからすべてのライトを消して。上に向けて
       消してね」)。
     */
-    const standUp = section.name === "breath" || bHushOn;
+    /*
+      fade も breath と同じく「まっすぐ上を向いて消える」扱いにする
+      (ユーザー指定。intro-B→breath の見せ方をフェード開始(1:59.1=119.1秒。
+      songStructure.ts の REPLY_SECTIONS 参照)にも使う)。
+    */
+    const standUp =
+      section.name === "breath" || section.name === "fade" || bHushOn;
 
     /*
       連続量だけ混ぜる。パターン・色・周期は離散のまま切り替える
