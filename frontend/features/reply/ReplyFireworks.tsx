@@ -80,6 +80,20 @@ const HUSH_BARRAGE_COUNT = 10;
 const HUSH_BARRAGE_KIND: FireworkKind = "kiku";
 
 /**
+ * LATTER入り(1:24.5=84.5秒)の同時爆発バラージ(ユーザー指定「1:24.5秒に
+ * 花火をたくさん爆発させて。サビ入った時の同時爆発みたいな感じで」)。
+ * 上の HUSH_BARRAGE(サビ入り=62.0秒)と同じ仕組みをもう1箇所に置くだけ。
+ * LATTER本体の頭(83.0秒。FINALE_TIMES[1]の千輪)から1.5秒ずらしてあるので
+ * 玉が重ならず、「後半に入って少し経ったところで一斉に爆発する」見た目になる。
+ * 型を1種(kiku)に揃える理由は HUSH_BARRAGE_KIND のコメントと同じ
+ * (型ごとに打ち上げ秒数(rise)が違うため、混ぜると同時に開かなくなる)。
+ */
+const LATTER_BARRAGE_BURST_AT = 84.5;
+/** 本数はHUSH_BARRAGEと同じ「大量」の基準に揃えてある */
+const LATTER_BARRAGE_COUNT = 10;
+const LATTER_BARRAGE_KIND: FireworkKind = "kiku";
+
+/**
  * 打ち上げ位置の塔の中心からの距離(ワールド単位)。
  * カメラ(ドローン航路)が天守にかなり寄るので、外へ散らしすぎると
  * 上がった玉が画角の外で開いて見えない。塔寄りに固めてある。
@@ -215,6 +229,18 @@ function buildShells(): ScheduledShell[] {
       scale: 0.9 + hash(seed * 2.7) * 0.35,
       seed,
       ...placeShell(seed, HUSH_BARRAGE_KIND),
+    });
+  }
+
+  /* LATTER入り(84.5秒)の同時爆発バラージ。上のHUSH_BARRAGEと同じ作り */
+  for (let i = 0; i < LATTER_BARRAGE_COUNT; i++) {
+    const seed = 300 + i;
+    shells.push({
+      at: LATTER_BARRAGE_BURST_AT,
+      kind: LATTER_BARRAGE_KIND,
+      scale: 0.9 + hash(seed * 2.7) * 0.35,
+      seed,
+      ...placeShell(seed, LATTER_BARRAGE_KIND),
     });
   }
 
