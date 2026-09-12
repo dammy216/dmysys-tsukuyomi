@@ -110,7 +110,7 @@ const LIFE_MAX = 4.0;
  * より前で切る ―― ストリームはLATTERいっぱいではなく、この時刻までの
  * 演出として指定されている。
  */
-const STREAM_END_AT = 92;
+const STREAM_END_AT = 91.2;
 /**
  * ストリーム組が発射され続けてよい時間の幅(秒)。バースト開始
  * (LATTER_BARRAGE_BURST_AT=84.5秒)〜STREAM_END_AT(90.3秒)の間、
