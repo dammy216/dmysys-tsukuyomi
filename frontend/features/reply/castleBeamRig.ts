@@ -666,10 +666,22 @@ export function sampleCastleRig(
   /*
     サビ・後半の頭の一撃。明るさを上乗せしつつ、点灯フロントを強制的に
     下げきる = **一瞬だけ全灯**になる。曲の山でだけ城が丸ごと光る役。
+
+    **ユーザー指定: SABI/LATTER中はビームリグ(BeamLight/WashLight)の
+    明るさを拍(strobe)・小節頭(accent)・セクション頭の一撃(hit)で
+    音楽に連動させない**(「明るさを音楽に合わせて変えているけどそれ
+    やめて」)。本数(density front)・チェイス(走る光)は別物なので
+    そのまま残す。castleHitAt/HIT_SECTIONS(天守本体の投影・シェーダー側。
+    EdoCastle.tsx / CornerTowers.tsx 等が使う)はこのビームリグとは別の
+    消費者なので変えていない ―― ここではビームリグ用の
+    hit/strobe/accent だけをローカルに無効化する。
   */
-  const hit = HIT_SECTIONS.includes(section.name)
-    ? Math.exp(-since / HIT_DECAY)
-    : 0;
+  const beamMusicSyncOff =
+    section.name === "SABI" || section.name === "LATTER";
+  const hit =
+    !beamMusicSyncOff && HIT_SECTIONS.includes(section.name)
+      ? Math.exp(-since / HIT_DECAY)
+      : 0;
 
   const density = mix(prev.density, cue.density, k);
   out.density = density + (1 - density) * hit;
@@ -697,12 +709,13 @@ export function sampleCastleRig(
   out.chasePos = barPos / cue.chaseBars;
   out.colorSlot = Math.floor(barPos / cue.colorBars);
 
-  /* 拍の明滅。小節頭だけ一段上げる(Searchlight と同じ式) */
-  const strobe = mix(prev.strobe, cue.strobe, k);
+  /* 拍の明滅。小節頭だけ一段上げる(Searchlight と同じ式)。SABI/LATTER中は
+     上の beamMusicSyncOff で無効化(strobe=0 → pulse=1 固定・accent=0) */
+  const strobe = beamMusicSyncOff ? 0 : mix(prev.strobe, cue.strobe, k);
   const beatPos = (time - REPLY_BEAT_OFFSET) / REPLY_BEAT_SECONDS;
   const beatPhase = beatPos - Math.floor(beatPos);
   const pulse = 1 - strobe * (1 - Math.pow(1 - beatPhase, 2.5));
-  const accent = BAR_ACCENT * Math.pow(1 - barPhase, 5);
+  const accent = beamMusicSyncOff ? 0 : BAR_ACCENT * Math.pow(1 - barPhase, 5);
   const level = mix(prev.level, cue.level, k);
   out.base = level * (pulse + accent) + hit * CASTLE_HIT_LEVEL;
 
