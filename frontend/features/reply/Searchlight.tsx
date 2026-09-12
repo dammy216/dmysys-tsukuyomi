@@ -1187,6 +1187,36 @@ export function Searchlight({
       });
     }
 
+    /*
+      南スポット2本(隅櫓の右上/左上。beam.isCorner && beam.z>0)だけの上書き。
+      **点灯直後にいきなり色が切り替わって見える現象への対処**(ユーザー指摘
+      「54秒で出るサーチライトが紫で出てすぐマゼンタになる」)。
+
+      上のcolorSlotは曲頭からの小節グリッド(REPLY_BAR_ORIGIN基準)で全灯共通に
+      進むため、南スポットの点灯開始(REPLY_B_SOUTH_SPOT_START_SECONDS=54秒)と
+      色の境界(2小節≒2.82秒ごと)が独立で、たまたま境界が点灯直後(約0.37秒後)
+      に来て「紫→マゼンタ」に見えていた。ここだけ**色の境界を南スポットの
+      点灯開始そのものを起点に数え直す**(bRiserOn前提。bRiserOn中はcolorSlotが
+      syncBeatに切り替わり、この現象自体が発生しないので対象外)。これにより
+      点灯直後は必ず1サイクルぶん(2小節)色が保たれ、その後は通常どおり
+      紫⇄マゼンタを繰り返す(周期は変わらないので見た目のリズムは崩れない)。
+      北スポット(beam.z<0)は half が偶数で常に固定色(index 0)なのでこの
+      現象自体が起きず、対象外。
+    */
+    if (isB && !bRiserOn && t >= REPLY_B_SOUTH_SPOT_START_SECONDS) {
+      const southBarPos =
+        (t - REPLY_B_SOUTH_SPOT_START_SECONDS) / REPLY_BAR_SECONDS;
+      const southColorSlot = Math.floor(southBarPos / cue.colorBars);
+      const partners = paletteRef.current.length - 1;
+      const southPartner =
+        1 + (((southColorSlot % partners) + partners) % partners);
+      beams.forEach((beam, i) => {
+        if (beam.isCorner && beam.z > 0) {
+          colorIndexRef.current[i] = beam.half % 2 === 0 ? 0 : southPartner;
+        }
+      });
+    }
+
     /* --- 拍の明滅。小節頭だけ一段上げる(beatPhaseは上のbeatSync計算と同じ式) --- */
     const beatPhase = beatPhaseForSync;
     const pulse = 1 - strobe * (1 - Math.pow(1 - beatPhase, 2.5));
