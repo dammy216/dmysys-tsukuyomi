@@ -1,8 +1,9 @@
 "use client";
 
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 import {
   PiArrowsOutCardinalBold,
+  PiDownloadSimpleBold,
   PiEnvelopeBold,
   PiEyeBold,
   PiEyeSlashBold,
@@ -11,6 +12,7 @@ import {
   PiVideoCameraBold,
 } from "react-icons/pi";
 import { useSceneStore } from "@/features/root/store";
+import { ExportPanel } from "@/features/recorder";
 import { EditorAspectRatioMenu } from "./EditorAspectRatioMenu";
 import type { EditorViewportHandle } from "./EditorViewport";
 
@@ -48,6 +50,8 @@ export function EditorModeBar({
   aspectPreset,
   onAspectSelect,
   siteControls,
+  replyVideoRef,
+  hologramVideoRef,
 }: {
   /** 画面比率メニューが箱をリサイズするための EditorViewport ハンドル */
   viewportRef: RefObject<EditorViewportHandle | null>;
@@ -57,6 +61,10 @@ export function EditorModeBar({
   onAspectSelect: (label: string) => void;
   /** 通常画面(実際の編集モードではない)ときだけ true */
   siteControls: boolean;
+  /** Reply の映像。書き出しパネルが参照する */
+  replyVideoRef: RefObject<HTMLVideoElement | null>;
+  /** 星降る海の映像。書き出しパネルが参照する */
+  hologramVideoRef: RefObject<HTMLVideoElement | null>;
 }) {
   const reply = useSceneStore((s) => s.reply);
   const toggleReply = useSceneStore((s) => s.toggleReply);
@@ -71,6 +79,9 @@ export function EditorModeBar({
   const starfallSea = useSceneStore((s) => s.starfallSea);
   const toggleStarfallSea = useSceneStore((s) => s.toggleStarfallSea);
   const toggleEditorMode = useSceneStore((s) => s.toggleEditorMode);
+  const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
+
+  const [showExportPanel, setShowExportPanel] = useState(false);
 
   return (
     <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-3 border-t border-ed-line bg-ed-panel px-3 py-1.5">
@@ -139,6 +150,24 @@ export function EditorModeBar({
         )}
         {freeCam ? "自由視点" : "アニメーション"}
       </button>
+
+      <button
+        type="button"
+        onClick={() => setShowExportPanel(true)}
+        disabled={!replyPlaying && !starfallPlaying}
+        title="ビューポートをYouTube用の動画として書き出す"
+        className={ED_PILL}
+      >
+        <PiDownloadSimpleBold aria-hidden="true" />
+        書き出し
+      </button>
+      {showExportPanel && (
+        <ExportPanel
+          replyVideoRef={replyVideoRef}
+          hologramVideoRef={hologramVideoRef}
+          onClose={() => setShowExportPanel(false)}
+        />
+      )}
 
       <div className="ml-auto flex items-center gap-3">
         {siteControls ? (

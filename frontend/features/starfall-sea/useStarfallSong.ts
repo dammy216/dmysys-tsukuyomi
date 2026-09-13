@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSceneStore } from "@/features/root/store";
 
 /** ホログラムに映す映像。音声は使わないので必ずミュートで再生する */
 const VIDEO_SRC = encodeURI("/videos/星降る海.mp4");
@@ -10,6 +11,14 @@ const VOCALS_SRC = encodeURI(
 );
 /** 伴奏のステム。ボーカルと同時に鳴らして1曲になる */
 const OTHER_SRC = encodeURI("/sounds/星降る海-other-Eb major-101bpm-440hz.m4a");
+
+/**
+ * ボーカル/伴奏ステムのパス。features/recorder/ の動画書き出しが、映像が
+ * ミュートなためこの2ステムをミックスして最終音声トラックを作るのに使う
+ * (Reply は映像に音声トラックが内蔵されているのでこの橋渡しは不要)。
+ */
+export const STARFALL_VOCALS_SRC = VOCALS_SRC;
+export const STARFALL_OTHER_SRC = OTHER_SRC;
 
 /**
  * ステム同士がこれ以上ずれたら合わせ直す(秒)。
@@ -234,6 +243,14 @@ export function useStarfallSong(active: boolean) {
       const vocals = vocalsRef.current;
       const other = otherRef.current;
       if (!video || !vocals || !other || vocals.paused) return;
+      /*
+        features/recorder/ の動画書き出し中はこの補正を止める。書き出しは
+        video.currentTime を狙いの時刻へ直接seekして駆動するが、vocals/other
+        はここでは止めず実時間で鳴り続けているため、補正が働くと進んだ
+        vocals の位置へ video を強制的に引き戻してしまい、書き出しの seek と
+        競合して書き出されるフレームの時刻が壊れる(useReplySong.tsと同じ理由)。
+      */
+      if (useSceneStore.getState().exporting) return;
 
       // ボーカルを基準時計にする(口パクの元なので、これに全部を合わせる)
       const t = vocals.currentTime;

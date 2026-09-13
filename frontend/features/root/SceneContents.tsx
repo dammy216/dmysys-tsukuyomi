@@ -8,7 +8,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
   Bloom,
@@ -100,6 +100,32 @@ import {
 } from "./timings";
 import { useSceneStore } from "./store";
 
+/**
+ * Bloom(mipmapBlur)のミップ段数(`levels`)を、実際のcanvas幅に応じて動的に
+ * 決める基準値。
+ *
+ * mipmapBlurは段数を重ねるたびに2倍ずつ広い範囲を混ぜ合わせるため、にじみの
+ * 「絶対ピクセル数での広がり」はほぼ解像度と無関係に一定になる(既定の
+ * levels=8ならだいたい2^8=256px相当)。そのため、通常のビューポート表示
+ * (実測 canvas幅 BLOOM_LEVELS_REFERENCE_WIDTH px)ではその256pxが画面の
+ * 大きな割合を占めてよく滲んで見えるのに対し、4K書き出し(幅3840px)では
+ * 同じ256pxが画面の7%ほどにしかならずタイトに見える
+ * ―― という「解像度が変わるとにじみの相対的な広がりが変わる」バグが
+ * あった(ユーザー報告・実機比較で確認。DepthOfFieldのheight固定と同種の問題)。
+ *
+ * 書き出し解像度が上がるぶんだけ段数を足して、ビューポート表示時と相対的な
+ * 広がりが揃うようにする(2倍広い範囲を混ぜるには+1段要るので、
+ * log2(現在の幅 / 基準幅)ぶん足す)。
+ */
+const BLOOM_LEVELS_REFERENCE_WIDTH = 1206;
+const BLOOM_LEVELS_BASE = 8;
+/** 1〜16の範囲でクランプ(0以下や極端な段数を要求してエラーになるのを防ぐ) */
+function computeBloomLevels(canvasWidth: number): number {
+  const levels =
+    BLOOM_LEVELS_BASE + Math.log2(canvasWidth / BLOOM_LEVELS_REFERENCE_WIDTH);
+  return Math.min(16, Math.max(1, Math.round(levels)));
+}
+
 /** 鳥居の中心。被写界深度のピント位置もここに合わせる */
 const TORII_POSITION: [number, number, number] = [0, 0, -2];
 /** ピントを合わせる高さ（鳥居の中ほど） */
@@ -166,6 +192,8 @@ export function SceneContents({
   const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
   const freeCam = useSceneStore((s) => s.freeCam);
+  const exporting = useSceneStore((s) => s.exporting);
+  const canvasWidth = useThree((s) => s.size.width);
 
   /*
     編集モード(useSceneStore.editorMode)の `L`キートグル。本番でも使える
@@ -273,6 +301,23 @@ export function SceneContents({
   const vignetteRef = useRef<VignetteEffect>(null);
   const underwaterRef = useRef<UnderwaterEffectImpl>(null);
   const aberrationOffset = useRef(new Vector2()).current;
+
+  /*
+    Bloomのlevelsは<Bloom levels={...}>のようなJSX propとして渡すと、
+    @react-three/postprocessingのBloomラッパーがそれをargs配列に含めて
+    useMemoしているため、値が変わるたびR3Fがargs変更とみなしてBloomEffect
+    インスタンスを丸ごと作り直し、EffectComposerのEffectPass(このファイルの
+    「エフェクトはずっと同じ構成でマウントしたままにし…」というコメントが
+    警告している再構築)まで巻き込んで壊しかねない。
+    intensity/darknessなど他の値と同じく、既存インスタンスのプロパティを
+    直接書き換える(BloomEffect自体には levels の生えた口が無いので、内部の
+    mipmapBlurPassへ書き込む)。canvasWidthが変わる(=書き出し開始/終了)
+    タイミングだけで十分なので、毎フレームのuseFrameではなくuseEffectで良い。
+  */
+  useEffect(() => {
+    const bloom = bloomRef.current;
+    if (bloom) bloom.mipmapBlurPass.levels = computeBloomLevels(canvasWidth);
+  }, [canvasWidth]);
 
   /*
     Reply の進行度(0〜1)。星降る海の activationRef と同じ役割で、
@@ -1186,14 +1231,28 @@ export function SceneContents({
           ブルームがかかるので、水面のきらめきもいっしょに滲んで光る。
         */}
         <Underwater ref={underwaterRef} strength={UNDERWATER_BASE} />
+        {/*
+          height=480: ボケ処理を低解像度の内部バッファで行う(通常のビューポート
+          表示ではこれで十分・軽い)。書き出し(features/recorder/)は4K相当まで
+          解像度を上げるため、480px固定のままだとボケがその解像度差ぶん粗く
+          アップスケールされ、星降る海の転調(bokehScaleを上げる区間。511行目
+          参照)で画面全体がにじんで見える・コントラストが落ちて見える原因に
+          なる。書き出し中だけ実解像度に合わせる(undefinedでAUTO_SIZE=
+          コンポーザーの解像度に追従)。
+        */}
         <DepthOfField
           ref={dofRef}
           target={FOCUS_TARGET}
           focalLength={0.9}
           bokehScale={0}
-          height={480}
+          height={exporting ? undefined : 480}
         />
-        <Bloom ref={bloomRef} mipmapBlur luminanceThreshold={0.4} intensity={0.8} />
+        <Bloom
+          ref={bloomRef}
+          mipmapBlur
+          luminanceThreshold={0.4}
+          intensity={0.8}
+        />
         {/* 色収差。レンズを通した映像らしい滲みを足す */}
         <ChromaticAberration ref={aberrationRef} offset={new Vector2(0, 0)} />
         <Vignette ref={vignetteRef} eskil={false} offset={0.3} darkness={0} />

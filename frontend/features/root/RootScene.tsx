@@ -81,7 +81,11 @@ export function RootScene() {
   */
   return (
     <>
-      <EditorLayout active={editorMode} replyVideoRef={replyVideoRef}>
+      <EditorLayout
+        active={editorMode}
+        replyVideoRef={replyVideoRef}
+        hologramVideoRef={hologramVideoRef}
+      >
         {canvas}
       </EditorLayout>
       {!editorMode && (

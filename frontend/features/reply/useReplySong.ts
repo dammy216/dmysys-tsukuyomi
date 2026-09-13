@@ -258,6 +258,14 @@ export function useReplySong(active: boolean) {
       const video = videoRef.current;
       const vocals = vocalsRef.current;
       if (!video || !vocals || vocals.paused) return;
+      /*
+        features/recorder/ の動画書き出し中は、この補正が邪魔になる。
+        書き出しは video.currentTime を狙いの時刻へ直接seekして駆動するが、
+        vocals はここでは止めず実時間で鳴り続けているため、補正が働くと
+        「進んだ vocals の位置へ video を強制的に引き戻す」動きが書き出しの
+        seekと競合し、書き出されるフレームの時刻が壊れる。
+      */
+      if (useSceneStore.getState().exporting) return;
 
       // ボーカルを基準時計にする(口パクの元なので、映像をこれに合わせる)
       const t = vocals.currentTime;

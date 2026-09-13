@@ -1,4 +1,21 @@
 import { create } from "zustand";
+import type { WebGLRenderer } from "three";
+
+/**
+ * 書き出し機能(features/recorder/)が Canvas 境界をまたいで R3F を手動駆動する
+ * ための橋渡し。ExportSceneDriver が Canvas の内側から登録し、ExportPanel が
+ * Canvas の外側から呼ぶ(R3F の advance/setSize/setDpr/setFrameloop はどれも
+ * useThree() 経由でしか取れないため、store 越しに渡す)。
+ */
+export type ExportDriverHandle = {
+  gl: WebGLRenderer;
+  advance: (timestampSeconds: number) => void;
+  setSize: (width: number, height: number) => void;
+  setDpr: (dpr: number) => void;
+  setFrameloop: (frameloop: "always" | "never") => void;
+  getSize: () => { width: number; height: number; top: number; left: number };
+  getDpr: () => number;
+};
 
 /**
  * ルート("/")3Dシーンの UI 状態。ボタン操作で変わる純粋な状態だけを持つ
@@ -56,6 +73,14 @@ type SceneState = {
    */
   showCredits: boolean;
 
+  /**
+   * 動画書き出し(features/recorder/)が進行中か。true の間、EditorModeBar等の
+   * 操作は書き出しを乱さないよう控える(ExportPanel側でモーダルにして塞ぐ)。
+   */
+  exporting: boolean;
+  /** ExportSceneDriver(Canvas内)が登録する、Canvas境界をまたいだ手動駆動の橋渡し */
+  exportDriver: ExportDriverHandle | null;
+
   toggleKaguya: () => void;
   toggleYachiyo: () => void;
   toggleStarfallSea: () => void;
@@ -63,9 +88,12 @@ type SceneState = {
   toggleReply: () => void;
   setReplyPlaying: (playing: boolean) => void;
   toggleFreeCam: () => void;
+  setFreeCam: (freeCam: boolean) => void;
   toggleEditorMode: () => void;
   setEditorPaused: (paused: boolean) => void;
   toggleCredits: () => void;
+  setExporting: (exporting: boolean) => void;
+  setExportDriver: (driver: ExportDriverHandle | null) => void;
 };
 
 export const useSceneStore = create<SceneState>((set) => ({
@@ -79,6 +107,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   editorMode: false,
   editorPaused: false,
   showCredits: false,
+  exporting: false,
+  exportDriver: null,
 
   toggleKaguya: () => set((s) => ({ showKaguya: !s.showKaguya })),
   toggleYachiyo: () => set((s) => ({ showYachiyo: !s.showYachiyo })),
@@ -133,6 +163,7 @@ export const useSceneStore = create<SceneState>((set) => ({
   setReplyPlaying: (replyPlaying) => set({ replyPlaying }),
 
   toggleFreeCam: () => set((s) => ({ freeCam: !s.freeCam })),
+  setFreeCam: (freeCam) => set({ freeCam }),
 
   /*
     編集モードを抜けるときは一時停止も必ず解除する。止めたまま抜けると
@@ -147,4 +178,7 @@ export const useSceneStore = create<SceneState>((set) => ({
   setEditorPaused: (editorPaused) => set({ editorPaused }),
 
   toggleCredits: () => set((s) => ({ showCredits: !s.showCredits })),
+
+  setExporting: (exporting) => set({ exporting }),
+  setExportDriver: (exportDriver) => set({ exportDriver }),
 }));

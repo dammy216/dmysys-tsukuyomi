@@ -80,12 +80,15 @@ const HANDLE = "absolute z-20 touch-none transition-colors hover:bg-ed-accent/50
 export function EditorLayout({
   active,
   replyVideoRef,
+  hologramVideoRef,
   children,
 }: {
   /** 編集モードかどうか。false のときはヘッダー/Outline/Details/Sequence Editor を出さない */
   active: boolean;
   /** Reply の映像。ツールバーとタイムラインが操作/参照する */
   replyVideoRef: RefObject<HTMLVideoElement | null>;
+  /** 星降る海の映像。EditorModeBar の書き出しパネルが参照する */
+  hologramVideoRef: RefObject<HTMLVideoElement | null>;
   /** 3Dキャンバス(RootCanvas) */
   children: ReactNode;
 }) {
@@ -198,6 +201,8 @@ export function EditorLayout({
               aspectPreset={activePreset}
               onAspectSelect={setActivePreset}
               siteControls={!active}
+              replyVideoRef={replyVideoRef}
+              hologramVideoRef={hologramVideoRef}
             />
           </div>
         </EditorViewport>

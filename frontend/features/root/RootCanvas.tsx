@@ -2,6 +2,7 @@
 
 import { type RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
+import { ExportSceneDriver } from "@/features/recorder";
 import { SceneContents } from "./SceneContents";
 import { Credits } from "./Credits";
 import { useSceneStore } from "./store";
@@ -43,6 +44,7 @@ export function RootCanvas({
           hologramVideoRef={hologramVideoRef}
           replyVideoRef={replyVideoRef}
         />
+        <ExportSceneDriver />
       </Canvas>
 
       {!editorMode && showCredits && <Credits />}
