@@ -119,11 +119,17 @@ import { useSceneStore } from "./store";
  */
 const BLOOM_LEVELS_REFERENCE_WIDTH = 1206;
 const BLOOM_LEVELS_BASE = 8;
-/** 1〜16の範囲でクランプ(0以下や極端な段数を要求してエラーになるのを防ぐ) */
+/**
+ * 上限9でクランプ。levels=10(4K書き出し相当)にすると、コンソールにエラーは
+ * 出ないままBloomが完全に効かなくなる現象を実機で確認した(GPU/ドライバ側の
+ * 静かな失敗と思われるが、原因の特定はできていない)。levels=9(1080p/1440p
+ * 相当)までは正常に動くため、理想値より控えめでも確実に効く方を優先し、
+ * 9を超える値は要求しない。
+ */
 function computeBloomLevels(canvasWidth: number): number {
   const levels =
     BLOOM_LEVELS_BASE + Math.log2(canvasWidth / BLOOM_LEVELS_REFERENCE_WIDTH);
-  return Math.min(16, Math.max(1, Math.round(levels)));
+  return Math.min(9, Math.max(1, Math.round(levels)));
 }
 
 /** 鳥居の中心。被写界深度のピント位置もここに合わせる */

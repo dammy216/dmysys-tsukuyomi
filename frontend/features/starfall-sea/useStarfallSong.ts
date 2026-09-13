@@ -234,6 +234,41 @@ export function useStarfallSong(active: boolean) {
     };
   }, [active, wireAnalyser]);
 
+  /*
+    書き出し中(features/recorder/)は表の実再生を止める。書き出しは video を
+    フレームごとに直接seekして駆動し、音声も音源ファイルから別経路で
+    デコードするため、この3要素の実時間再生は書き出し結果には無関係。
+    止めずに放っておくと、実時間デコード＋(下のSYNC_INTERVALはexporting中
+    止まるので無補正のまま)ズレていく3本の再生が書き出しの重い処理
+    (フレームごとのcanvasキャプチャ＋エンコード)と同時にCPU/GPUを奪い合い、
+    書き出しタスク自体が遅くなる(ユーザー報告)。
+    終わったら、止めた位置から3つ一緒に鳴らし直す。
+  */
+  const exporting = useSceneStore((s) => s.exporting);
+  useEffect(() => {
+    if (!active) return;
+    const video = videoRef.current;
+    const vocals = vocalsRef.current;
+    const other = otherRef.current;
+    if (!video || !vocals || !other) return;
+
+    if (exporting) {
+      video.pause();
+      vocals.pause();
+      other.pause();
+      return;
+    }
+
+    if (vocals.paused) {
+      const t = vocals.currentTime;
+      video.currentTime = t;
+      other.currentTime = t;
+      video.play().catch(() => {});
+      vocals.play().catch(() => {});
+      other.play().catch(() => {});
+    }
+  }, [active, exporting]);
+
   // 再生中のずれを定期的に直す
   useEffect(() => {
     if (!active) return;
