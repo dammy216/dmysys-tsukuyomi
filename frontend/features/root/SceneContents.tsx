@@ -8,7 +8,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import {
   Bloom,
@@ -100,36 +100,52 @@ import {
 } from "./timings";
 import { useSceneStore } from "./store";
 
+/*
+  Bloom(mipmapBlur)のにじみの「画面に対する広がり」を、解像度が変わっても
+  一定に保つための設定。
+
+  mipmapBlurは段数(levels)を重ねるたびに2倍ずつ広い範囲を混ぜるので、にじみは
+  **ミップ連鎖の基準サイズに対して** 2^levels ピクセルぶん広がる。つまり広がりを
+  決めるのは `2^levels / 基準サイズ` の比であって、出力解像度ではない。
+  ライブラリはこの基準サイズに常にcanvasの実サイズを渡すため(BloomEffect.setSize
+  が mipmapBlurPass へ素通しする)、4K書き出しでは同じlevelsのにじみが画面の
+  1/3の幅にしか広がらず、「書き出すとにじみが乗っていない」状態になっていた。
+
+  そこで **基準サイズの方を固定** して比を一定にする(下の bloomMipmapSetup)。
+  狙いは「基準幅(BLOOM_REFERENCE_WIDTH)で levels=8 相当」= 画面幅の約21%の
+  にじみで、これを解像度によらず維持する。
+
+  実測して分かった、使えない代替案(いずれも4K書き出しを実際に作って確認):
+  - levels を10へ増やす: にじみが広がるどころか**弱くなる**。深いミップが
+    数px角になって画面全体の平均に近づき、寄与が薄まるためと思われる。
+    9までは正常なので上限は9。
+  - radius(既定0.85)を上げる: 1.0でもやや霧がかった別物の絵になり、1.28では
+    加算が破綻して画が白飛び・反転した。広がりの調整には使えない。
+*/
+/** この幅・この段数の見た目を基準にする(実測したビューポートのcanvas幅) */
+const BLOOM_REFERENCE_WIDTH = 1206;
+const BLOOM_REFERENCE_LEVELS = 8;
+/** 上限。10以上はにじみが弱くなる(上のコメント参照) */
+const BLOOM_MAX_LEVELS = 9;
+
 /**
- * Bloom(mipmapBlur)のミップ段数(`levels`)を、実際のcanvas幅に応じて動的に
- * 決める基準値。
- *
- * mipmapBlurは段数を重ねるたびに2倍ずつ広い範囲を混ぜ合わせるため、にじみの
- * 「絶対ピクセル数での広がり」はほぼ解像度と無関係に一定になる(既定の
- * levels=8ならだいたい2^8=256px相当)。そのため、通常のビューポート表示
- * (実測 canvas幅 BLOOM_LEVELS_REFERENCE_WIDTH px)ではその256pxが画面の
- * 大きな割合を占めてよく滲んで見えるのに対し、4K書き出し(幅3840px)では
- * 同じ256pxが画面の7%ほどにしかならずタイトに見える
- * ―― という「解像度が変わるとにじみの相対的な広がりが変わる」バグが
- * あった(ユーザー報告・実機比較で確認。DepthOfFieldのheight固定と同種の問題)。
- *
- * 書き出し解像度が上がるぶんだけ段数を足して、ビューポート表示時と相対的な
- * 広がりが揃うようにする(2倍広い範囲を混ぜるには+1段要るので、
- * log2(現在の幅 / 基準幅)ぶん足す)。
+ * canvas幅に対して使うミップ段数と、その段数で基準の広がりになる基準サイズ。
+ * 段数は「ミップ連鎖の先頭(基準サイズの半分)がcanvas幅を超えない」範囲で
+ * 大きいほど良い(先頭が小さいほど1段目の縮小率がきつくなり、細かい粒を
+ * 拾い落としやすくなるため)。4K書き出しでは上限の9段になる。
  */
-const BLOOM_LEVELS_REFERENCE_WIDTH = 1206;
-const BLOOM_LEVELS_BASE = 8;
-/**
- * 上限9でクランプ。levels=10(4K書き出し相当)にすると、コンソールにエラーは
- * 出ないままBloomが完全に効かなくなる現象を実機で確認した(GPU/ドライバ側の
- * 静かな失敗と思われるが、原因の特定はできていない)。levels=9(1080p/1440p
- * 相当)までは正常に動くため、理想値より控えめでも確実に効く方を優先し、
- * 9を超える値は要求しない。
- */
-function computeBloomLevels(canvasWidth: number): number {
-  const levels =
-    BLOOM_LEVELS_BASE + Math.log2(canvasWidth / BLOOM_LEVELS_REFERENCE_WIDTH);
-  return Math.min(9, Math.max(1, Math.round(levels)));
+function bloomMipmapSetup(canvasWidth: number) {
+  const levels = Math.min(
+    BLOOM_MAX_LEVELS,
+    Math.max(
+      1,
+      BLOOM_MAX_LEVELS +
+        Math.floor(Math.log2(Math.max(canvasWidth, 1) / BLOOM_REFERENCE_WIDTH)),
+    ),
+  );
+  const baseWidth =
+    BLOOM_REFERENCE_WIDTH * 2 ** (levels - BLOOM_REFERENCE_LEVELS);
+  return { levels, baseWidth };
 }
 
 /** 鳥居の中心。被写界深度のピント位置もここに合わせる */
@@ -199,7 +215,6 @@ export function SceneContents({
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
   const freeCam = useSceneStore((s) => s.freeCam);
   const exporting = useSceneStore((s) => s.exporting);
-  const canvasWidth = useThree((s) => s.size.width);
 
   /*
     編集モード(useSceneStore.editorMode)の `L`キートグル。本番でも使える
@@ -248,8 +263,8 @@ export function SceneContents({
   const persistActivationRef = useRef(0);
   /*
     魚の大群(StarfallSwarm)・水中フィルター(Underwater)専用の進行度(0〜1)。
-    starfallPlaying が true になった時刻(starfallStartRef)から
-    HEAVY_EFFECTS_DELAY_SECONDS 経つまでターゲットは0のまま。これも ref。
+    曲の再生位置が HEAVY_EFFECTS_DELAY_SECONDS に達するまでターゲットは
+    0のまま。これも ref。
   */
   const heavyActivationRef = useRef(0);
   /*
@@ -291,8 +306,6 @@ export function SceneContents({
   */
   const glowDimRef = useRef(1);
   const toriiDimRef = useRef(1);
-  // starfallPlaying が true になった瞬間の clock.elapsedTime。未開始は null
-  const starfallStartRef = useRef<number | null>(null);
   /*
     転調の閃光の残り時間(秒)。転調に入った瞬間だけ SURGE_FLASH_SECONDS を
     セットし、以降フレームごとに減らす。再生位置が戻れば(リプレイ)
@@ -307,23 +320,44 @@ export function SceneContents({
   const vignetteRef = useRef<VignetteEffect>(null);
   const underwaterRef = useRef<UnderwaterEffectImpl>(null);
   const aberrationOffset = useRef(new Vector2()).current;
+  /** 上のBloom調整で毎フレーム描画バッファのサイズを受けるための器 */
+  const bloomBufferSizeRef = useRef(new Vector2());
 
   /*
-    Bloomのlevelsは<Bloom levels={...}>のようなJSX propとして渡すと、
-    @react-three/postprocessingのBloomラッパーがそれをargs配列に含めて
-    useMemoしているため、値が変わるたびR3Fがargs変更とみなしてBloomEffect
-    インスタンスを丸ごと作り直し、EffectComposerのEffectPass(このファイルの
-    「エフェクトはずっと同じ構成でマウントしたままにし…」というコメントが
-    警告している再構築)まで巻き込んで壊しかねない。
-    intensity/darknessなど他の値と同じく、既存インスタンスのプロパティを
-    直接書き換える(BloomEffect自体には levels の生えた口が無いので、内部の
-    mipmapBlurPassへ書き込む)。canvasWidthが変わる(=書き出し開始/終了)
-    タイミングだけで十分なので、毎フレームのuseFrameではなくuseEffectで良い。
+    Bloomのlevels/ミップ基準サイズ(上の bloomMipmapSetup 参照)を適用する。
+
+    JSX prop(`<Bloom levels={...}>`)で渡さないのは、@react-three/postprocessing
+    のBloomラッパーがそれをargs配列に含めてuseMemoしており、値が変わるたび
+    R3FがBloomEffectインスタンスを作り直してEffectComposerのEffectPass
+    (このファイルの「エフェクトはずっと同じ構成でマウントしたままにし…」という
+    コメントが警告している再構築)まで巻き込んで壊しかねないため。intensityなどと
+    同じく既存インスタンスのプロパティを直接書き換える。
+
+    **useEffectではなくuseFrameで当てる**。BloomEffect.setSize はcanvasが
+    リサイズされるたびに mipmapBlurPass を実サイズへ戻してしまい、それが
+    走る順番はEffectComposer側の都合で決まる。毎フレーム「今の基準サイズが
+    狙いどおりか」だけ見て、違うときにsetSizeし直す方が確実(同じなら何もしない
+    ので、実質リサイズ時=書き出しの開始/終了だけ走る)。
   */
-  useEffect(() => {
+  useFrame(({ gl }) => {
     const bloom = bloomRef.current;
-    if (bloom) bloom.mipmapBlurPass.levels = computeBloomLevels(canvasWidth);
-  }, [canvasWidth]);
+    if (!bloom) return;
+    const buffer = gl.getDrawingBufferSize(bloomBufferSizeRef.current);
+    if (buffer.x <= 0 || buffer.y <= 0) return;
+    const { levels, baseWidth } = bloomMipmapSetup(buffer.x);
+    const pass = bloom.mipmapBlurPass;
+    if (pass.levels !== levels) pass.levels = levels;
+    const baseHeight = Math.max(1, Math.round((baseWidth * buffer.y) / buffer.x));
+    /*
+      連鎖の先頭(mipmapBlurPassの出力テクスチャ)は基準サイズの半分。
+      ここが狙いとずれていたら基準サイズを当て直す(= リサイズで実サイズへ
+      戻された、または初回)。
+    */
+    const head = pass.texture.image as { width?: number } | undefined;
+    if (head?.width !== Math.round(baseWidth / 2)) {
+      pass.setSize(baseWidth, baseHeight);
+    }
+  });
 
   /*
     Reply の進行度(0〜1)。星降る海の activationRef と同じ役割で、
@@ -454,7 +488,7 @@ export function SceneContents({
     cameraHeading.deg = ((deg % 360) + 360) % 360;
   });
 
-  useFrame(({ clock, gl }, delta) => {
+  useFrame(({ gl }, delta) => {
     /*
       転調・アウトロの判定を先に済ませる。閃光の明るさ(flash)は下の
       露出・ブルームの計算で足すため、ここで確定させておく。
@@ -583,25 +617,22 @@ export function SceneContents({
 
     /*
       HEAVY_EFFECTS_DELAY_SECONDS 経過してから魚の大群・水中フィルターを立ち上げる。
-      アウトロ中は起点を毎フレーム「今」へ押し進め続ける。動画・音源は
-      141.8秒でループして0秒から再開するが、starfallStartRef自体は
-      ボタンを押した瞬間からの経過時間で判定しているため、リセットしないと
-      ループ後すぐ heavyReady が立ったままになり、泡が紫/水色の光る玉の
-      状態を経ずに一瞬で泡の見た目へ戻ってしまう。アウトロ中に押し進めて
-      おくことで、ループ後もまたボタンを押した直後と同じ20.5秒待ちからになる。
+      判定は**曲の再生位置(videoTime)**で行う。ループで0秒へ戻れば自動的に
+      また20.5秒待ちからになるので、起点を別に覚える必要はない。
+
+      以前は「ボタンを押した瞬間の clock.elapsedTime」を起点にした経過時間で
+      判定していたが、それだと**書き出し中に魚の大群・水中フィルターが出ない**
+      (ユーザー報告)。書き出しは frameloop="never" + advance(t) で手動駆動する
+      が、R3F の setFrameloop("never") は内部で `clock.elapsedTime = 0` と
+      クロックを0へ戻したうえで、以降 elapsedTime を advance(t) に渡した値
+      (=曲の再生位置)で置き換える。そのため「押した瞬間に記録した起点」だけが
+      前のクロックの値のまま取り残され、`elapsed - 起点` が延々マイナスになって
+      20.5秒の判定が通らなくなる(実測: 起点21.7に対し elapsed は0から進むため、
+      曲が42.2秒に達するまで立ち上がらない。書き出しまでの待ち時間が曲の長さを
+      超えていれば最後まで出ない)。書き出し終了時も setFrameloop("always") で
+      同じ0リセットが起きるため、通常表示に戻ったあとも同じだけ出なくなっていた。
     */
-    if (inOutro) {
-      starfallStartRef.current = clock.elapsedTime;
-    } else if (starfallPlaying) {
-      if (starfallStartRef.current === null) {
-        starfallStartRef.current = clock.elapsedTime;
-      }
-    } else {
-      starfallStartRef.current = null;
-    }
-    const heavyReady =
-      starfallStartRef.current !== null &&
-      clock.elapsedTime - starfallStartRef.current >= HEAVY_EFFECTS_DELAY_SECONDS;
+    const heavyReady = videoTime >= HEAVY_EFFECTS_DELAY_SECONDS;
     const heavyTarget = starfallPlaying && heavyReady && !inOutro ? 1 : 0;
 
     const prevHeavy = heavyActivationRef.current;
@@ -627,6 +658,7 @@ export function SceneContents({
       underwaterRef.current.strength =
         UNDERWATER_BASE + heavyActivationRef.current * (full - UNDERWATER_BASE);
     }
+
 
     /*
       転調の色。アウトロでは他の演出と足並みを揃えてゆっくり引かせる
