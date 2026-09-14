@@ -36,6 +36,14 @@ export const FIREWORK_VERTEX = /* glsl */ `
   uniform float uGlitter;
   /** 開いた瞬間の閃光の強さ */
   uniform float uFlash;
+  /**
+   * canvas幅に対する粒サイズの倍率。1=基準幅(FireworkShells.tsxのFIREWORK_REFERENCE_WIDTH)
+   * のときの見た目のまま。gl_PointSizeはデバイスピクセル単位で解像度と無関係なため、
+   * これを掛けないと4K書き出しでは同じ粒が画面に対して小さくなり、Bloomの相対的な
+   * にじみ幅(SceneContents.tsxのbloomMipmapSetupで解像度によらず揃えてある)と
+   * 噛み合わなくなって花火全体が暗く・寂しく見える(ユーザー報告・実測で確認)。
+   */
+  uniform float uSizeScale;
 
   /** この粒が打ち上がる時刻(秒) */
   attribute float aLaunch;
@@ -161,7 +169,7 @@ export const FIREWORK_VERTEX = /* glsl */ `
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = aSize * sizeScale * (320.0 / max(-mv.z, 1.0));
+    gl_PointSize = aSize * sizeScale * uSizeScale * (320.0 / max(-mv.z, 1.0));
   }
 `;
 

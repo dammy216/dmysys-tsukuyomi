@@ -7,6 +7,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   ShaderMaterial,
+  Vector2,
 } from "three";
 
 import { FIREWORK_FRAGMENT, FIREWORK_VERTEX } from "./fireworkShader";
@@ -47,7 +48,17 @@ export type FireworkShellsProps = {
 type LiveUniforms = {
   uTime: { value: number };
   uOpacity: { value: number };
+  uSizeScale: { value: number };
 };
+
+/**
+ * 粒サイズ(uSizeScale)の基準にするcanvas幅。1080p書き出し(1920px)と通常の
+ * ライブ表示はこれ以下でそのまま(倍率1、今までどおりの見た目)にしたい
+ * (ユーザー指定: 明るくなってよいのは4K書き出しだけで、1080pは変えない)。
+ * 1920pxを超える解像度(4K書き出しの3840pxなど)でだけ、超えたぶんに応じて
+ * 粒を大きくする。
+ */
+const FIREWORK_REFERENCE_WIDTH = 1920;
 
 function buildGeometry(particles: FireworkParticle[], steps: number) {
   const total = particles.length * steps;
@@ -140,6 +151,7 @@ function useFireworkPoints(kind: FireworkKind, shells: readonly ShellPlan[]) {
         uTrailSpan: { value: prof.trailSpan },
         uGlitter: { value: prof.glitter },
         uFlash: { value: prof.flash },
+        uSizeScale: { value: 1 },
       },
       vertexShader: FIREWORK_VERTEX,
       fragmentShader: FIREWORK_FRAGMENT,
@@ -173,6 +185,8 @@ export function FireworkShells({
     作ったものなので R3F の自動破棄には乗らない。
   */
   const uniformsRef = useRef<LiveUniforms | null>(null);
+  /** gl.getDrawingBufferSize の書き込み先(useFrame内でnewしないための共有オブジェクト) */
+  const bufferSizeRef = useRef(new Vector2());
 
   useEffect(() => {
     uniformsRef.current = material.uniforms as LiveUniforms;
@@ -182,11 +196,16 @@ export function FireworkShells({
     };
   }, [geometry, material]);
 
-  useFrame(() => {
+  useFrame(({ gl }) => {
     const uniforms = uniformsRef.current;
     if (!uniforms) return;
     uniforms.uTime.value = songTimeRef.current ?? 0;
     uniforms.uOpacity.value = Math.max(intensityRef.current ?? 0, 0);
+    const bufferWidth = gl.getDrawingBufferSize(bufferSizeRef.current).x;
+    if (bufferWidth > 0) {
+      // 基準幅以下(1080p書き出し・通常のライブ表示)は倍率1のまま変えない
+      uniforms.uSizeScale.value = Math.max(1, bufferWidth / FIREWORK_REFERENCE_WIDTH);
+    }
   });
 
   if (empty) return null;
