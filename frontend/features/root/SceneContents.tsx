@@ -214,7 +214,6 @@ export function SceneContents({
   const starfallPlaying = useSceneStore((s) => s.starfallPlaying);
   const replyPlaying = useSceneStore((s) => s.replyPlaying);
   const freeCam = useSceneStore((s) => s.freeCam);
-  const exporting = useSceneStore((s) => s.exporting);
 
   /*
     編集モード(useSceneStore.editorMode)の `L`キートグル。本番でも使える
@@ -1270,20 +1269,21 @@ export function SceneContents({
         */}
         <Underwater ref={underwaterRef} strength={UNDERWATER_BASE} />
         {/*
-          height=480: ボケ処理を低解像度の内部バッファで行う(通常のビューポート
-          表示ではこれで十分・軽い)。書き出し(features/recorder/)は4K相当まで
-          解像度を上げるため、480px固定のままだとボケがその解像度差ぶん粗く
-          アップスケールされ、星降る海の転調(bokehScaleを上げる区間。511行目
-          参照)で画面全体がにじんで見える・コントラストが落ちて見える原因に
-          なる。書き出し中だけ実解像度に合わせる(undefinedでAUTO_SIZE=
-          コンポーザーの解像度に追従)。
+          height=undefined(AUTO_SIZE): ボケ処理をコンポーザーの実解像度に
+          追従させる。以前は通常のビューポート表示だけ height=480 の低解像度
+          内部バッファに固定していたが、実際のビューポート幅は480pxよりずっと
+          広い(1200〜1900px超)ため、ボケがその解像度差ぶん粗くアップスケール
+          され、星降る海の中(bokehScaleを上げる区間。511行目参照)で画面全体が
+          にじんで見える・コントラストが落ちて見える原因になっていた
+          (ユーザー報告・実機比較で確認。480→実解像度でFPSは165→129程度で
+          実用上問題ない)。書き出し(features/recorder/)でも元々実解像度に
+          合わせていたので、ライブ側もそれに揃えて特別扱いをやめた。
         */}
         <DepthOfField
           ref={dofRef}
           target={FOCUS_TARGET}
           focalLength={0.9}
           bokehScale={0}
-          height={exporting ? undefined : 480}
         />
         <Bloom
           ref={bloomRef}
