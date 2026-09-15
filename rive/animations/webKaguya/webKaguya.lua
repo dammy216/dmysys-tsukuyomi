@@ -214,8 +214,8 @@ local DEBUG_POINTER = false
 -- false にすると、リップシンク(音量→口の開閉)そのものを止める。
 -- singAmplitude は通常の発話バウンス(lipEnv)や歌唱中の笑顔切り替え(swayGate、
 -- updateFrameFromVolume参照)には引き続き使われるが、口は常に既定の閉じ表示
--- (default_mouth)のまま動かなくなる。本番(React側の実音声連動)でも口は動かない。
-local LIP_SYNC_ENABLED = false
+-- (default_mouth)のまま動かなくなる。
+local LIP_SYNC_ENABLED = true
 
 -- 目パーツの基準ローカル座標(実測値)
 local IRIS_RX, IRIS_RY = -70.5,  8.5
