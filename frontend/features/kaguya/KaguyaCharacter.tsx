@@ -15,6 +15,8 @@ import {
   VM_SING_GRAB_PERIOD,
   VM_SMOKING,
   VM_SMILE,
+  VM_MOUTH_VOWEL,
+  VM_EYE_TRACK_OFF,
 } from "./constants";
 
 // 歌唱モード中の横振り(∩型の弧)1往復にかかる秒数。webKaguya.lua側のデフォルト(2.4秒)より
@@ -25,10 +27,14 @@ type KaguyaCharacterProps = {
   placeholder?: ReactNode;
   /** 歌唱モード用の振幅の取得元（動画/音声の解析結果やシミュレーション波形など） */
   getAmplitude: () => number;
+  /** 歌詞の母音(1=あ〜5=お)の取得元。webKaguya.lua は AUTO_VOWEL=false でこれを使う */
+  getMouthVowel: () => number;
   /** たばこモードのオン/オフ */
   smoking?: boolean;
   /** スマイルモードのオン/オフ（目だけ笑顔になる） */
   smile?: boolean;
+  /** 目で追うモードのオン/オフ(falseにするとカーソルを目で追わなくなる) */
+  eyeTracking?: boolean;
 };
 
 // かぐやのアートボードは正方形(1920x1920)で、ヤチヨより縦長のstage枠に対して
@@ -47,8 +53,10 @@ const KAGUYA_OFFSET_Y = "6.1%";
 export function KaguyaCharacter({
   placeholder,
   getAmplitude,
+  getMouthVowel,
   smoking = false,
   smile = false,
+  eyeTracking = true,
 }: KaguyaCharacterProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -78,16 +86,18 @@ export function KaguyaCharacter({
     if (!rive || !vmInstance) return;
 
     const ampProp = vmInstance.number(VM_SING_AMPLITUDE);
+    const vowelProp = vmInstance.number(VM_MOUTH_VOWEL);
     let raf = 0;
 
     const tick = () => {
       if (ampProp) ampProp.value = getAmplitude();
+      if (vowelProp) vowelProp.value = getMouthVowel();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
 
     return () => cancelAnimationFrame(raf);
-  }, [rive, vmInstance, getAmplitude]);
+  }, [rive, vmInstance, getAmplitude, getMouthVowel]);
 
   // 歌唱モード中の横振りの速度(周期)を上書きする
   useEffect(() => {
@@ -109,6 +119,13 @@ export function KaguyaCharacter({
     const smileProp = vmInstance.number(VM_SMILE);
     if (smileProp) smileProp.value = smile ? 1 : 0;
   }, [vmInstance, smile]);
+
+  // 目で追うモードのオン/オフ(eyeTracking=falseでカーソル追従を止める)
+  useEffect(() => {
+    if (!vmInstance) return;
+    const eyeTrackOffProp = vmInstance.number(VM_EYE_TRACK_OFF);
+    if (eyeTrackOffProp) eyeTrackOffProp.value = eyeTracking ? 0 : 1;
+  }, [vmInstance, eyeTracking]);
 
   // ウィンドウ全体のマウス操作を Rive キャンバスへ転送する。
   // Rive ランタイムはキャンバス上の "mousemove"/"mousedown"/"mouseup" しか購読していない

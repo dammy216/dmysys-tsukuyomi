@@ -40,6 +40,7 @@ export function RootScene() {
     videoRef: replyVideoRef,
     playing: replyPlaying,
     getAmplitude: getReplyAmplitude,
+    getMouthVowel: getReplyMouthVowel,
   } = useReplySong(reply);
 
   /*
@@ -92,6 +93,7 @@ export function RootScene() {
         <CharacterOverlay
           getStarfallAmplitude={getStarfallAmplitude}
           getReplyAmplitude={getReplyAmplitude}
+          getReplyMouthVowel={getReplyMouthVowel}
           replyVideoRef={replyVideoRef}
         />
       )}

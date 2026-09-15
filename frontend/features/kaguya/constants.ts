@@ -26,3 +26,13 @@ export const VM_SMOKING = "smoking";
 
 /** スマイルモードのオン/オフ用 ViewModel プロパティ名（0.5より大きいとON扱い。目だけ笑顔になる） */
 export const VM_SMILE = "smile";
+
+/**
+ * 口の形(母音)を外部指定する ViewModel の Number プロパティ名(1=あ 2=い 3=う 4=え 5=お)。
+ * webKaguya.lua 側は AUTO_VOWEL=false のときだけこの値を使う
+ * (true だと singAmplitude の大小からランダムに選ぶ)。
+ */
+export const VM_MOUTH_VOWEL = "mouthVowel";
+
+/** 目で追うモードのオン/オフ用 ViewModel プロパティ名(0.5より大きいとOFF扱い) */
+export const VM_EYE_TRACK_OFF = "eyeTrackOff";

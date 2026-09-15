@@ -92,6 +92,7 @@ type CharacterAnimation = {
     -- AI操作入力(aiActive=1 のとき有効。外部/React/AI が書き込む)
     vmAiActive: Property<number>?,
     vmAiTurnX: Property<number>?, vmAiTurnY: Property<number>?,
+    vmEyeTrackOff: Property<number>?,  -- 目で追うモードOFF(0.5より大きいとOFF扱い)
     vmAiTilt: Property<number>?, vmAiBounce: Property<number>?, vmAiNod: Property<number>?,
     -- 表情(笑顔)。smile > 0.5 の間、まばたき/リップシンクの自動更新を止めて
     -- blink_001(目)+ mouth_i(口)の見た目に固定する(⑯)
@@ -1008,7 +1009,11 @@ local SING_SMILE_MAX  = 9.0   -- 次の笑顔までの最長間隔(秒)
 local SING_SMILE_HOLD = 2.5   -- 笑顔を保つ時間(秒)
 
 local VOWEL_A, VOWEL_I, VOWEL_U, VOWEL_E, VOWEL_O = 1, 2, 3, 4, 5
-local AUTO_VOWEL      = true   -- false にすると mouthVowel(外部指定)をそのまま使う
+-- false: mouthVowel(外部/Reactが歌詞のモーラから書き込む)をそのまま使う。
+-- true:  音量の大小だけで母音をランダムに選ぶ(歌詞と無関係の疑似口パク)。
+-- Reply では React 側が frontend/features/reply/mouthVowelTimeline.json
+-- (歌詞をモーラ分解したタイムライン)から mouthVowel を書き込むため false にしてある。
+local AUTO_VOWEL      = false
 local VOWEL_LOUD      = 0.35   -- この音量を超えたら「開いた口」グループを使う
 local VOWEL_DUR_MAX   = 0.34   -- 口の切り替え間隔(静かなとき=ゆっくり)
 local VOWEL_DUR_MIN   = 0.18   -- 口の切り替え間隔(大きいとき=速い)
@@ -1089,6 +1094,9 @@ local function updateEyeFollow(self: CharacterAnimation, seconds: number)
     local targetX: number
     local targetY: number
     local aiOn = self.vmAiActive ~= nil and self.vmAiActive.value > 0.5
+    -- 目で追うモードOFF(ボタン操作。React側が書き込む)。カーソル追従だけを止める
+    -- (タバコ・AI操作モードはそれぞれ独自の理由で追従を切り替えているので触らない)。
+    local eyeTrackOff = self.vmEyeTrackOff ~= nil and self.vmEyeTrackOff.value > 0.5
     if self.smokePhase == 1 and not self.grabbing then
         -- ⑰ タバコを咥えている間(吸う)だけカーソル/AI追従を止め、正面(オフセット0)へ戻す。
         -- 吐いている間(phase2)は通常通り追従してよい。
@@ -1100,6 +1108,8 @@ local function updateEyeFollow(self: CharacterAnimation, seconds: number)
         targetX = nx * EYE_MAX_OFFSET_X
         local yRangeAi = if ny < 0 then EYE_MAX_OFFSET_Y_UP else EYE_MAX_OFFSET_Y_DOWN
         targetY = ny * yRangeAi
+    elseif eyeTrackOff then
+        targetX, targetY = 0.0, 0.0
     else
         local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
         -- 中心から EYE_REACH までで追従量が 0→1 に上がりきる
@@ -1173,6 +1183,9 @@ local function updateBodyFollow(self: CharacterAnimation, seconds: number, moveY
         targetTX = math.clamp(singDx / GRAB_RANGE, -1.0, 1.0) * self.swayGate
         targetTY = math.clamp(singDy / GRAB_RANGE, -1.0, 1.0) * self.swayGate
         lerpSpeed = GRAB_LERP_SPEED  -- 実際のドラッグと同じ俊敏さで追従させる
+    elseif self.vmEyeTrackOff ~= nil and self.vmEyeTrackOff.value > 0.5 then
+        -- 目で追うモードOFF: 目だけでなく体の振り向きも止める
+        targetTX, targetTY = 0.0, 0.0
     else
         local ux, uy, dist = cursorVector(self.mouseX, self.mouseY)
         -- 目は EYE_REACH までで最大(②-a)。ここではそれを超えた分で「振り向き」を立ち上げる。
@@ -1557,13 +1570,14 @@ end
 -- コマ(001〜008)は mouthF1〜8 として全母音フォルダで共有バインドされているため、
 -- フェード中は新旧どちらの母音でも「同じ開き具合のコマ」が重なって見える
 -- (口を一度閉じてから切り替える、という不自然な間は作らない)。
--- 無音時(lipSpeaking=false)は母音フォルダを全部0へ戻す(default_mouth側に譲る)。
-local function applyMouthShapes(self: CharacterAnimation, seconds: number, requestedVowel: number)
+-- 無音時(lipSpeaking=false)、および「ん」の間(useDefaultMouth)は母音フォルダを
+-- 全部0へ戻す(default_mouth側に譲る)。
+local function applyMouthShapes(self: CharacterAnimation, seconds: number, requestedVowel: number, useDefaultMouth: boolean)
     local vl = math.min(VOWEL_LERP * seconds, 1.0)
     for v = 1, 5 do
         local prop = self.vmMouthShapes[v]
         if prop then
-            local target = if self.lipSpeaking and v == requestedVowel then 1.0 else 0.0
+            local target = if self.lipSpeaking and not useDefaultMouth and v == requestedVowel then 1.0 else 0.0
             prop.value = prop.value + (target - prop.value) * vl
         end
     end
@@ -1591,11 +1605,21 @@ local function updateLipSync(self: CharacterAnimation, seconds: number)
 
     -- 使う母音を決める(1=a 2=i 3=u 4=e 5=o)。
     -- AUTO_VOWEL のときは音量から自動選択、そうでなければ mouthVowel(外部指定)に従う。
+    -- mouthVowel が 0 のときは「ん」を表す特別値で、母音を出さず default_mouth
+    -- (閉じ口)に譲る(⑳参照)。requestedVowel 自体は直前の値を維持しておき、
+    -- 「ん」明け直後の母音切り替えでも VOWEL_DIP が正しく働くようにする。
     local requestedVowel
+    local useDefaultMouth = false
     if AUTO_VOWEL then
         requestedVowel = self.autoVowel
     else
-        requestedVowel = if self.vmMouthVowel then math.floor(self.vmMouthVowel.value + 0.5) else VOWEL_A
+        local raw = if self.vmMouthVowel then math.floor(self.vmMouthVowel.value + 0.5) else VOWEL_A
+        if raw == 0 then
+            useDefaultMouth = true
+            requestedVowel = self.lastVowel
+        else
+            requestedVowel = raw
+        end
     end
     if requestedVowel < 1 or requestedVowel > 5 then requestedVowel = VOWEL_A end
 
@@ -1613,10 +1637,10 @@ local function updateLipSync(self: CharacterAnimation, seconds: number)
     -- どれも瞬時のON/OFFにしない。
     local fl = math.min(FRAME_LERP * seconds, 1.0)
     if self.vmMouthDefault then
-        local target = if self.lipSpeaking then 0.0 else 1.0
+        local target = if self.lipSpeaking and not useDefaultMouth then 0.0 else 1.0
         self.vmMouthDefault.value = self.vmMouthDefault.value + (target - self.vmMouthDefault.value) * fl
     end
-    applyMouthShapes(self, seconds, requestedVowel)
+    applyMouthShapes(self, seconds, requestedVowel, useDefaultMouth)
 
     -- dip中は音量駆動のフレームと VOWEL_DIP_FRAME の小さい方(=より閉じている方)を使い、
     -- dipT が0へ減るにつれ音量駆動のフレームへなめらかに戻す。
@@ -1889,6 +1913,7 @@ function init(self: CharacterAnimation, context: Context): boolean
     self.vmBodyRot    = vm:getNumber("bodyRot")
     -- AI操作入力(⑩)
     self.vmAiActive   = vm:getNumber("aiActive")
+    self.vmEyeTrackOff = vm:getNumber("eyeTrackOff")
     self.vmAiTurnX    = vm:getNumber("aiTurnX")
     self.vmAiTurnY    = vm:getNumber("aiTurnY")
     self.vmAiTilt     = vm:getNumber("aiTilt")
@@ -2137,6 +2162,7 @@ return function(): Node<CharacterAnimation>
         vmFaceX = nil, vmFaceY = nil,
         vmHeadRot = nil, vmBodyRot = nil,
         vmAiActive = nil,
+        vmEyeTrackOff = nil,
         vmAiTurnX = nil, vmAiTurnY = nil,
         vmAiTilt = nil, vmAiBounce = nil, vmAiNod = nil,
         vmSmile = nil,

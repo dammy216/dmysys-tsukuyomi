@@ -8,6 +8,14 @@ import {
   REPLY_VIDEO_VOLUME,
   REPLY_VOCALS_SRC,
 } from "./constants";
+import { getMouthVowelAt } from "./mouthVowelTimeline";
+
+/**
+ * 実際の歌唱が終わる秒数(ユーザーの耳取りで確認済み)。演出上の"fade"セクション
+ * (songStructure.ts、119.1秒)より前にもう歌っていないため、そちらではなくこの値を
+ * 使う。この時刻以降は getAmplitude を強制的に0にし、かぐやの口パクを完全に止める。
+ */
+const REPLY_SINGING_END_SECONDS = 109.3;
 
 /**
  * 映像のズレの許容範囲(秒)。この中なら何もしない。
@@ -153,24 +161,19 @@ export function useReplySong(active: boolean) {
       // 前の周で速度微調整が残っていることがあるので必ず戻す
       video.playbackRate = 1;
       vocals.currentTime = 0;
-      vocals.pause();
       /*
-        vocals は「映像が実際に鳴り始めてから」開始する。
-        replyv2 は 245MB あり、初回はバッファ／デコードで数十〜数百ms出遅れる。
-        同じ tick で両方 play() すると軽い vocals ステムだけ先に鳴り、
-        歌が二重に前ズレして聞こえる。play() の解決を待って、そのときの
-        映像位置へ vocals を合わせてから鳴らす。
+        video と vocals は同じ tick で同時に play() する(星降る海と同じ方式)。
+        vocals は wireAnalyser() で silentGain(0) 経由に繋がっており無音なので、
+        同時に鳴らしても二重に聞こえることはない。
+        以前は video.play() の解決を待ってから vocals.play() していたが、
+        replyv2 は245MBあり初回のバッファ待ちで数秒かかることがあり、その間に
+        ボタン押下(ユーザー操作)起点の自動再生許可が切れて vocals.play() だけ
+        ブラウザに拒否される不具合があった(動画の音は鳴るのに、かぐやの
+        口パクの元になる vocals 解析だけ止まったままになり、口が全く
+        動かなくなる原因だった)。多少のズレは下の同期ループが毎秒補正する。
       */
-      video
-        .play()
-        .then(() => {
-          vocals.currentTime = video.currentTime;
-          vocals.play().catch(() => {});
-        })
-        .catch(() => {
-          // 映像の再生が拒否されたら(通常起きない)ひとまず vocals だけでも回す
-          vocals.play().catch(() => {});
-        });
+      video.play().catch(() => {});
+      vocals.play().catch(() => {});
       setPlaying(true);
     };
 
@@ -298,6 +301,9 @@ export function useReplySong(active: boolean) {
     const analyser = analyserRef.current;
     const data = dataRef.current;
     if (!analyser || !data) return 0;
+    if ((vocalsRef.current?.currentTime ?? 0) >= REPLY_SINGING_END_SECONDS) {
+      return 0;
+    }
 
     analyser.getByteTimeDomainData(data);
     // 中心 128 からのずれの二乗平均
@@ -311,10 +317,20 @@ export function useReplySong(active: boolean) {
     return Math.min(rms * 3.5, 1);
   }, []);
 
+  /**
+   * 今の再生位置(vocals基準)に該当する歌詞モーラの母音(1=あ〜5=お)を返す。
+   * `mouthVowelTimeline.ts` 参照(track-timeline.jsonの行タイミングを元に
+   * 行内均等割りで作った近似タイムライン)。
+   */
+  const getMouthVowel = useCallback((): number => {
+    return getMouthVowelAt(vocalsRef.current?.currentTime ?? 0);
+  }, []);
+
   return {
     videoRef,
     /** 映像＋ステムを再生開始したら true。押した次の tick で true */
     playing,
     getAmplitude,
+    getMouthVowel,
   };
 }

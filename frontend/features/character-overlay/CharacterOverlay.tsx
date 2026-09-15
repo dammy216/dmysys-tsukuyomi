@@ -8,7 +8,12 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
-import { PiCigaretteBold, PiMusicNotesBold, PiSmileyBold } from "react-icons/pi";
+import {
+  PiCigaretteBold,
+  PiMusicNotesBold,
+  PiSmileyBold,
+  PiCursorBold,
+} from "react-icons/pi";
 import { Color } from "three";
 import { YachiyoCharacter } from "@/features/yachiyo";
 import { KaguyaCharacter } from "@/features/kaguya";
@@ -346,6 +351,8 @@ type CharacterOverlayProps = {
   getStarfallAmplitude?: () => number;
   /** Reply のボーカルの音量(0〜1)を返す。歌うのはかぐや */
   getReplyAmplitude?: () => number;
+  /** Reply の再生位置に対応する歌詞の母音(1〜5)を返す */
+  getReplyMouthVowel?: () => number;
   /** Reply の映像。再生位置(songTime)を城のプロジェクション配色との同期に使う */
   replyVideoRef?: RefObject<HTMLVideoElement | null>;
 };
@@ -354,6 +361,7 @@ type CharacterOverlayProps = {
 export function CharacterOverlay({
   getStarfallAmplitude,
   getReplyAmplitude,
+  getReplyMouthVowel,
   replyVideoRef,
 }: CharacterOverlayProps) {
   const showKaguya = useSceneStore((s) => s.showKaguya);
@@ -370,6 +378,7 @@ export function CharacterOverlay({
   const [kaguyaSinging, setKaguyaSinging] = useState(false);
   const [kaguyaSmoking, setKaguyaSmoking] = useState(false);
   const [kaguyaSmile, setKaguyaSmile] = useState(false);
+  const [kaguyaEyeTracking, setKaguyaEyeTracking] = useState(true);
   const [yachiyoSinging, setYachiyoSinging] = useState(false);
 
   /*
@@ -404,6 +413,16 @@ export function CharacterOverlay({
     if (kaguyaSinging) return SING_MODE_FLOOR;
     return 0;
   }, [replyActive, getReplyAmplitude, kaguyaSinging]);
+
+  /*
+    実際に発声している(replyActive)ときだけ歌詞の母音を使う。それ以外は
+    無音扱い(口パクは動かない = default_mouth)なので値そのものは見た目に
+    影響しない。
+  */
+  const kaguyaMouthVowel = useCallback(() => {
+    if (replyActive && getReplyMouthVowel) return getReplyMouthVowel();
+    return 1;
+  }, [replyActive, getReplyMouthVowel]);
 
   /* ヤチヨはかぐやの裏返し。実際に発声するのは星降る海の再生中だけ */
   const yachiyoAmplitude = useCallback(() => {
@@ -511,8 +530,10 @@ export function CharacterOverlay({
             >
               <KaguyaCharacter
                 getAmplitude={kaguyaAmplitude}
+                getMouthVowel={kaguyaMouthVowel}
                 smoking={kaguyaSmoking}
                 smile={kaguyaSmile}
+                eyeTracking={kaguyaEyeTracking}
                 placeholder={
                   <div className={PLACEHOLDER}>かぐや、ただいま準備中です。</div>
                 }
@@ -548,6 +569,16 @@ export function CharacterOverlay({
                 title="スマイルモード"
               >
                 <PiSmileyBold size={18} />
+              </button>
+              <button
+                type="button"
+                className={MODE_BUTTON}
+                onClick={() => setKaguyaEyeTracking((v) => !v)}
+                aria-pressed={kaguyaEyeTracking}
+                aria-label="目で追うモード"
+                title="目で追うモード"
+              >
+                <PiCursorBold size={18} />
               </button>
             </div>
           </div>
