@@ -157,16 +157,10 @@ type CharacterAnimation = {
     -- 母音の自動選択(音量の大小で口の傾向を変え、一定間隔で切り替える)
     autoVowel: number,         -- 自動選択中の母音(1〜5)
     vowelTimer: number,        -- 次の母音切り替えまでの残り秒
-    -- 母音遷移(あ→い 等で、一度閉じてから切り替える)
-    activeVowel: number,       -- 現在表示中の母音(1〜5)。要求(mouthVowel)と違う間は遷移中
-    vowelTransitioning: boolean,
-    vowelTransT: number,       -- 遷移開始からの経過秒
-    vowelTransStartFrame: number, -- 遷移開始時点のフレーム(そこから閉じ側へイージングする)
-    -- 閉じきった瞬間の旧→新母音クロスフェード
-    vowelCrossfading: boolean,
-    vowelCrossfadeT: number,   -- クロスフェード開始からの経過秒
-    vowelFadeFrom: number,     -- フェードアウトする母音(旧)
-    vowelFadeTo: number,       -- フェードインする母音(新)
+    -- 母音切り替え時、全開(8)側で止まっていると二重露光が目立つので、
+    -- 切り替え直後だけ少し戻したコマを経由させる(⑳参照)
+    lastVowel: number,   -- 直前フレームの要求母音。これと変わった瞬間が切り替えタイミング
+    vowelDipT: number,   -- 経由コマへの寄せが残っている秒数(0=通常のフレームのまま)
     -- ⑰ タバコ吸うモード
     -- コマ画像は185枚もあるため init() で一括ロードすると起動が遅くなる。
     -- 実際に表示する瞬間だけ context:image() で取得し、一度取得したコマは
@@ -967,14 +961,33 @@ local LIP_OFF        = 0.03   -- これ未満で無音とみなし口を完全�
 local LIP_GAIN       = 1.6    -- 音量→開き具合の増幅率(普通の声量でも大きく開くように)
 local LIP_CURVE      = 0.7    -- 開き具合のカーブ(<1 で小音量域を持ち上げる)
 local LIP_HYSTERESIS = 0.6    -- フレーム切替に必要な最小差(細かい震え・ちらつき防止)
+-- コマ(001〜008)の不透明度は 0/1 へ瞬時にswapせず、この速度でなめらかに寄せる。
+-- 元は瞬時スワップで、フレームが切り替わるたびパチッと目立って見えていた。
+local FRAME_LERP     = 14.0
 
--- 母音が変わるとき(例: あ→い)、2つの口の絵を重ねてフェードするのではなく、
--- 「今の母音を一度閉じる → 閉じきった瞬間に次の母音へ切り替える → 新しい母音で開く」
--- という2枚の絵が同時に見えない遷移にする。二重露光にならず自然に見える。
-local VOWEL_TRANSITION_TIME = 0.07  -- 閉じきるまでの時間(秒)。短いほど機敏、長いほど「間」が目立つ
--- 閉じきった状態で旧→新母音を入れ替える瞬間だけ、短くクロスフェードする。
--- 両方とも閉じ口なので重なっても違和感が出にくい程度の短さにしておく。
-local VOWEL_CROSSFADE_TIME = 0.05
+-- 母音が変わるとき(例: あ→い)、以前は「今の母音を一度閉じる→閉じた状態で
+-- 入れ替える→新しい母音で開く」という手順を踏んでいたが、これだと
+-- あ→ん→い→ん→う のように毎回口を閉じてしまい、実際の発話にはない
+-- 不自然な間ができていた(普通に喋るときは母音間でいちいち閉じない)。
+-- 今は「今の母音を1、それ以外を0」へ向けて全母音フォルダを同時にこの速度で
+-- クロスフェードするだけにしてある(ヤチヨの mouthOp と同じ考え方)。
+-- ただし口はメッシュではなく mouth_a_001〜008 等のラスター画像の差し替えなので、
+-- 形の違う母音同士を「ゆっくり」不透明度クロスフェードすると、頂点補間ではなく
+-- 単純な半透明合成になり2枚の絵が重なってボケて見える(二重露光)。
+-- なので母音の切り替え自体はここを高めにして短時間で終わらせ、二重露光が
+-- 見える時間を潰す(=見た目はほぼ瞬時切り替えだが、閉じ直しは挟まない)。
+-- 「開き具合」の連続性は共有フレーム(FRAME_LERP)側が別に受け持つので、
+-- 不自然な間は起きない。
+local VOWEL_LERP = 40.0
+
+-- 母音の切り替え自体は上のVOWEL_LERPで速く済ませているが、全開(8コマ目)で
+-- ピタッと止まった状態のまま切り替わると二重露光が一番目立つ。実際の発話でも
+-- 母音間は全開のまま繋がるのではなく、一度わずかに戻ってから次の形になる。
+-- そこで切り替わった瞬間だけ、フレームを VOWEL_DIP_FRAME 側へ一瞬寄せてから
+-- (VOWEL_DIP_TIME かけて)音量駆動のフレームへ戻す。全閉(1)までは戻さないので、
+-- 「あ→ん→い」のような不自然な間にはならない。
+local VOWEL_DIP_FRAME = 6.0   -- 切り替え直後に寄せる先のコマ(1〜8)。8より少し戻すだけ
+local VOWEL_DIP_TIME  = 0.09  -- 寄せてから音量駆動のフレームへ戻り切るまでの秒数
 
 -- 母音の自動選択(ヤチヨ WebYachiyo.lua の pickSingVowel と同じ仕組み)。
 -- 音量そのものから母音を「当てる」ことはできないので、音量の大小で口の傾向を変える:
@@ -1459,7 +1472,8 @@ end
 -- ・ヒステリシス(LIP_ON/LIP_OFF)で無音判定 → 無音では 001(完全に閉じ)で静止
 -- ・フレーム切替にも不感帯(LIP_HYSTERESIS) → 境界値でのちらつき防止
 -- ・母音(mouthVowel 1〜5)は外部から切替可能。全母音で同じ処理を共有する
--- ・母音が切り替わる瞬間は updateVowelTransition が間に入り、一度閉じてから切り替える
+-- ・母音が切り替わる瞬間は、母音フォルダ全体を VOWEL_LERP でクロスフェードする
+--   (一度閉じてから開き直す、ということはしない。実際の発話がそうであるように)
 
 -- 現在の音量(0〜1)を返す。singAmplitude(外部/Reactが書き込む)をそのまま使う。
 local function currentRawAmplitude(self: CharacterAnimation): number
@@ -1537,71 +1551,20 @@ local function updateAutoVowel(self: CharacterAnimation, seconds: number)
     end
 end
 
--- 母音の切り替えを管理し、実際に表示すべきフレームを返す。3段階で進む:
--- ①閉じる: 今表示中の母音のまま、frame を 1(閉じ切り)へイージング
--- ②入れ替え: 閉じきった状態で、旧→新母音を短時間だけクロスフェードする
---   (両方とも閉じ口なので、重なって見えてもほとんど気にならない)
--- ③確定: activeVowel を新母音にして通常の音量駆動へ戻る
--- 遷移も入れ替えも起きていなければ、音量ベースの lipFrame をそのまま返す。
-local function updateVowelTransition(self: CharacterAnimation, seconds: number, requestedVowel: number): number
-    if self.vowelCrossfading then
-        self.vowelCrossfadeT += seconds
-        if self.vowelCrossfadeT >= VOWEL_CROSSFADE_TIME then
-            self.activeVowel = self.vowelFadeTo
-            self.vowelCrossfading = false
-        end
-        return 1  -- クロスフェード中は両方とも閉じ口(フレーム1)のまま
-    end
-
-    if not self.vowelTransitioning then
-        if requestedVowel ~= self.activeVowel then
-            -- 母音の変更を検知。今のフレームから閉じ側への遷移を開始する
-            self.vowelTransitioning = true
-            self.vowelTransT = 0
-            self.vowelTransStartFrame = self.lipFrame
-        else
-            return self.lipFrame
-        end
-    end
-
-    self.vowelTransT += seconds
-    local t = math.min(self.vowelTransT / VOWEL_TRANSITION_TIME, 1.0)
-    -- 開始フレームから 1(閉じ切り)へなめらかに近づける
-    local eased = self.vowelTransStartFrame + (1.0 - self.vowelTransStartFrame) * t
-    local displayFrame = math.clamp(math.floor(eased + 0.5), 1, LIP_FRAMES)
-
-    if t >= 1.0 then
-        -- 閉じきった。ここから旧→新母音の短いクロスフェードに入る。
-        -- 遷移中に要求母音がさらに変わっていても、ここで最新の要求を採用する。
-        self.vowelTransitioning = false
-        self.vowelCrossfading = true
-        self.vowelCrossfadeT = 0
-        self.vowelFadeFrom = self.activeVowel
-        self.vowelFadeTo = requestedVowel
-        self.lipFrame = 1
-        displayFrame = 1
-    end
-    return displayFrame
-end
-
--- 母音フォルダの不透明度を反映する。クロスフェード中は旧→新をブレンドし、
--- それ以外のときは表示中の母音(activeVowel)だけを 1 にする。
-local function applyMouthShapes(self: CharacterAnimation)
-    if self.vowelCrossfading then
-        local ft = math.clamp(self.vowelCrossfadeT / VOWEL_CROSSFADE_TIME, 0.0, 1.0)
-        for v = 1, 5 do
-            local prop = self.vmMouthShapes[v]
-            if prop then
-                local o = 0.0
-                if v == self.vowelFadeFrom then o = math.max(o, 1.0 - ft) end
-                if v == self.vowelFadeTo   then o = math.max(o, ft) end
-                prop.value = o
-            end
-        end
-    else
-        for v = 1, 5 do
-            local prop = self.vmMouthShapes[v]
-            if prop then prop.value = if v == self.activeVowel then 1.0 else 0.0 end
+-- 母音フォルダ(mouthShapeA〜O)の不透明度を、要求中の母音=1・それ以外=0へ向けて
+-- VOWEL_LERP でなめらかにクロスフェードする。プロパティの現在値をそのまま状態として
+-- 使う(Property.value が前フレームの値を保持しているので、別途 self に持たなくてよい)。
+-- コマ(001〜008)は mouthF1〜8 として全母音フォルダで共有バインドされているため、
+-- フェード中は新旧どちらの母音でも「同じ開き具合のコマ」が重なって見える
+-- (口を一度閉じてから切り替える、という不自然な間は作らない)。
+-- 無音時(lipSpeaking=false)は母音フォルダを全部0へ戻す(default_mouth側に譲る)。
+local function applyMouthShapes(self: CharacterAnimation, seconds: number, requestedVowel: number)
+    local vl = math.min(VOWEL_LERP * seconds, 1.0)
+    for v = 1, 5 do
+        local prop = self.vmMouthShapes[v]
+        if prop then
+            local target = if self.lipSpeaking and v == requestedVowel then 1.0 else 0.0
+            prop.value = prop.value + (target - prop.value) * vl
         end
     end
 end
@@ -1636,15 +1599,41 @@ local function updateLipSync(self: CharacterAnimation, seconds: number)
     end
     if requestedVowel < 1 or requestedVowel > 5 then requestedVowel = VOWEL_A end
 
-    local displayFrame = updateVowelTransition(self, seconds, requestedVowel)
+    -- 母音が切り替わった瞬間を検知し、コマを一瞬 VOWEL_DIP_FRAME 側へ寄せる
+    -- タイマーを起動する(⑳参照)。
+    if requestedVowel ~= self.lastVowel then
+        self.lastVowel = requestedVowel
+        self.vowelDipT = VOWEL_DIP_TIME
+    elseif self.vowelDipT > 0 then
+        self.vowelDipT = math.max(self.vowelDipT - seconds, 0.0)
+    end
 
-    -- 反映: 母音フォルダ(通常時は単独表示、切り替え瞬間だけクロスフェード)と
-    -- 共有フレーム(001〜008)を書き込む
-    if self.vmMouthDefault then self.vmMouthDefault.value = 0.0 end
-    applyMouthShapes(self)
+    -- 反映: default_mouth(無音時のみ表示)・母音フォルダ(VOWEL_LERPでクロスフェード)・
+    -- 共有フレーム(001〜008、FRAME_LERPでクロスフェード)を書き込む。
+    -- どれも瞬時のON/OFFにしない。
+    local fl = math.min(FRAME_LERP * seconds, 1.0)
+    if self.vmMouthDefault then
+        local target = if self.lipSpeaking then 0.0 else 1.0
+        self.vmMouthDefault.value = self.vmMouthDefault.value + (target - self.vmMouthDefault.value) * fl
+    end
+    applyMouthShapes(self, seconds, requestedVowel)
+
+    -- dip中は音量駆動のフレームと VOWEL_DIP_FRAME の小さい方(=より閉じている方)を使い、
+    -- dipT が0へ減るにつれ音量駆動のフレームへなめらかに戻す。
+    local displayFrame = self.lipFrame
+    if self.vowelDipT > 0 then
+        local dipAmt = self.vowelDipT / VOWEL_DIP_TIME  -- 1(寄せ始め)→0(戻り切り)
+        local capped = math.min(self.lipFrame, VOWEL_DIP_FRAME)
+        displayFrame = capped + (self.lipFrame - capped) * (1.0 - dipAmt)
+    end
+    local displayFrameIdx = math.clamp(math.floor(displayFrame + 0.5), 1, LIP_FRAMES)
+
     for f = 1, LIP_FRAMES do
         local prop = self.vmMouthFrames[f]
-        if prop then prop.value = if f == displayFrame then 1.0 else 0.0 end
+        if prop then
+            local target = if f == displayFrameIdx then 1.0 else 0.0
+            prop.value = prop.value + (target - prop.value) * fl
+        end
     end
 end
 
@@ -2010,16 +1999,10 @@ function init(self: CharacterAnimation, context: Context): boolean
     if self.vmMouthVowel and self.vmMouthVowel.value < 1 then
         self.vmMouthVowel.value = 1  -- 未設定(0)なら a にしておく
     end
-    self.autoVowel            = VOWEL_A
-    self.vowelTimer           = 0
-    self.activeVowel          = if self.vmMouthVowel then math.floor(self.vmMouthVowel.value + 0.5) else VOWEL_A
-    self.vowelTransitioning   = false
-    self.vowelTransT          = 0
-    self.vowelTransStartFrame = 1
-    self.vowelCrossfading     = false
-    self.vowelCrossfadeT      = 0
-    self.vowelFadeFrom        = self.activeVowel
-    self.vowelFadeTo          = self.activeVowel
+    self.autoVowel  = VOWEL_A
+    self.vowelTimer = 0
+    self.lastVowel  = VOWEL_A
+    self.vowelDipT  = 0
 
     -- ⑰ タバコ吸うモード: コマ画像は185枚あるため、ここでは読み込まず
     -- 実際に表示する瞬間に getStickerFrame() が遅延取得する(起動を遅くしないため)。
@@ -2182,10 +2165,7 @@ return function(): Node<CharacterAnimation>
         singSmiling = false, singSmileHold = 0, singSmileTimer = 0,
         lipEnv = 0, lipFrame = 1, lipSpeaking = false, swayGate = 0, singPhase = 0,
         autoVowel = 1, vowelTimer = 0,
-        activeVowel = 1, vowelTransitioning = false,
-        vowelTransT = 0, vowelTransStartFrame = 1,
-        vowelCrossfading = false, vowelCrossfadeT = 0,
-        vowelFadeFrom = 1, vowelFadeTo = 1,
+        lastVowel = 1, vowelDipT = 0,
         hitPath = Path.new(),
         hitPaint = Paint.new(),
         -- ⑰ タバコ吸うモード
