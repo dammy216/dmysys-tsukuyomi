@@ -4,55 +4,68 @@
     "moras": [
       {
         "t": 27.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "ひ"
       },
       {
         "t": 28.262,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 28.723,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "み"
       },
       {
         "t": 29.5,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       },
       {
         "t": 29.646,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "つ"
       },
       {
         "t": 30.108,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "る"
       },
       {
         "t": 30.569,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 31.031,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ず"
       },
       {
         "t": 31.492,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 31.954,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 32.2,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "せ"
       },
       {
         "t": 32.4,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 32.6,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       }
     ]
   },
@@ -60,44 +73,54 @@
     "line": "なにをみてたんだろう",
     "moras": [
       {
-        "t": 33.8,
-        "vowel": 1
+        "t": 33.9,
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 34.35,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "に"
       },
       {
         "t": 34.9,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "を"
       },
       {
-        "t": 35.45,
-        "vowel": 2
+        "t": 35.6,
+        "vowel": 2,
+        "kana": "み"
       },
       {
-        "t": 36.0,
-        "vowel": 4
+        "t": 35.7,
+        "vowel": 4,
+        "kana": "て"
       },
       {
-        "t": 36.55,
-        "vowel": 1
+        "t": 36.8,
+        "vowel": 1,
+        "kana": "た"
       },
       {
-        "t": 37.1,
-        "vowel": 0
+        "t": 36.2,
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 37.65,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "だ"
       },
       {
         "t": 38.2,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "ろ"
       },
       {
         "t": 38.75,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       }
     ]
   },
@@ -106,67 +129,83 @@
     "moras": [
       {
         "t": 39.3,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "や"
       },
       {
         "t": 39.675,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "さ"
       },
       {
         "t": 40.05,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 40.425,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 40.8,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "お"
       },
       {
         "t": 41.175,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       },
       {
         "t": 41.55,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 41.925,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "で"
       },
       {
         "t": 42.3,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ふ"
       },
       {
         "t": 42.675,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "さ"
       },
       {
         "t": 43.05,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 43.425,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "だ"
       },
       {
         "t": 43.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 44.175,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "ぎ"
       },
       {
         "t": 44.55,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       },
       {
         "t": 44.925,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       }
     ]
   },
@@ -175,51 +214,63 @@
     "moras": [
       {
         "t": 45.3,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "さ"
       },
       {
         "t": 45.675,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "わ"
       },
       {
         "t": 46.05,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "れ"
       },
       {
         "t": 46.425,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 46.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 47.175,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "き"
       },
       {
         "t": 47.55,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "み"
       },
       {
         "t": 47.925,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "だ"
       },
       {
         "t": 48.3,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "け"
       },
       {
         "t": 48.675,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 49.05,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 49.425,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "ろ"
       }
     ]
   },
@@ -228,47 +279,58 @@
     "moras": [
       {
         "t": 49.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "わ"
       },
       {
         "t": 50.073,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "が"
       },
       {
         "t": 50.345,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ま"
       },
       {
         "t": 50.618,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ま"
       },
       {
         "t": 50.891,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "に"
       },
       {
         "t": 51.164,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 51.436,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "っ"
       },
       {
         "t": 51.709,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       },
       {
         "t": 51.982,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 52.255,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 52.527,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       }
     ]
   },
@@ -277,47 +339,58 @@
     "moras": [
       {
         "t": 52.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       },
       {
         "t": 53.027,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "そ"
       },
       {
         "t": 53.255,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "び"
       },
       {
         "t": 53.482,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "す"
       },
       {
         "t": 53.709,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "ぎ"
       },
       {
         "t": 53.936,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ちゃ"
       },
       {
         "t": 54.164,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "っ"
       },
       {
         "t": 54.391,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       },
       {
         "t": 54.618,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 54.845,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 55.073,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "よ"
       }
     ]
   },
@@ -326,43 +399,53 @@
     "moras": [
       {
         "t": 55.3,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "ど"
       },
       {
         "t": 55.7,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "こ"
       },
       {
         "t": 56.1,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "に"
       },
       {
         "t": 56.5,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       },
       {
         "t": 56.9,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 57.3,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 57.7,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 58.1,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ら"
       },
       {
         "t": 58.5,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ふ"
       },
       {
         "t": 58.9,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "る"
       }
     ]
   },
@@ -371,35 +454,43 @@
     "moras": [
       {
         "t": 59.3,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "つ"
       },
       {
         "t": 59.675,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 60.05,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ま"
       },
       {
         "t": 60.425,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "え"
       },
       {
         "t": 60.8,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "よ"
       },
       {
         "t": 61.175,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       },
       {
         "t": 61.55,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "さ"
       },
       {
         "t": 61.925,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       }
     ]
   },
@@ -408,79 +499,98 @@
     "moras": [
       {
         "t": 62.3,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "こ"
       },
       {
         "t": 62.589,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 62.879,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 63.168,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "っ"
       },
       {
         "t": 63.458,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "しゅ"
       },
       {
         "t": 63.747,
-        "vowel": 0
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 64.037,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "が"
       },
       {
         "t": 64.326,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "さ"
       },
       {
         "t": 64.616,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 64.905,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "こ"
       },
       {
         "t": 65.195,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       },
       {
         "t": 65.484,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 65.774,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ぱ"
       },
       {
         "t": 66.063,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ー"
       },
       {
         "t": 66.353,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "てぃ"
       },
       {
         "t": 66.642,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "ー"
       },
       {
         "t": 66.932,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 67.221,
-        "vowel": 0
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 67.511,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "だ"
       }
     ]
   },
@@ -489,55 +599,68 @@
     "moras": [
       {
         "t": 67.8,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "ぜ"
       },
       {
         "t": 68.031,
-        "vowel": 0
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 68.262,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ぶ"
       },
       {
         "t": 68.492,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ぎゅ"
       },
       {
         "t": 68.723,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "っ"
       },
       {
         "t": 68.954,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 69.185,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "お"
       },
       {
         "t": 69.415,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "ぼ"
       },
       {
         "t": 69.646,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "え"
       },
       {
         "t": 69.877,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       },
       {
         "t": 70.108,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "よ"
       },
       {
         "t": 70.338,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       },
       {
         "t": 70.569,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "よ"
       }
     ]
   },
@@ -546,27 +669,33 @@
     "moras": [
       {
         "t": 70.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ま"
       },
       {
         "t": 71.133,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ぶ"
       },
       {
         "t": 71.467,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 71.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 72.133,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "ひ"
       },
       {
         "t": 72.467,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "を"
       }
     ]
   },
@@ -575,39 +704,48 @@
     "moras": [
       {
         "t": 72.8,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "ね"
       },
       {
         "t": 73.133,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "え"
       },
       {
         "t": 73.467,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       },
       {
         "t": 73.8,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "っ"
       },
       {
         "t": 74.133,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 74.467,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ふ"
       },
       {
         "t": 74.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ざ"
       },
       {
         "t": 75.133,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "け"
       },
       {
         "t": 75.467,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       }
     ]
   },
@@ -616,35 +754,43 @@
     "moras": [
       {
         "t": 75.8,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ゆ"
       },
       {
         "t": 76.175,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "め"
       },
       {
         "t": 76.55,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "だ"
       },
       {
         "t": 76.925,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "け"
       },
       {
         "t": 77.3,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "しぇ"
       },
       {
         "t": 77.675,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       },
       {
         "t": 78.05,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 78.425,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       }
     ]
   },
@@ -653,79 +799,98 @@
     "moras": [
       {
         "t": 78.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       },
       {
         "t": 79.037,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "り"
       },
       {
         "t": 79.274,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ふ"
       },
       {
         "t": 79.511,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "れ"
       },
       {
         "t": 79.747,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       },
       {
         "t": 79.984,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "る"
       },
       {
         "t": 80.221,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "す"
       },
       {
         "t": 80.458,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "き"
       },
       {
         "t": 80.695,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 80.932,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       },
       {
         "t": 81.168,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 81.405,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "に"
       },
       {
         "t": 81.642,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "ず"
       },
       {
         "t": 81.879,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "っ"
       },
       {
         "t": 82.116,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 82.353,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ま"
       },
       {
         "t": 82.589,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "み"
       },
       {
         "t": 82.826,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "れ"
       },
       {
         "t": 83.063,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       }
     ]
   },
@@ -734,71 +899,88 @@
     "moras": [
       {
         "t": 83.3,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "き"
       },
       {
         "t": 83.712,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "み"
       },
       {
         "t": 84.124,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 84.535,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 84.947,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "た"
       },
       {
         "t": 85.359,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       },
       {
         "t": 85.771,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 86.182,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "へ"
       },
       {
         "t": 86.594,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "や"
       },
       {
         "t": 87.006,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       },
       {
         "t": 87.418,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "で"
       },
       {
         "t": 87.829,
-        "vowel": 0
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 88.241,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 88.653,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 89.065,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       },
       {
         "t": 89.476,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "み"
       },
       {
         "t": 89.888,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       }
     ]
   },
@@ -807,83 +989,103 @@
     "moras": [
       {
         "t": 90.3,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "む"
       },
       {
         "t": 90.6,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "ね"
       },
       {
         "t": 90.9,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 91.2,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 91.5,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 91.8,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "つ"
       },
       {
         "t": 92.1,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "め"
       },
       {
         "t": 92.4,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "こ"
       },
       {
         "t": 92.7,
-        "vowel": 0
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 93.0,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "で"
       },
       {
         "t": 93.3,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "た"
       },
       {
         "t": 93.6,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "か"
       },
       {
         "t": 93.9,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ら"
       },
       {
         "t": 94.2,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ば"
       },
       {
         "t": 94.5,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "こ"
       },
       {
         "t": 94.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "に"
       },
       {
         "t": 95.1,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 95.4,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ま"
       },
       {
         "t": 95.7,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "お"
       },
       {
         "t": 96.0,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       }
     ]
   },
@@ -892,39 +1094,48 @@
     "moras": [
       {
         "t": 96.3,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "ね"
       },
       {
         "t": 96.522,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "え"
       },
       {
         "t": 96.744,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "も"
       },
       {
         "t": 96.967,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "っ"
       },
       {
         "t": 97.189,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 97.411,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "は"
       },
       {
         "t": 97.633,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "しゃ"
       },
       {
         "t": 97.856,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 98.078,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "で"
       }
     ]
   },
@@ -933,43 +1144,53 @@
     "moras": [
       {
         "t": 98.3,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "あ"
       },
       {
         "t": 98.6,
-        "vowel": 0
+        "vowel": 0,
+        "kana": "ん"
       },
       {
         "t": 98.9,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "こ"
       },
       {
         "t": 99.2,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "ー"
       },
       {
         "t": 99.5,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "る"
       },
       {
         "t": 99.8,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "な"
       },
       {
         "t": 100.1,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 100.4,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "の"
       },
       {
         "t": 100.7,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "っ"
       },
       {
         "t": 101.0,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       }
     ]
   },
@@ -978,27 +1199,33 @@
     "moras": [
       {
         "t": 101.3,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "お"
       },
       {
         "t": 101.8,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "ね"
       },
       {
         "t": 102.3,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "だ"
       },
       {
         "t": 102.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "り"
       },
       {
         "t": 103.3,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "し"
       },
       {
         "t": 103.8,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       }
     ]
   },
@@ -1007,19 +1234,23 @@
     "moras": [
       {
         "t": 104.3,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "と"
       },
       {
         "t": 104.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "び"
       },
       {
         "t": 105.3,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "き"
       },
       {
         "t": 105.8,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "り"
       }
     ]
   },
@@ -1028,39 +1259,48 @@
     "moras": [
       {
         "t": 106.3,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "き"
       },
       {
         "t": 106.744,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "ら"
       },
       {
         "t": 107.189,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "め"
       },
       {
         "t": 107.633,
-        "vowel": 2
+        "vowel": 2,
+        "kana": "い"
       },
       {
         "t": 108.078,
-        "vowel": 4
+        "vowel": 4,
+        "kana": "て"
       },
       {
         "t": 108.522,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       },
       {
         "t": 108.967,
-        "vowel": 1
+        "vowel": 1,
+        "kana": "た"
       },
       {
         "t": 109.411,
-        "vowel": 5
+        "vowel": 5,
+        "kana": "お"
       },
       {
         "t": 109.3,
-        "vowel": 3
+        "vowel": 3,
+        "kana": "う"
       }
     ]
   }
