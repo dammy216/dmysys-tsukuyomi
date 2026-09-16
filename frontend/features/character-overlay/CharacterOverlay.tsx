@@ -17,7 +17,12 @@ import {
 import { Color } from "three";
 import { YachiyoCharacter } from "@/features/yachiyo";
 import { KaguyaCharacter } from "@/features/kaguya";
-import { sampleCastleProjection } from "@/features/reply";
+import {
+  sampleCastleProjection,
+  sampleReplyTimeline,
+  createReplyTimelineSample,
+  useReplyTimelineStore,
+} from "@/features/reply";
 import { useSceneStore } from "@/features/root/store";
 
 /*
@@ -405,14 +410,26 @@ export function CharacterOverlay({
     それ以外(星降る海の伴走・パネルのボタン単独)は音を鳴らさないので
     SING_MODE_FLOOR 固定。口は閉じたまま、webKaguya.lua の自走オシレーター
     (swayGate)による弾み・首かしげ・歌唱中の自動スマイルだけが入る。
+
+    歌唱終了後(useReplySong の REPLY_SINGING_END_SECONDS=109.3秒)は実音量が
+    常に0になるため、上の底上げが定数のまま残り、fadeセクションで映像が
+    暗転していっても揺れだけ止まらずに残ってしまう(ユーザー指摘)。
+    そこで底上げ側だけ REPLY_TIMELINE の fade トラック(実測の音量フェード
+    カーブ。replyTimelineData.ts参照。1→0で125.3秒に無音)を掛けて、
+    フェードアウトにつれて揺れも一緒に収まるようにする。
+    歌唱中は実音量がこの小さな底上げ値を上回るので見た目に影響しない。
   */
+  const timelineScratchRef = useRef(createReplyTimelineSample());
   const kaguyaAmplitude = useCallback(() => {
     if (replyActive && getReplyAmplitude) {
-      return Math.max(SING_MODE_FLOOR, getReplyAmplitude());
+      const t = replyVideoRef?.current?.currentTime ?? 0;
+      const tracks = useReplyTimelineStore.getState().tracks;
+      sampleReplyTimeline(tracks, t, timelineScratchRef.current);
+      return Math.max(SING_MODE_FLOOR * timelineScratchRef.current.fade, getReplyAmplitude());
     }
     if (kaguyaSinging) return SING_MODE_FLOOR;
     return 0;
-  }, [replyActive, getReplyAmplitude, kaguyaSinging]);
+  }, [replyActive, getReplyAmplitude, kaguyaSinging, replyVideoRef]);
 
   /*
     実際に発声している(replyActive)ときだけ歌詞の母音を使う。それ以外は
